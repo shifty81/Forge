@@ -44,7 +44,14 @@ from PCCVaultCatalog import (
 )
 from PCCRepoHygiene import prepare as repo_hygiene_prepare
 from ForgeHealth import evaluate_project
-from VaultIntake import scan_intake as vault_scan_intake, scan_roots as vault_scan_roots
+from VaultIntake import (
+    scan_intake as vault_scan_intake,
+    scan_roots as vault_scan_roots,
+    scan_downloads as vault_scan_downloads,
+    available_for_project as vault_available_for_project,
+    approve_available_for_project as vault_approve_available_for_project,
+    counts_for_project as vault_update_counts_for_project,
+)
 from VaultPaths import configured_scan_roots, data_root as vault_data_root, downloads_roots, intake_roots, projects_root as vault_projects_root, artifact_central_root, ensure_artifact_project_tree
 from VaultPatchEngine import restart_marker_path
 from ForgeVersion import VERSION as FORGE_VERSION
@@ -123,12 +130,16 @@ class ForgeGui:
         self._project_health_cache: dict[str, Any] = {}
         self._project_health_generation = 0
         self._active_health_scan_running = False
+        self._status_refresh_running = False
+        self._last_console_scroll = 0.0
         self._busy = False
         self._vault_busy = False
         self._vault_cancel = False
         self._vault_node_paths: dict[str, Path] = {}
         self._vault_metrics: dict[str, Any] = {}
         self._intake_stop = threading.Event()
+        self._seen_available_download_ids: set[str] = set()
+        self._download_approval_busy = False
         self._drive_scan_busy = False
         self._project_migration_busy = False
         self._forgejo_status: dict[str, Any] = {}
@@ -277,7 +288,7 @@ class ForgeGui:
         self._button(toolbar, "Open Folder", self._open_selected_project_folder, compact=True).pack(side="left", padx=6)
         self._button(toolbar, "Open GitHub", self._open_selected_github, compact=True).pack(side="left", padx=6)
         self._button(toolbar, "Remove", self._remove_selected_project, compact=True, danger=True).pack(side="left", padx=6)
-        self._button(toolbar, "Rescan", self._refresh_projects, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Rescan", lambda: self._refresh_projects(full_rescan=True, refresh_health=True), compact=True).pack(side="left", padx=6)
 
         panel = self._panel(shell)
         panel.pack(fill="both", expand=True)
@@ -1243,16 +1254,26 @@ class ForgeGui:
             return
 
         def work() -> None:
-            while not self._intake_stop.wait(3.0):
-                try:
-                    result = vault_scan_intake(extra_roots=self._trusted_intake_roots(), force_stable=False, remove_source=True)
-                except Exception as exc:
-                    self._event_q.put(("forge-intake-background-error", str(exc)))
-                    continue
-                if result.get("ingested") or result.get("artifacts") or result.get("errors"):
-                    self._event_q.put(("forge-intake-background", result))
+            try:
+                poll_seconds = max(3.0, float(((load_settings().get("intake") or {}).get("pollSeconds", 8)) or 8))
+            except Exception:
+                poll_seconds = 8.0
+            # Scan immediately on startup, then wait.  Older releases waited one full
+            # interval before even observing Downloads, which made completed packages
+            # look invisible to the user.
+            while not self._intake_stop.is_set():
+                if not self._busy:
+                    try:
+                        result = vault_scan_intake(extra_roots=self._trusted_intake_roots(), force_stable=False, remove_source=True)
+                    except Exception as exc:
+                        self._event_q.put(("forge-intake-background-error", str(exc)))
+                    else:
+                        if result.get("ingested") or result.get("artifacts") or result.get("reviews") or result.get("errors"):
+                            self._event_q.put(("forge-intake-background", result))
+                if self._intake_stop.wait(poll_seconds):
+                    break
 
-        threading.Thread(target=work, daemon=True, name="VaultIntakeWatcher").start()
+        threading.Thread(target=work, daemon=True, name="ForgeIntakeWatcher").start()
         self._append_log("[PASS] Vault intake watcher active: " + ", ".join(str(p) for p in self._intake_scan_roots()) + "\n", "pass")
 
     def _vault_scan_intake(self) -> None:
@@ -1476,7 +1497,7 @@ class ForgeGui:
         self._refresh_forgejo_status_async()
 
     def _forgejo_create_repo(self) -> None:
-        name = self.simpledialog.askstring("Create Forgejo Repository", "Repository name:", parent=self.window)
+        name = self._ask_text("Create Forgejo Repository", "Repository name:")
         if not name or not name.strip():
             return
         self._start_builtin_forgejo("create-repo", ["--name", name.strip()])
@@ -1637,6 +1658,11 @@ class ForgeGui:
         dialog.configure(bg=BG)
         dialog.overrideredirect(True)
         dialog.transient(host)
+        try:
+            dialog.attributes("-toolwindow", True)
+            dialog.attributes("-topmost", True)
+        except Exception:
+            pass
         dialog.resizable(False, False)
 
         accent = RED if kind == "error" else (YELLOW if kind == "warning" else (GREEN if kind == "success" else CYAN))
@@ -1671,8 +1697,45 @@ class ForgeGui:
         dialog.lift()
         dialog.grab_set()
         dialog.focus_force()
+        try:
+            dialog.after(180, lambda d=dialog: d.winfo_exists() and d.attributes("-topmost", False))
+        except Exception:
+            pass
         host.wait_window(dialog)
         return bool(result[0])
+
+
+    def _ask_text(self, title: str, prompt: str, *, initial: str = "") -> str | None:
+        """Forge-owned text prompt that remains owned by the main application."""
+        tk = self.tk
+        dialog = tk.Toplevel(self.window)
+        dialog.withdraw(); dialog.configure(bg=BG); dialog.overrideredirect(True); dialog.transient(self.window)
+        try:
+            dialog.attributes("-toolwindow", True); dialog.attributes("-topmost", True)
+        except Exception:
+            pass
+        outer = tk.Frame(dialog, bg=CYAN, padx=1, pady=1); outer.pack(fill="both", expand=True)
+        shell = tk.Frame(outer, bg=PANEL); shell.pack(fill="both", expand=True)
+        tk.Label(shell, text=title, bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 12), anchor="w").pack(fill="x", padx=18, pady=(16, 7))
+        tk.Label(shell, text=prompt, bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", anchor="w", wraplength=530).pack(fill="x", padx=18, pady=(0, 10))
+        value = tk.StringVar(value=initial)
+        entry = tk.Entry(shell, textvariable=value, bg="#07090b", fg=TEXT, insertbackground=TEXT, relief="flat", bd=0, font=("Consolas", 10))
+        entry.pack(fill="x", padx=18, ipady=8)
+        result: list[str | None] = [None]
+        def close(ok: bool) -> None:
+            result[0] = value.get().strip() if ok and value.get().strip() else None
+            try: dialog.grab_release()
+            except Exception: pass
+            dialog.destroy()
+        actions = tk.Frame(shell, bg=PANEL); actions.pack(fill="x", padx=18, pady=16)
+        self._button(actions, "Cancel", lambda: close(False), compact=True).pack(side="right", padx=(8,0))
+        self._button(actions, "Continue", lambda: close(True), primary=True, compact=True).pack(side="right")
+        dialog.bind("<Escape>", lambda _e: close(False)); dialog.bind("<Return>", lambda _e: close(True)); dialog.protocol("WM_DELETE_WINDOW", lambda: close(False))
+        self._center_modal(dialog, 590, 220); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); entry.focus_force()
+        try: dialog.after(180, lambda d=dialog: d.winfo_exists() and d.attributes("-topmost", False))
+        except Exception: pass
+        self.window.wait_window(dialog)
+        return result[0]
 
 
     def _section_title(self, parent: Any, title: str, subtitle: str = "") -> None:
@@ -1855,8 +1918,9 @@ class ForgeGui:
         self._command_category_list(parent, "Queue", (
             ("Inspect Queue", "Show deliberately queued project updates and validation state.", lambda: self._start_command("patch-status"), True),
             ("Apply Validated Queue", "Stage and apply only deliberately queued updates using the project or Vault transaction engine.", self._apply_updates, False),
-            ("Scan Intake", "Catalog Downloads without execution and validate deliberate active-root drops.", self._vault_scan_intake, False),
-            ("Available Downloads", "Open downloaded patches that Vault cataloged but will never auto-apply. Approve by deliberately dropping the chosen patch into this project's root.", lambda: open_path(patch_root() / "available"), False),
+            ("Check Downloads", "Scan Downloads now. Matching packages are cataloged safely and remain non-executable until you approve one.", self._check_downloads_now, False),
+            ("Approve Download…", "Choose a verified compatible download and explicitly promote it into this project's update queue.", self._approve_available_download, True),
+            ("Available Downloads", "Open this project's cataloged download packages in Artifact Central. They cannot execute until explicitly approved.", lambda: open_path(patch_root() / "available"), False),
             ("Refresh Health", "Refresh update, Git and provider health after intake changes.", self._refresh_status_async, False),
         ))
         self._command_category_list(parent, "Evidence / Recovery", (
@@ -2197,23 +2261,25 @@ class ForgeGui:
     # ------------------------------------------------------------------
     # Registry
     # ------------------------------------------------------------------
-    def _refresh_projects(self) -> None:
+    def _refresh_projects(self, *, full_rescan: bool = False, refresh_health: bool = False) -> None:
         if not hasattr(self, "projects_tree"):
             return
         self._project_entries_by_id.clear()
         for iid in self.projects_tree.get_children():
             self.projects_tree.delete(iid)
         try:
-            # Registration is a live binding, not a one-time label snapshot. Re-scan every
-            # existing root so newly standardized project.control.json/root-tool changes are
-            # adopted automatically without removing/re-adding the project.
+            # Ordinary GUI refreshes are deliberately cheap. Re-discovering every registered
+            # project's tooling/contract on every project switch caused UI stalls and spawned
+            # unnecessary background probes. Only the explicit Rescan action performs a full
+            # registry rebind.
             previous = self.registry.entries()
-            for registered in previous:
-                if registered.root.is_dir():
-                    try:
-                        self.registry.register(registered.root, make_active=False)
-                    except Exception:
-                        pass
+            if full_rescan:
+                for registered in previous:
+                    if registered.root.is_dir():
+                        try:
+                            self.registry.register(registered.root, make_active=False)
+                        except Exception:
+                            pass
             entries = self.registry.entries()
         except Exception as exc:
             self._popup("Project Registry", str(exc), kind="error")
@@ -2250,7 +2316,8 @@ class ForgeGui:
                 values=(entry.name, entry.kind, str(entry.root), health_text, adapter_text, catalog_text, last),
                 tags=(tag,),
             )
-        self._refresh_project_health_async(entries)
+        if refresh_health:
+            self._refresh_project_health_async(entries)
         current_id = ProjectRegistry._registry_id(self.root_path)
         if current_id in self._project_entries_by_id:
             self.projects_tree.selection_set(current_id)
@@ -2274,7 +2341,7 @@ class ForgeGui:
                     health = ProjectHealth("FAIL", (str(exc),), {}, "")
                 self._event_q.put(("project-health", (generation, entry.registry_id, health)))
 
-        threading.Thread(target=work, daemon=True, name="VaultProjectHealth").start()
+        threading.Thread(target=work, daemon=True, name="ForgeProjectHealth").start()
 
     def _selected_project(self) -> RegisteredProject | None:
         sel = self.projects_tree.selection()
@@ -2335,10 +2402,9 @@ class ForgeGui:
         )
 
     def _clone_project_from_github(self) -> None:
-        repo = self.simpledialog.askstring(
+        repo = self._ask_text(
             "Clone GitHub Project",
             "GitHub repository URL or owner/repository:\n\nThe project will be cloned into the configured Projects Root.",
-            parent=self.window,
         )
         if not repo or not repo.strip():
             return
@@ -2467,16 +2533,28 @@ class ForgeGui:
             widget.insert("end", text[cursor:])
 
     def _append_log(self, text: str, tag: str = "") -> None:
-        # `tag` is retained for call-site compatibility, but intentionally does not
-        # color the entire line. Semantic token coloring is authoritative.
+        # Tk Text redraw/scroll operations are expensive during compiler output. Update
+        # the visible console immediately, skip hidden duplicate views, and throttle
+        # auto-scroll to keep the main event loop responsive.
+        now = time.monotonic()
+        should_scroll = now - self._last_console_scroll >= 0.075
         for widget_name in ("console_text", "log_text"):
             widget = getattr(self, widget_name, None)
             if widget is None:
                 continue
+            if widget_name == "log_text":
+                try:
+                    if not widget.winfo_ismapped():
+                        continue
+                except Exception:
+                    pass
             widget.configure(state="normal")
             self._insert_semantic_log(widget, text)
-            widget.see("end")
+            if should_scroll:
+                widget.see("end")
             widget.configure(state="disabled")
+        if should_scroll:
+            self._last_console_scroll = now
 
     def _clear_log(self) -> None:
         for widget_name in ("console_text", "log_text"):
@@ -2526,11 +2604,12 @@ class ForgeGui:
         self._refresh_status_async()
 
     def _refresh_status_async(self) -> None:
-        if self._busy:
+        if self._busy or self._status_refresh_running:
             return
         if self.backend is None:
             self._render_adapter_unavailable()
             return
+        self._status_refresh_running = True
         self.refresh_btn.configure(state="disabled")
         self.footer.configure(text="[Status:Refreshing]", fg=CYAN)
 
@@ -2716,8 +2795,14 @@ class ForgeGui:
                 )
                 self._active_proc = proc
                 assert proc.stdout is not None
+                batch: list[str] = []
+                batch_bytes = 0
                 for line in proc.stdout:
-                    self._event_q.put(("log", line))
+                    batch.append(line); batch_bytes += len(line)
+                    if len(batch) >= 32 or batch_bytes >= 8192:
+                        self._event_q.put(("log", "".join(batch))); batch.clear(); batch_bytes = 0
+                if batch:
+                    self._event_q.put(("log", "".join(batch)))
                 rc = proc.wait()
                 self._event_q.put(("done", (label, rc)))
             except Exception as exc:
@@ -2763,14 +2848,14 @@ class ForgeGui:
         existing = [x for x in (state.get("remotes") or []) if str(x.get("kind") or "") == kind and str(x.get("direction") or "") == "fetch"]
         default_name = str(existing[0].get("name")) if existing else ("github" if kind == "github" else "forgejo")
         default_url = str(existing[0].get("url")) if existing else ""
-        remote_name = self.simpledialog.askstring(
-            f"Configure {kind.title()} Remote", "Git remote name:", initialvalue=default_name, parent=self.window,
+        remote_name = self._ask_text(
+            f"Configure {kind.title()} Remote", "Git remote name:", initial=default_name,
         )
         if not remote_name or not remote_name.strip():
             return
-        url = self.simpledialog.askstring(
+        url = self._ask_text(
             f"Configure {kind.title()} Remote",
-            "Remote URL (SSH or HTTPS):", initialvalue=default_url, parent=self.window,
+            "Remote URL (SSH or HTTPS):", initial=default_url,
         )
         if not url or not url.strip():
             return
@@ -2816,8 +2901,14 @@ class ForgeGui:
                 proc = backend.popen(command, extra)
                 self._active_proc = proc
                 assert proc.stdout is not None
+                batch: list[str] = []
+                batch_bytes = 0
                 for line in proc.stdout:
-                    self._event_q.put(("log", line))
+                    batch.append(line); batch_bytes += len(line)
+                    if len(batch) >= 32 or batch_bytes >= 8192:
+                        self._event_q.put(("log", "".join(batch))); batch.clear(); batch_bytes = 0
+                if batch:
+                    self._event_q.put(("log", "".join(batch)))
                 rc = proc.wait()
                 self._event_q.put(("done", (command, rc)))
             except Exception as exc:
@@ -2834,9 +2925,12 @@ class ForgeGui:
             self._append_log("Cancellation requested by operator.\n", "warn")
 
     def _drain_events(self) -> None:
+        started = time.monotonic()
+        processed = 0
         try:
-            while True:
+            while processed < 160 and (time.monotonic() - started) < 0.014:
                 kind, payload = self._event_q.get_nowait()
+                processed += 1
                 if kind == "log":
                     line = str(payload)
                     up = line.upper()
@@ -2920,6 +3014,14 @@ class ForgeGui:
                     root, health = payload
                     if Path(root).resolve() == self.root_path.resolve():
                         self._render_health_gauge(health)
+                        current_id = ProjectRegistry._registry_id(self.root_path)
+                        self._project_health_cache[current_id] = health
+                        if hasattr(self, "projects_tree") and self.projects_tree.exists(current_id):
+                            values = list(self.projects_tree.item(current_id, "values"))
+                            if len(values) >= 4:
+                                values[3] = health.level
+                                tag = "missing" if health.level == "FAIL" else ("warn" if health.level == "WARN" else "ready")
+                                self.projects_tree.item(current_id, values=values, tags=(tag,))
                 elif kind == "active-health-idle":
                     self._active_health_scan_running = False
                 elif kind == "active-health-error":
@@ -2948,6 +3050,22 @@ class ForgeGui:
                         self._append_log(f"[PASS] Vault root-drop queued {item.get('patch_id')} for {item.get('target_project')}\n", "pass")
                     if available:
                         self._append_log(f"[INFO] Vault Downloads cataloged {len(available)} available patch(es); none were queued for application.\n", "info")
+                        compatible = []
+                        try:
+                            compatible = vault_available_for_project(self.root_path, compatible_only=True)
+                        except Exception:
+                            compatible = []
+                        new_items = [item for item in compatible if str(item.get("intake_id") or "") not in self._seen_available_download_ids]
+                        for item in new_items:
+                            self._seen_available_download_ids.add(str(item.get("intake_id") or ""))
+                        if new_items:
+                            names = ", ".join(str(item.get("patch_id") or item.get("source_name") or "update") for item in new_items[:3])
+                            self._append_log(f"[READY] {len(new_items)} compatible downloaded update(s) available for {self.contract.name}: {names}. Use Updates > Approve Download….\n", "pass")
+                            if self._tray is not None and bool((load_settings().get("ui") or {}).get("showTrayNotifications", True)):
+                                try:
+                                    self._tray.notify("Forge update available", f"{self.contract.name}: {len(new_items)} compatible downloaded update(s) ready for approval.")
+                                except Exception:
+                                    pass
                     if reviews or review_items:
                         self._append_log(f"[INFO] Vault intake moved {len(reviews) + len(review_items)} non-executable/rejected transport(s) to Artifact Central review.\n", "info")
                     for item in artifacts:
@@ -2985,6 +3103,41 @@ class ForgeGui:
                 elif kind == "forge-intake-error":
                     self._append_log(f"[FAIL] Vault intake failed: {payload}\n", "fail")
                     self._popup("Vault Intake", str(payload), kind="error")
+                elif kind == "downloads-check-done":
+                    self._download_approval_busy = False
+                    result = payload or {}
+                    available = [item for item in (result.get("ingested") or []) if str(item.get("state") or "").upper() == "AVAILABLE"]
+                    waiting = [item for item in (result.get("skipped") or []) if "stabil" in str(item.get("reason") or "").casefold()]
+                    compatible = []
+                    try:
+                        compatible = vault_available_for_project(self.root_path, compatible_only=True)
+                    except Exception:
+                        compatible = []
+                    self._append_log(f"[INFO] Downloads check complete: {len(available)} newly cataloged, {len(compatible)} compatible available for {self.contract.name}, {len(waiting)} still stabilizing.\n", "info")
+                    if compatible:
+                        self._popup("Downloaded Update Available", f"{len(compatible)} compatible downloaded update(s) are ready for {self.contract.name}.\n\nUse Approve Download… or Apply Updates to authorize one.", kind="success")
+                    elif waiting:
+                        self._popup("Downloads Still Stabilizing", "Forge sees a candidate file that is still changing or too new. Wait a few seconds and use Check Downloads again. It will not be executed while incomplete.", kind="info")
+                    else:
+                        self._popup("Downloads Checked", f"No compatible downloaded update is currently available for {self.contract.name}.", kind="info")
+                    self._refresh_status_async()
+                elif kind == "downloads-check-error":
+                    self._download_approval_busy = False
+                    self._append_log(f"[WARN] Downloads check failed: {payload}\n", "warn")
+                    self._popup("Downloads Check Failed", str(payload), kind="error")
+                elif kind == "download-approved":
+                    self._download_approval_busy = False
+                    approved, apply_after = payload
+                    self._append_log(f"[PASS] Approved downloaded patch {approved.get('patch_id')} for {self.contract.name}; approval receipt: {approved.get('approvalReceipt')}\n", "pass")
+                    self._refresh_status_async()
+                    if apply_after:
+                        self._start_command("patch-apply", ["--yes"], label="apply-updates")
+                    else:
+                        self._popup("Update Queued", f"{approved.get('patch_id')} is now explicitly queued for {self.contract.name}.\n\nUse Apply Validated Queue when ready.", kind="success")
+                elif kind == "download-approval-error":
+                    self._download_approval_busy = False
+                    self._append_log(f"[FAIL] Download approval failed: {payload}\n", "fail")
+                    self._popup("Download Approval Failed", str(payload), kind="error")
                 elif kind == "onboard-error":
                     root, detail = payload
                     self._append_log(f"[WARN] Project onboarding catalog incomplete: {root}: {detail}\n", "warn")
@@ -3170,14 +3323,16 @@ class ForgeGui:
                 elif kind == "forgejo-status-error":
                     self.forgejo_status_label.configure(text=f"Forgejo status unavailable: {payload}", fg=RED)
                 elif kind == "status":
+                    self._status_refresh_running = False
                     self._render_status(payload)
                 elif kind == "status-error":
+                    self._status_refresh_running = False
                     self.refresh_btn.configure(state="normal")
                     self.footer.configure(text="[Status:Unavailable]", fg=RED)
                     self._append_log(f"Status refresh failed: {payload}\n", "fail")
         except queue.Empty:
             pass
-        self.window.after(60, self._drain_events)
+        self.window.after(12 if not self._event_q.empty() else 60, self._drain_events)
 
     # ------------------------------------------------------------------
     # Windows tray / background services / active health
@@ -3265,7 +3420,12 @@ class ForgeGui:
             return
         root = self.root_path
         contract = self.contract
-        if not self._active_health_scan_running:
+        visible = True
+        try:
+            visible = self.window.state() not in {"withdrawn", "iconic"}
+        except Exception:
+            pass
+        if visible and not self._busy and not self._active_health_scan_running:
             self._active_health_scan_running = True
 
             def work() -> None:
@@ -3279,9 +3439,9 @@ class ForgeGui:
 
             threading.Thread(target=work, daemon=True, name="ForgeActiveHealth").start()
         try:
-            seconds = max(5, int(float((load_settings().get("ui") or {}).get("healthRefreshSeconds", 10) or 10)))
+            seconds = max(10, int(float((load_settings().get("ui") or {}).get("healthRefreshSeconds", 30) or 30)))
         except Exception:
-            seconds = 10
+            seconds = 30
         self.window.after(seconds * 1000, self._schedule_health_refresh)
 
     def _offer_restart_if_updated(self) -> None:
@@ -3306,21 +3466,26 @@ class ForgeGui:
         try:
             marker.unlink(missing_ok=True)
             app_root = Path(__file__).resolve().parents[1]
-            launcher = app_root / "Forge.vbs"
-            if os.name == "nt" and launcher.is_file():
-                os.startfile(str(launcher))  # type: ignore[attr-defined]
-            else:
-                subprocess.Popen(
-                    [sys.executable, str(app_root / "app" / "ForgeStandalone.py"), "--root", str(self.root_path)],
-                    cwd=str(app_root),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+            python_gui = Path(sys.executable)
+            if os.name == "nt" and python_gui.name.casefold() == "python.exe":
+                candidate = python_gui.with_name("pythonw.exe")
+                if candidate.is_file():
+                    python_gui = candidate
+            flags = 0
+            if os.name == "nt":
+                flags = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+                if python_gui.name.casefold() != "pythonw.exe":
+                    flags |= int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            subprocess.Popen(
+                [str(python_gui), str(app_root / "app" / "ForgeStandalone.py"), "--root", str(self.root_path)],
+                cwd=str(app_root), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=flags, close_fds=True,
+            )
             self._intake_stop.set()
             self.window.after(120, self.window.destroy)
         except Exception as exc:
             self._append_log(f"[WARN] Forge update is applied but automatic restart failed: {exc}\n", "warn")
-            self._popup("Forge Restart", f"The update is applied, but automatic restart failed.\n\n{exc}\n\nClose and reopen Vault manually.", kind="warning")
+            self._popup("Forge Restart", f"The update is applied, but automatic restart failed.\n\n{exc}\n\nClose and reopen Forge manually.", kind="warning")
 
     def _latest_applied_patch_identity(self) -> tuple[str, str] | None:
         """Return the newest successfully applied patch identity for commit-message carry-forward."""
@@ -3385,6 +3550,11 @@ class ForgeGui:
         dialog.configure(bg=BG)
         dialog.overrideredirect(True)
         dialog.transient(self.window)
+        try:
+            dialog.attributes("-toolwindow", True)
+            dialog.attributes("-topmost", True)
+        except Exception:
+            pass
         dialog.resizable(False, False)
 
         outer = tk.Frame(dialog, bg=CYAN, padx=1, pady=1)
@@ -3516,6 +3686,107 @@ class ForgeGui:
         self.window.wait_window(dialog)
         return result[0]
 
+    def _check_downloads_now(self) -> None:
+        """Run a user-requested Downloads scan without turning Downloads into execution authority."""
+        if self._download_approval_busy:
+            return
+        self._download_approval_busy = True
+        self._append_log("[INFO] Checking Downloads for stable Forge patch transports…\n", "info")
+
+        def work() -> None:
+            try:
+                result = vault_scan_downloads(force_stable=False, remove_source=True)
+                self._event_q.put(("downloads-check-done", result))
+            except Exception as exc:
+                self._event_q.put(("downloads-check-error", str(exc)))
+
+        threading.Thread(target=work, daemon=True, name="ForgeDownloadsCheck").start()
+
+    def _choose_available_download(self, items: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+        items = list(items)
+        if not items:
+            return None
+        if len(items) == 1:
+            return items[0]
+        tk = self.tk
+        dialog = tk.Toplevel(self.window)
+        dialog.withdraw(); dialog.configure(bg=BG); dialog.overrideredirect(True); dialog.transient(self.window)
+        try:
+            dialog.attributes("-toolwindow", True); dialog.attributes("-topmost", True)
+        except Exception:
+            pass
+        result: list[dict[str, Any] | None] = [None]
+        outer = tk.Frame(dialog, bg=CYAN, padx=1, pady=1); outer.pack(fill="both", expand=True)
+        shell = tk.Frame(outer, bg=PANEL); shell.pack(fill="both", expand=True)
+        tk.Label(shell, text="Approve Downloaded Update", bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 13), anchor="w").pack(fill="x", padx=18, pady=(16, 4))
+        tk.Label(shell, text="Choose one compatible package. Nothing from Downloads executes until you approve it here.", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w").pack(fill="x", padx=18, pady=(0, 10))
+        box = tk.Listbox(shell, bg=BG, fg=TEXT, selectbackground="#21404a", selectforeground=TEXT, bd=0, highlightthickness=1, highlightbackground=BORDER, font=("Consolas", 9), activestyle="none")
+        box.pack(fill="both", expand=True, padx=18, pady=(0, 10))
+        for item in items:
+            created = str(item.get("package_created_utc") or (item.get("manifest") or {}).get("createdUtc") or "unknown date")
+            box.insert("end", f"{item.get('patch_id') or item.get('source_name')}  |  {created}  |  {item.get('verification_class') or ''}")
+        box.selection_set(0); box.activate(0)
+        def close(value: dict[str, Any] | None) -> None:
+            result[0] = value
+            try: dialog.grab_release()
+            except Exception: pass
+            dialog.destroy()
+        def accept() -> None:
+            selected = box.curselection()
+            if selected:
+                close(items[int(selected[0])])
+        actions = tk.Frame(shell, bg=PANEL); actions.pack(fill="x", padx=16, pady=(0, 16))
+        self._button(actions, "Cancel", lambda: close(None), compact=True).pack(side="right", padx=(8, 0))
+        self._button(actions, "Select", accept, primary=True, compact=True).pack(side="right")
+        box.bind("<Double-Button-1>", lambda _e: accept())
+        dialog.bind("<Escape>", lambda _e: close(None)); dialog.bind("<Return>", lambda _e: accept())
+        dialog.protocol("WM_DELETE_WINDOW", lambda: close(None))
+        self._center_modal(dialog, 760, 390); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); box.focus_force()
+        try: dialog.after(180, lambda d=dialog: d.winfo_exists() and d.attributes("-topmost", False))
+        except Exception: pass
+        self.window.wait_window(dialog)
+        return result[0]
+
+    def _approve_available_download(self, *, apply_after: bool = False) -> None:
+        if self._download_approval_busy:
+            return
+        try:
+            items = vault_available_for_project(self.root_path, compatible_only=True)
+        except Exception as exc:
+            self._popup("Downloaded Updates", f"Could not inspect cataloged downloads:\n{exc}", kind="error")
+            return
+        if not items:
+            self._popup(
+                "Downloaded Updates",
+                "No compatible cataloged download is currently available for this project.\n\nUse Check Downloads after the browser/download has finished, or place an incoming.patch file in this project root.",
+                kind="info",
+            )
+            return
+        chosen = self._choose_available_download(items)
+        if chosen is None:
+            return
+        verification = chosen.get("buildVerification") or {}
+        identity = verification.get("identity") or {}
+        created = str(chosen.get("package_created_utc") or (chosen.get("manifest") or {}).get("createdUtc") or "unknown")
+        message = (
+            f"Patch: {chosen.get('patch_id') or chosen.get('source_name')}\n"
+            f"Project: {chosen.get('target_project')}\n"
+            f"Created: {created}\n"
+            f"Current build: {identity.get('projectBuild') or '<not declared>'}\n\n"
+            "Approve this cataloged Downloads package for the active project? Forge will re-check its hash and build/source binding before queueing it."
+        )
+        if not self._popup("Approve Downloaded Update", message, kind="warning", confirm=True):
+            return
+        self._download_approval_busy = True
+        intake_id = str(chosen.get("intake_id") or "")
+        def work() -> None:
+            try:
+                approved = vault_approve_available_for_project(self.root_path, intake_id)
+                self._event_q.put(("download-approved", (approved, bool(apply_after))))
+            except Exception as exc:
+                self._event_q.put(("download-approval-error", str(exc)))
+        threading.Thread(target=work, daemon=True, name="ForgeDownloadApproval").start()
+
     def _commit_green(self) -> None:
         message = self._ask_commit_message(push=False)
         if message:
@@ -3532,7 +3803,22 @@ class ForgeGui:
             self._start_command("commit-push-green", ["--message", message], label="commit-push-green")
 
     def _apply_updates(self) -> None:
-        if self._popup("Apply Validated Updates", "Apply the currently validated Vault update queue? Invalid updates remain fail-closed.", kind="warning", confirm=True):
+        pending, _invalid = vault_update_counts_for_project(self.contract.project_id, self.contract.name, self.root_path.name)
+        if pending <= 0:
+            try:
+                available = vault_available_for_project(self.root_path, compatible_only=True)
+            except Exception:
+                available = []
+            if available:
+                self._approve_available_download(apply_after=True)
+                return
+            self._popup(
+                "Apply Validated Updates",
+                "No update is currently queued for this project. Forge did not apply anything.\n\nUse Check Downloads to catalog a completed package, Approve Download… to authorize a cataloged package, or place one reserved incoming.patch file in the project root.",
+                kind="info",
+            )
+            return
+        if self._popup("Apply Validated Updates", "Apply the currently validated Forge update queue? Invalid updates remain fail-closed.", kind="warning", confirm=True):
             self._start_command("patch-apply", ["--yes"], label="apply-updates")
 
     def _open_latest_debug(self) -> None:

@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-SETTINGS_VERSION = "FORGE-SETTINGS-0.4.2"
+SETTINGS_VERSION = "FORGE-SETTINGS-0.4.8"
 APP_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -89,7 +89,7 @@ def defaults() -> dict[str, Any]:
             "showTrayNotifications": True,
             "leftRailCollapsed": False,
             "healthRailCollapsed": False,
-            "healthRefreshSeconds": 8,
+            "healthRefreshSeconds": 30,
         },
         "services": {
             "intakeWatcher": True,
@@ -99,9 +99,11 @@ def defaults() -> dict[str, Any]:
         },
         "intake": {
             "enabled": True,
+            "pollSeconds": 8,
             "watchDownloads": True,
             "watchProjectRoot": True,
             "stabilitySeconds": 2.0,
+            "coldStableSeconds": 10.0,
             "packageClockToleranceHours": 48,
             "futureClockToleranceMinutes": 10,
             "requirePackageDate": False,

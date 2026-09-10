@@ -8,7 +8,7 @@ from typing import Any
 from PCCAutoAdapter import status_payload
 from PCCSurfaceCommon import BackendClient, ProjectContract, SurfaceError
 
-FORGE_HEALTH_VERSION = "FORGE-HEALTH-0.4.6"
+FORGE_HEALTH_VERSION = "FORGE-HEALTH-0.4.7"
 VAULT_HEALTH_VERSION = FORGE_HEALTH_VERSION
 
 

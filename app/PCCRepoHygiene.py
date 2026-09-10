@@ -149,7 +149,7 @@ def _zip_patch_id(path: Path) -> str:
 
 
 def _is_patch_transport(path: Path) -> bool:
-    if path.suffix.casefold() != ".zip":
+    if path.suffix.casefold() not in {".zip", ".patch"}:
         return False
     low = path.name.casefold()
     if NON_PATCH_RE.search(low):
@@ -204,8 +204,8 @@ def classify_root(root: Path) -> dict[str, Any]:
         if not path.is_file():
             continue
         low = path.name.casefold()
-        if path.suffix.casefold() == ".zip":
-            if MANUAL_OVERWRITE_RE.search(path.name):
+        if path.suffix.casefold() in {".zip", ".patch"}:
+            if path.suffix.casefold() == ".zip" and MANUAL_OVERWRITE_RE.search(path.name):
                 manual.append(path.name)
                 continue
             if _is_patch_transport(path):

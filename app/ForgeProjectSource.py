@@ -10,7 +10,7 @@ from typing import Any, Sequence
 
 from VaultSettings import load_settings
 
-FORGE_PROJECT_SOURCE_VERSION = "FORGE-PROJECT-SOURCE-0.4.6"
+FORGE_PROJECT_SOURCE_VERSION = "FORGE-PROJECT-SOURCE-0.4.7"
 
 
 def _startupinfo() -> subprocess.STARTUPINFO | None:

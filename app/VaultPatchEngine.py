@@ -16,7 +16,7 @@ from typing import Any
 
 from VaultPaths import vault_root
 
-PATCH_ENGINE_VERSION = "VAULT-PATCH-0.2"
+PATCH_ENGINE_VERSION = "FORGE-PATCH-0.3"
 SUPPORTED_SCHEMAS = {
     "vault.patch.v1",
     "forge.patch.v1",
@@ -302,7 +302,8 @@ def apply_inbox(root: Path) -> dict[str, Any]:
         return {"applied": 0, "skipped": 0, "items": []}
     applied: list[dict[str, Any]] = []
     skipped = 0
-    for path in sorted(inbox.glob("*.zip")):
+    transports = sorted({*inbox.glob("*.zip"), *inbox.glob("*.patch")}, key=lambda item: item.name.casefold())
+    for path in transports:
         if not can_apply_transport(path):
             skipped += 1
             continue

@@ -12,7 +12,7 @@ from typing import Any, Sequence
 from ForgeProjectSource import declared_project_github, normalize_github_repo
 from VaultSettings import load_settings
 
-FORGE_SOURCE_VERSION = "FORGE-SOURCE-0.4.6"
+FORGE_SOURCE_VERSION = "FORGE-SOURCE-0.4.7"
 
 
 def _git_exe() -> str:

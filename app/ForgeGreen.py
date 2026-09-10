@@ -6,13 +6,75 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from VaultPaths import ensure_artifact_project_tree
 
-FORGE_GREEN_VERSION = "FORGE-GREEN-0.4.6"
+FORGE_GREEN_VERSION = "FORGE-GREEN-0.4.7"
+
+_GREEN_CACHE_LOCK = threading.Lock()
+_GREEN_CACHE: dict[str, tuple[tuple[object, ...], str, int]] = {}
+
+def _quiet_startupinfo() -> subprocess.STARTUPINFO | None:
+    if os.name != "nt":
+        return None
+    info = subprocess.STARTUPINFO()
+    info.dwFlags |= int(getattr(subprocess, "STARTF_USESHOWWINDOW", 1))
+    info.wShowWindow = int(getattr(subprocess, "SW_HIDE", 0))
+    return info
+
+def _quiet_flags() -> int:
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
+
+def _git_probe(root: Path, *args: str, timeout: float = 20.0, binary: bool = False) -> subprocess.CompletedProcess:
+    git = shutil.which("git") or "git"
+    return subprocess.run(
+        [git, "-C", str(root), *args], cwd=str(root),
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=not binary, encoding=None if binary else "utf-8", errors=None if binary else "replace",
+        timeout=timeout, check=False, creationflags=_quiet_flags(), startupinfo=_quiet_startupinfo(),
+    )
+
+def _green_cache_token(root: Path, marker: Path) -> tuple[object, ...]:
+    """Cheap-but-content-sensitive invalidation token for governed-source hashing.
+
+    Git status itself is much cheaper than re-hashing an entire repository.  For dirty or
+    untracked paths we also include each reported path's mtime/size, so edits invalidate the
+    cached fingerprint even when the porcelain status text (for example ``?? source.py``)
+    does not change.
+    """
+    try:
+        marker_mtime = marker.stat().st_mtime_ns
+    except OSError:
+        marker_mtime = 0
+    if (root / ".git").exists() and shutil.which("git"):
+        status = _git_probe(root, "status", "--porcelain=v1", "--untracked-files=all", "-z", timeout=30, binary=True)
+        head = _git_probe(root, "rev-parse", "HEAD", timeout=15)
+        raw = status.stdout if isinstance(status.stdout, (bytes, bytearray)) else b""
+        path_stats: list[tuple[bytes, int, int]] = []
+        for record in bytes(raw).split(b"\0"):
+            if not record:
+                continue
+            candidate = record[3:] if len(record) >= 4 and record[2:3] == b" " else record
+            if not candidate:
+                continue
+            try:
+                rel = candidate.decode("utf-8", errors="surrogateescape")
+                st = (root / rel).stat()
+                path_stats.append((candidate, int(st.st_mtime_ns), int(st.st_size)))
+            except OSError:
+                path_stats.append((candidate, 0, 0))
+        return (
+            marker_mtime,
+            status.returncode, bytes(raw), tuple(path_stats),
+            head.returncode, head.stdout if isinstance(head.stdout, str) else b"",
+        )
+    # Non-Git projects do not have a cheap reliable invalidation token.  Avoid caching
+    # their source fingerprint rather than risk reporting stale GREEN state.
+    return (marker_mtime, object())
 
 
 def _project_id(root: Path) -> str:
@@ -41,11 +103,7 @@ def _git_file_list(root: Path) -> list[Path] | None:
     if not git or not (root / ".git").exists():
         return None
     try:
-        cp = subprocess.run(
-            [git, "-C", str(root), "ls-files", "-co", "--exclude-standard", "-z"],
-            cwd=str(root), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            timeout=60, check=False,
-        )
+        cp = _git_probe(root, "ls-files", "-co", "--exclude-standard", "-z", timeout=60, binary=True)
     except Exception:
         return None
     if cp.returncode != 0:
@@ -104,12 +162,7 @@ def _git_text(root: Path, *args: str) -> str:
     if not git or not (root / ".git").exists():
         return ""
     try:
-        cp = subprocess.run(
-            [git, "-C", str(root), *args], cwd=str(root),
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, encoding="utf-8", errors="replace", timeout=15, check=False,
-            creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0,
-        )
+        cp = _git_probe(root, *args, timeout=15)
         return cp.stdout.strip() if cp.returncode == 0 else ""
     except Exception:
         return ""
@@ -135,6 +188,12 @@ def certify_green(root: Path, *, gate: str = "full") -> dict[str, Any]:
     temp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     os.replace(temp, path)
     payload["path"] = str(path)
+    try:
+        token = _green_cache_token(root, path)
+        with _GREEN_CACHE_LOCK:
+            _GREEN_CACHE[os.path.normcase(str(root))] = (token, fingerprint, count)
+    except Exception:
+        pass
     return payload
 
 
@@ -160,5 +219,14 @@ def green_status(root: Path) -> tuple[bool, bool, str, dict[str, Any] | None]:
     expected = str(data.get("sourceFingerprint") or "").strip().lower()
     if not marker or not expected:
         return marker, False, str(path), data
-    current, _ = governed_source_fingerprint(root)
+    key = os.path.normcase(str(root))
+    token = _green_cache_token(root, path)
+    with _GREEN_CACHE_LOCK:
+        cached = _GREEN_CACHE.get(key)
+    if cached is not None and cached[0] == token:
+        current, _count = cached[1], cached[2]
+    else:
+        current, _count = governed_source_fingerprint(root)
+        with _GREEN_CACHE_LOCK:
+            _GREEN_CACHE[key] = (token, current, _count)
     return marker, current.lower() == expected, str(path), data

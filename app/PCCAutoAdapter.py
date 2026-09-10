@@ -17,7 +17,7 @@ from PCCRepoHygiene import prepare as repo_hygiene_prepare
 from ForgeSourceControl import status as vault_source_status, push_current as forge_push_current
 from ForgeGreen import green_status as forge_green_status
 
-AUTO_ADAPTER_VERSION = "FORGE-AUTO-ADAPTER-0.4.6"
+AUTO_ADAPTER_VERSION = "FORGE-AUTO-ADAPTER-0.4.7"
 
 
 ALIASES: dict[str, tuple[str, ...]] = {

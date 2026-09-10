@@ -23,8 +23,10 @@ from VaultBuildIdentity import verify_manifest_preconditions
 from VaultPaths import downloads_roots, intake_roots, vault_root, ensure_artifact_project_tree
 from VaultArtifacts import archive_file as archive_artifact_file, auto_archive_candidate, classify_artifact, identify_project
 
-VAULT_INTAKE_VERSION = "FORGE-INTAKE-0.4.6"
+VAULT_INTAKE_VERSION = "FORGE-INTAKE-0.4.8"
 TEMP_SUFFIXES = {".crdownload", ".part", ".download", ".tmp"}
+PATCH_SUFFIXES = {".zip", ".patch"}
+INCOMING_PATCH_NAME = "incoming.patch"
 NON_PATCH_RE = re.compile(r"(?:debugbundle|debug[-_ ]?bundle|handoff|source[-_ ]?(?:rollup|bundle)|rollup|backup|support[-_ ]?bundle|archive)", re.I)
 PATCH_NAME_RE = re.compile(r"(?:root[-_ ]?patch|rootpatch|incremental[-_ ]?patch|patch[-_ ]?update|[_-]patch[_-]|^patch[_-])", re.I)
 PATCH_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
@@ -106,7 +108,9 @@ def _connect() -> sqlite3.Connection:
             received_utc TEXT NOT NULL,
             vault_path TEXT NOT NULL,
             manifest_json TEXT NOT NULL,
-            error TEXT NOT NULL
+            error TEXT NOT NULL,
+            approved_utc TEXT NOT NULL DEFAULT '',
+            approved_root TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_intake_state ON intake_items(state);
         CREATE INDEX IF NOT EXISTS idx_intake_project ON intake_items(target_project, state);
@@ -121,6 +125,14 @@ def _connect() -> sqlite3.Connection:
         );
         """
     )
+    # Older Forge/Vault catalogs predate explicit approval evidence.  Migrate them
+    # in place without invalidating existing intake history.
+    columns = {str(row[1]) for row in db.execute("PRAGMA table_info(intake_items)").fetchall()}
+    if "approved_utc" not in columns:
+        db.execute("ALTER TABLE intake_items ADD COLUMN approved_utc TEXT NOT NULL DEFAULT ''")
+    if "approved_root" not in columns:
+        db.execute("ALTER TABLE intake_items ADD COLUMN approved_root TEXT NOT NULL DEFAULT ''")
+    db.commit()
     return db
 
 
@@ -155,8 +167,8 @@ def _safe_zip_entries(zf: zipfile.ZipFile) -> list[str]:
 
 
 def inspect_patch(path: Path) -> dict[str, Any]:
-    if path.suffix.casefold() != ".zip":
-        raise IntakeError("not a ZIP transport")
+    if path.suffix.casefold() not in PATCH_SUFFIXES:
+        raise IntakeError("not a ZIP-compatible patch transport")
     zip_min_utc = ""
     zip_max_utc = ""
     with zipfile.ZipFile(path, "r") as zf:
@@ -203,7 +215,7 @@ def inspect_patch(path: Path) -> dict[str, Any]:
     if project == "unassigned" and isinstance(target, dict):
         project = str(target.get("project") or target.get("projectId") or target.get("id") or "unassigned").strip()
     schema = str(manifest.get("schema") or "").strip()
-    modern = schema.casefold().startswith("vault.patch.v2")
+    modern = schema.casefold().startswith("vault.patch.v2") or schema.casefold().startswith("forge.patch.v1")
     security = load_settings().get("security", {}) or {}
     strict_modern = bool(security.get("strictModernPatches", True))
     if modern and strict_modern and not PATCH_ID_RE.fullmatch(patch_id):
@@ -268,7 +280,7 @@ def inspect_patch(path: Path) -> dict[str, Any]:
 
 
 def looks_like_patch(path: Path) -> bool:
-    if not path.is_file() or path.suffix.casefold() != ".zip":
+    if not path.is_file() or path.suffix.casefold() not in PATCH_SUFFIXES:
         return False
     if NON_PATCH_RE.search(path.name):
         return False
@@ -302,16 +314,30 @@ def _observe(path: Path) -> int:
         db.close()
 
 
-def _already_ingested(digest: str) -> bool:
+def _existing_ingested(digest: str) -> dict[str, Any] | None:
     db = _connect()
     try:
         row = db.execute(
-            "SELECT 1 FROM intake_items WHERE sha256=? AND state IN ('AVAILABLE','QUEUED','STAGED','APPLIED','CERTIFIED','REVIEW') LIMIT 1",
+            "SELECT intake_id,source_name,original_path,sha256,bytes,classification,state,target_project,patch_id,received_utc,vault_path,manifest_json,error,approved_utc,approved_root "
+            "FROM intake_items WHERE sha256=? AND state IN ('AVAILABLE','QUEUED','STAGED','APPLIED','CERTIFIED','REVIEW') "
+            "ORDER BY received_utc DESC LIMIT 1",
             (digest,),
         ).fetchone()
-        return bool(row)
+        if not row:
+            return None
+        keys = ["intake_id","source_name","original_path","sha256","bytes","classification","state","target_project","patch_id","received_utc","vault_path","manifest_json","error","approved_utc","approved_root"]
+        item = dict(zip(keys, row))
+        try:
+            item["manifest"] = json.loads(item.pop("manifest_json"))
+        except Exception:
+            item["manifest"] = {}; item.pop("manifest_json", None)
+        return item
     finally:
         db.close()
+
+
+def _already_ingested(digest: str) -> bool:
+    return _existing_ingested(digest) is not None
 
 
 def _same_rejection(path: Path) -> str | None:
@@ -383,13 +409,14 @@ def _persist_item(item: dict[str, Any]) -> None:
             """
             INSERT INTO intake_items(
                 intake_id,source_name,original_path,sha256,bytes,classification,state,
-                target_project,patch_id,received_utc,vault_path,manifest_json,error
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                target_project,patch_id,received_utc,vault_path,manifest_json,error,approved_utc,approved_root
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 item["intake_id"], item["source_name"], item["original_path"], item["sha256"], item["bytes"],
                 item["classification"], item["state"], item["target_project"], item["patch_id"], item["received_utc"],
                 item["vault_path"], json.dumps(item.get("manifest") or {}, separators=(",", ":"), sort_keys=True), item.get("error") or "",
+                item.get("approved_utc") or "", item.get("approved_root") or "",
             ),
         )
         db.commit()
@@ -401,7 +428,18 @@ def ingest_patch(source: Path, *, remove_source: bool = True, trusted_root: bool
     source = source.expanduser().resolve()
     details = inspect_patch(source)
     digest = sha256_file(source)
-    if _already_ingested(digest):
+    existing = _existing_ingested(digest)
+    if existing is not None:
+        # A package may have been cataloged from Downloads before the user deliberately
+        # drops the same bytes into the active project root.  Treat that trusted root
+        # drop as explicit approval instead of rejecting the duplicate hash.
+        if trusted_root and str(existing.get("state") or "").upper() == "AVAILABLE":
+            approved = approve_available_for_project(source.parent, str(existing.get("intake_id") or ""))
+            if remove_source:
+                source.unlink(missing_ok=True)
+            approved["classification"] = "PATCH-APPROVED-ROOT-DROP"
+            approved["source_name"] = source.name
+            return approved
         raise IntakeError("byte-identical patch is already queued/applied/reviewed")
 
     intake_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:10]}"
@@ -575,6 +613,7 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
     intake_settings = load_settings().get("intake") or {}
     archive_nonpatch = bool(intake_settings.get("archiveNonPatchArtifacts", True))
     stable_seconds = float(intake_settings.get("stabilitySeconds", DEFAULT_STABLE_SECONDS) or DEFAULT_STABLE_SECONDS)
+    cold_stable_seconds = max(stable_seconds, float(intake_settings.get("coldStableSeconds", 10.0) or 10.0))
     trusted_keys: set[str] = set()
     for value in trusted_roots:
         try: trusted_keys.add(os.path.normcase(str(value.expanduser().resolve())))
@@ -602,7 +641,11 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
 
             is_trusted_root = os.path.normcase(str(resolved_root)) in trusted_keys
             is_patch_transport = looks_like_patch(path)
-            is_named_patch = path.suffix.casefold() == ".zip" and bool(PATCH_NAME_RE.search(path.name)) and not bool(NON_PATCH_RE.search(path.name))
+            suffix = path.suffix.casefold()
+            is_named_patch = suffix in PATCH_SUFFIXES and (
+                path.name.casefold() == INCOMING_PATCH_NAME
+                or (bool(PATCH_NAME_RE.search(path.name)) and not bool(NON_PATCH_RE.search(path.name)))
+            )
             if not is_patch_transport and not is_named_patch:
                 # A trusted project/application root is source authority, not an artifact
                 # inbox.  Never relocate manifests, reports, builds, or other normal project
@@ -619,7 +662,7 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
                 try:
                     age = max(0.0, time.time() - path.stat().st_mtime)
                     stable_count = _observe(path)
-                    if not force_stable and (age < stable_seconds or stable_count < 2):
+                    if not force_stable and (age < stable_seconds or (stable_count < 2 and age < cold_stable_seconds)):
                         skipped.append({"path": str(path), "reason": "waiting for artifact to stabilize"})
                         continue
                     category = classify_artifact(path)
@@ -649,7 +692,7 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
             try:
                 age = max(0.0, time.time() - path.stat().st_mtime)
                 stable_count = _observe(path)
-                if not force_stable and (age < stable_seconds or stable_count < 2):
+                if not force_stable and (age < stable_seconds or (stable_count < 2 and age < cold_stable_seconds)):
                     skipped.append({"path": str(path), "reason": "waiting for patch transport to stabilize"})
                     continue
                 item = ingest_patch(path, remove_source=remove_source, trusted_root=os.path.normcase(str(resolved_root)) in trusted_keys)
@@ -708,7 +751,7 @@ def scan_intake(*, extra_roots: Sequence[Path] = (), force_stable: bool = False,
 def list_items(*, state: str | None = None, project: str | None = None) -> list[dict[str, Any]]:
     db = _connect()
     try:
-        sql = "SELECT intake_id,source_name,original_path,sha256,bytes,classification,state,target_project,patch_id,received_utc,vault_path,manifest_json,error FROM intake_items"
+        sql = "SELECT intake_id,source_name,original_path,sha256,bytes,classification,state,target_project,patch_id,received_utc,vault_path,manifest_json,error,approved_utc,approved_root FROM intake_items"
         where: list[str] = []
         args: list[Any] = []
         if state:
@@ -719,7 +762,7 @@ def list_items(*, state: str | None = None, project: str | None = None) -> list[
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY received_utc DESC"
         rows = db.execute(sql, args).fetchall()
-        keys = ["intake_id","source_name","original_path","sha256","bytes","classification","state","target_project","patch_id","received_utc","vault_path","manifest_json","error"]
+        keys = ["intake_id","source_name","original_path","sha256","bytes","classification","state","target_project","patch_id","received_utc","vault_path","manifest_json","error","approved_utc","approved_root"]
         out: list[dict[str, Any]] = []
         for row in rows:
             item = dict(zip(keys, row))
@@ -750,19 +793,108 @@ def _origin_is_global_download(path_value: str) -> bool:
     return False
 
 
+def available_for_project(root: Path, *, compatible_only: bool = True) -> list[dict[str, Any]]:
+    """Return catalog-only Downloads patches that target the selected project.
+
+    AVAILABLE never means executable.  When compatible_only is true the patch must
+    also pass the live project/build/source precondition check.
+    """
+    root = root.expanduser().resolve()
+    aliases = _project_aliases(root)
+    matches: list[dict[str, Any]] = []
+    for item in list_items(state="AVAILABLE"):
+        if str(item.get("target_project") or "").casefold() not in aliases:
+            continue
+        manifest = item.get("manifest") if isinstance(item.get("manifest"), dict) else {}
+        verification = verify_manifest_preconditions(manifest, root)
+        enriched = dict(item)
+        enriched["buildVerification"] = verification
+        if compatible_only and verification.get("status") != "PASS":
+            continue
+        matches.append(enriched)
+    return matches
+
+
+def approve_available_for_project(root: Path, intake_id: str) -> dict[str, Any]:
+    """Explicitly promote one cataloged download into the executable queue.
+
+    This is intentionally separate from Downloads scanning.  A user/UI approval is
+    required, is recorded durably, and the target build is re-verified immediately.
+    """
+    root = root.expanduser().resolve()
+    selected = next((item for item in list_items(state="AVAILABLE") if str(item.get("intake_id")) == str(intake_id)), None)
+    if selected is None:
+        raise IntakeError("selected downloaded patch is no longer AVAILABLE")
+    aliases = _project_aliases(root)
+    if str(selected.get("target_project") or "").casefold() not in aliases:
+        raise IntakeError("downloaded patch does not target the active project")
+    source = Path(str(selected.get("vault_path") or ""))
+    if not source.is_file():
+        raise IntakeError(f"cataloged downloaded patch is missing: {source}")
+    expected = str(selected.get("sha256") or "")
+    if not expected or sha256_file(source) != expected:
+        raise IntakeError("cataloged downloaded patch hash mismatch")
+    manifest = selected.get("manifest") if isinstance(selected.get("manifest"), dict) else {}
+    verification = verify_manifest_preconditions(manifest, root)
+    if verification.get("status") != "PASS":
+        detail = "; ".join(
+            f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
+            for x in verification.get("mismatches", [])
+        )
+        raise IntakeError("downloaded patch does not match active project/build identity: " + detail)
+    approved_utc = utc_now()
+    db = _connect()
+    try:
+        db.execute(
+            "UPDATE intake_items SET state='QUEUED',approved_utc=?,approved_root=?,error='' WHERE intake_id=? AND state='AVAILABLE'",
+            (approved_utc, str(root), str(intake_id)),
+        )
+        if db.total_changes != 1:
+            raise IntakeError("downloaded patch approval raced with another intake action")
+        db.commit()
+    finally:
+        db.close()
+    approved = next(item for item in list_items() if str(item.get("intake_id")) == str(intake_id))
+    safe_project = re.sub(r"[^A-Za-z0-9._-]+", "-", str(approved.get("target_project") or "unassigned")).strip("-") or "unassigned"
+    receipt_dir = ensure_artifact_project_tree(safe_project)["patches"] / "receipts"
+    receipt_dir.mkdir(parents=True, exist_ok=True)
+    receipt = receipt_dir / f"approval-{intake_id}.json"
+    payload = {
+        "schema": "forge.patch.approval.v1",
+        "intakeId": str(intake_id),
+        "patchId": approved.get("patch_id"),
+        "project": approved.get("target_project"),
+        "approvedUtc": approved_utc,
+        "approvedRoot": str(root),
+        "sha256": expected,
+        "buildVerification": verification,
+        "source": str(source),
+    }
+    temp = receipt.with_suffix(receipt.suffix + ".tmp")
+    temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temp, receipt)
+    approved["approvalReceipt"] = str(receipt)
+    approved["buildVerification"] = verification
+    return approved
+
+
 def counts_for_project(*names: str) -> tuple[int, int]:
     wanted = {name.strip().casefold() for name in names if name and name.strip()}
     db = _connect()
     try:
-        rows = db.execute("SELECT target_project,state,error,original_path FROM intake_items WHERE state IN ('QUEUED','STAGED','REJECTED','FAILED')").fetchall()
+        rows = db.execute("SELECT target_project,state,error,original_path,approved_utc FROM intake_items WHERE state IN ('QUEUED','STAGED','REJECTED','FAILED')").fetchall()
     finally:
         db.close()
     pending = invalid = 0
-    for project, state, error, original_path in rows:
+    for project, state, error, original_path, approved_utc in rows:
         project_key = str(project or "").casefold()
         # Downloads is catalog-only. Legacy rows created before F60R1 must never show up
         # as executable pending work, even if an older scanner assigned a project name.
-        if str(state).upper() in {"QUEUED", "STAGED"} and _origin_is_global_download(str(original_path or "")):
+        if (
+            str(state).upper() in {"QUEUED", "STAGED"}
+            and _origin_is_global_download(str(original_path or ""))
+            and not str(approved_utc or "").strip()
+        ):
             continue
         # A global/unassigned legacy queue entry is not an update for every project.
         # Only an explicit target alias may contribute to this project's pending/invalid counts.
@@ -815,6 +947,10 @@ def stage_for_project(root: Path) -> dict[str, Any]:
             continue
         if not _origin_is_global_download(str(item.get("original_path") or "")):
             continue
+        if str(item.get("approved_utc") or "").strip():
+            # Explicit user approval turns a catalog-only download into a legitimate
+            # queue item.  The approval receipt is the trust boundary.
+            continue
         if str(item.get("state") or "").upper() == "STAGED":
             staged_copy = root / "updates" / "inbox" / str(item.get("source_name") or "")
             try:
@@ -847,7 +983,14 @@ def stage_for_project(root: Path) -> dict[str, Any]:
         if sha256_file(source) != expected:
             _set_item_state(str(item["intake_id"]), "FAILED", error="queued Vault transport hash mismatch")
             raise IntakeError(f"queued Vault transport hash mismatch: {source}")
-        dest = inbox / source.name
+        # Preserve the logical intake name rather than an Artifact Central collision
+        # suffix.  This keeps the normalized single-file project front door stable.
+        logical_name = str(item.get("source_name") or source.name)
+        # `incoming.patch` is the normalized user-facing root transport.  Internally
+        # stage it as a ZIP-compatible filename so established project-native PCC
+        # patch authorities that enumerate `*.zip` can consume it unchanged.
+        staged_name = "incoming.zip" if logical_name.casefold() == INCOMING_PATCH_NAME else logical_name
+        dest = inbox / staged_name
         if dest.exists():
             if sha256_file(dest) != expected:
                 raise IntakeError(f"project inbox already contains conflicting transport: {dest.name}")

@@ -1,3 +1,28 @@
+## 0.4.8-F60R8 — Downloads approval / incoming.patch
+
+- Downloads remains catalog-only but now surfaces compatible update notifications and an explicit **Approve Download…** workflow.
+- **Apply Updates** can offer a compatible cataloged Downloads package for explicit approval instead of silently doing nothing when the queue is empty.
+- Added **Check Downloads** for an immediate user-requested scan.
+- Intake watcher now scans immediately at startup rather than waiting one complete polling interval.
+- Added durable download approval evidence (`approved_utc`, `approved_root`) and approval receipts.
+- Approved Downloads packages can be staged/applied; unapproved Downloads-origin queues remain fail-closed and are demoted to AVAILABLE.
+- Added normalized single-file root transport `incoming.patch` while preserving legacy `.zip` compatibility.
+- A manual trusted-root drop of bytes already cataloged from Downloads is treated as explicit approval instead of being rejected as a duplicate.
+- `forge.patch.v1` is now a strict modern patch schema alongside the existing Vault v2 compatibility schema.
+
+
+## 0.4.7-F60R7 — GUI responsiveness / Windows process containment
+
+- eliminates the remaining periodic Windows console flash path from GREEN fingerprint Git probes
+- caches governed-source GREEN fingerprints behind a cheap Git work-tree token instead of re-hashing the project every health interval
+- increases background health cadence to 30 seconds and pauses health/intake work while foreground jobs run
+- makes ordinary project switching use cached registry metadata; full project re-discovery/health is now explicit Rescan work
+- prevents overlapping status refresh threads
+- time-budgets the Tk event drain and throttles console autoscroll during large compiler logs
+- stops updating hidden duplicate log views on every output line
+- relaunches Forge directly through Python/pythonw after updates instead of opening Forge.vbs, avoiding Windows Open File Security Warning on restart
+- hardens Forge-owned dialogs as transient owned tool windows and replaces simpledialog prompts with Forge-owned modal text prompts
+- extends no-window subprocess policy to GREEN/source identity and repository hygiene probes
 # Forge 0.4.6-F60R6
 
 - Fixed first-repository bootstrap after a GREEN gate when `.git` exists but `HEAD` is unborn.

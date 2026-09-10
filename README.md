@@ -1,8 +1,16 @@
-# Forge — Universal Project Control Center
+# Forge
+
+Current certified development build: **0.4.8-F60R8**. — Universal Project Control Center
 
 **Product authority:** Forge is the standalone universal Project Control Center and Cortex operations brain. **Vault is a first-class Forge workspace/tab** for catalog, Artifact Central, patch intake, baselines, recovery and storage intelligence. Legacy `Vault.*` launchers/modules remain compatibility aliases during migration.
 
 Forge is project-neutral. A registered project keeps its own project-local PCC, command registry and build scripts as the highest authority. Forge discovers and invokes those capabilities, then uses universal build-marker adapters only when a stronger project-owned operation does not exist.
+
+## Update intake
+
+Downloads is a catalog/review surface, not execution authority. Forge detects compatible downloaded patch packages, archives them under the project's Artifact Central area, and exposes **Updates > Approve Download…** for explicit approval. `Apply Updates` can offer a compatible downloaded package when no update is already queued.
+
+For a deliberate root-drop workflow, use the normalized single reserved transport name **`incoming.patch`**. It is a ZIP-compatible Forge patch container with a top-level `PATCH_MANIFEST.json`; Forge verifies its hash, package date, project identity, and declared build/source preconditions before transactional application. Legacy root patch ZIPs remain supported during migration.
 
 ## F60R5 project onboarding and universal tooling
 
