@@ -1,91 +1,98 @@
-# The Infection - Project Zomboid Total Conversion Mod
+# Forge — Universal Project Control Center
 
-A total conversion mod for Project Zomboid that transforms the zombie survival experience into a timed survival game with a dramatic "Infection Event" mechanic.
+**Product authority:** Forge is the standalone universal Project Control Center and Cortex operations brain. **Vault is a first-class Forge workspace/tab** for catalog, Artifact Central, patch intake, baselines, recovery and storage intelligence. Legacy `Vault.*` launchers/modules remain compatibility aliases during migration.
 
-## Concept Overview
+Forge is project-neutral. A registered project keeps its own project-local PCC, command registry and build scripts as the highest authority. Forge discovers and invokes those capabilities, then uses universal build-marker adapters only when a stronger project-owned operation does not exist.
 
-This mod fundamentally changes the Project Zomboid gameplay loop:
+## F60R5 project onboarding and universal tooling
 
-### Before the Infection
-- **No zombies** spawn on the map initially
-- Players can explore, build, and gather resources freely
-- The world is peaceful but tension builds as the Infection Event approaches
-- Time to prepare your defenses and fortify your base
+Projects can be registered from an existing local folder or cloned directly from GitHub into the configured Projects Root (normally `D:\Projects`). Forge records the detected GitHub remote in the project registry/passport and provides Open GitHub plus normal non-force source-control operations. The Project Workspace Source Control and Tooling pages are vertically scrollable so all categories remain reachable on smaller windows.
 
-### After the Infection Event
-- **Everything outside your walls becomes hostile**
-- All entities attempt to break through your defenses
-- Waves of enemies bash against your barricades and walls
-- Survival depends on the quality of your preparations
+Tooling includes a capability matrix and **Build All Registered** operation. Build All runs sequentially and delegates each project to its strongest discovered authority: declared `project.control.json`, a project-native machine provider, a command-registry PCC such as Havenwild's `HavenwildTools.ps1 -Command ...`, an explicit PowerShell action provider, then finally conservative Rust/.NET/Gradle/Node/CMake/Python fallbacks.
 
-## Key Features
+On Windows, background health/status probes never allocate consoles. Git probing uses no-window execution, active health refreshes are serialized, and project output is normalized to UTF-8 so Unicode diagnostics cannot terminate the adapter.
 
-1. **Zero Initial Zombie Spawning**: Complete removal of zombies until the Infection Event triggers
-2. **Timed Event System**: Configurable countdown to the Infection Event
-3. **Wall Defense Mechanics**: Entities actively target and attack player-built structures
-4. **Base Protection Zones**: Areas within player-defined walls remain safe
-5. **Hostile Entity Spawning**: Mass spawn of aggressive entities when the event triggers
-6. **Wave-Based Attacks**: Progressive difficulty with enemies attempting to breach defenses
+## Vault workspace and Artifact Central
 
-## Documentation
+Vault remains the Forge workspace responsible for durable catalog/index data, patch intake, Artifact Central, baselines, recovery and storage migration. Cross-volume C:/D: transfers are copied to a temporary destination-volume file, SHA-256 verified, atomically promoted on that volume, then the source is removed.
 
-Comprehensive guides are available in the `/docs` folder:
+## F41-F60 workflow shell
 
-- **[MOD_OVERVIEW.md](docs/MOD_OVERVIEW.md)**: Detailed concept and gameplay mechanics
-- **[MODDING_GUIDE.md](docs/MODDING_GUIDE.md)**: Step-by-step guide to creating the mod
-- **[TECHNICAL_IMPLEMENTATION.md](docs/TECHNICAL_IMPLEMENTATION.md)**: Implementation details and code examples
-- **[MAP_MODDING.md](docs/MAP_MODDING.md)**: Map extraction and custom area creation
-- **[RESOURCES.md](docs/RESOURCES.md)**: Links to wikis, documentation, and community resources
+Vault 0.4 keeps the Python/Tk control and recovery surface and adds a collapsible workspace rail, collapsible 0-100 health gauge, native Windows tray lifecycle, structured Settings/Services, per-project Artifact Central, stricter build-bound patch intake, global tooling inventory, Cortex workspace integration and an optional Vault-themed Monaco IDE in its own pop-out window. The native editor remains available when optional web components are absent.
 
-See **[docs/README.md](docs/README.md)** for a complete documentation index.
+Modern Vault patches use `vault.patch.v2`: package-time evidence and target build/source preconditions are verified before staging. Legacy global downloads are retained for review rather than silently applied.
 
-## Utility Scripts
+## Windows launchers
 
-The `/scripts` directory contains helpful tools:
+- `Vault.vbs` — preferred GUI launcher without a bootstrap console.
+- `Vault.cmd` — visible diagnostic launcher.
+- `VaultConsole.cmd --root <project>` — emergency console fallback.
+- `VerifyVault.cmd` — source-package verification/self-test.
+- Legacy `ProjectControlCenter.*` and `Forge.*` launchers remain compatibility aliases and launch Vault.
 
-- **[extract_map.sh](scripts/extract_map.sh)**: Automated map extraction tool for Project Zomboid
-  - Extracts Build 41.78 vanilla maps from Unjammer/PZ_Vanilla_Map-B41-
-  - Downloads 2841 map cells with 117,441 rooms pre-extracted
-  - Outputs to `scripts/extracted_maps/` directory for immediate use
-  - See [scripts/README.md](scripts/README.md) for usage instructions
+## F21-F40 milestone
 
-## Quick Start
+F21-F40 makes Vault portable and removes global Downloads intake from project-gate authority. It adds a D:-first storage/project model, whole-drive project indexing, a dedicated Forgejo administration surface, expanded GitHub + Forgejo source control, portable project registry rebinding, and categorized command surfaces in the middle workspace column. See `docs/F21_F40_PORTABILITY_FORGEJO_SOURCE_CONTROL.md`.
 
-1. Review the documentation in `/docs` to understand the mod architecture
-2. Set up your Project Zomboid modding environment
-3. (Optional) Use `./scripts/extract_map.sh` to extract maps for customization
-4. Follow the implementation guide to build core features
-5. Test and iterate on the gameplay mechanics
+## F11-F20 milestone
 
-## Implementation Status
+This milestone renames the application authority to Vault and upgrades the universal spine in the areas needed for real project use:
 
-✅ **IMPLEMENTED**: The mod has been implemented in the `/TheInfection` directory with all core features:
+1. Vault is the primary application identity and storage authority; legacy Forge/PCC environment variables remain readable during migration.
+2. Project discovery now recognizes nested project utilities such as `tools/control/StardewModdingKitTools.ps1`, including declared PowerShell `ValidateSet` actions and explicit `$Action` switch values.
+3. Stardew toolkit roots are recognized as `stardew-toolkit`; SMAPI manifests and content packs are recognized separately.
+4. .NET projects receive inferred `dotnet build`, Release build and quality-gate commands when no stronger project utility is available.
+5. Vault Library scans now persist project discovery/tool-command capability data in addition to source/assets, duplicates, large files, invalid JSON, hashes and environment/toolchain inventory.
+6. The GUI displays discovered source/tool-command counts and Build/Gate/Run capability in project details.
+7. Intake watches both configured Downloads locations and project/application roots. Manifest-bearing ZIP transports are hash-verified into Vault before the loose source copy is removed.
+8. A universal transactional patch engine is now the fallback when a project does not expose a stronger native patch authority. It validates paths, payload hashes/bytes, optional preimages, makes recovery copies, atomically writes files and rolls back on failure.
+9. Root-drop and Downloads patches enter the same queue and are staged before Build/Quick/Fast/Full or explicit Apply Updates.
+10. Vault can patch its own source. A successful Vault-targeted patch writes a restart-required marker; the GUI offers to restart so the new code becomes active.
 
-### Completed Features
-- ✅ **18-Hour Onslaught Event System** with configurable duration
-- ✅ **Setup Phase** (default 7 days) with no zombie spawning
-- ✅ **Wave-Based Spawning** every 2 hours during onslaught
-- ✅ **Doubled Spawn Rates** throughout the onslaught event
-- ✅ **Defensive Structures**: Turrets, Snare Traps, Spike Traps, Barbwire Fencing
-- ✅ **Configurable Settings** via Sandbox Options
-- ✅ **Post-Onslaught Cleanup** with straggler system
-- ✅ **UI Timer Display** showing countdown and event status
-- ✅ **Multiplayer Support** with synchronized timers and events
+## Stardew behavior
 
-### Installation
-See `/TheInfection/README.md` for detailed installation and gameplay instructions.
+A project such as `C:\Users\Shifty\Desktop\SDMODDING` with `tools\control\StardewModdingKitTools.ps1` is no longer treated as scan-only. Vault discovers that utility and its explicitly declared actions and maps recognized actions such as Build, Full-Gate and Run-Game into the normal Vault operation surface. Unrecognized declared actions remain available in Advanced Commands. If an older utility is purely menu-driven with no declared action parameter, Vault still exposes the utility itself rather than pretending it has a build command that cannot be justified.
 
-## Requirements
+## Self-update behavior
 
-- Project Zomboid (Build 41 or 42)
-- Basic understanding of Lua scripting
-- Familiarity with Project Zomboid's modding API
-- Knowledge of the mod folder structure
+The first move from the old `ProjectControlCenter-Standalone 0.10.2` into Vault requires a one-time bootstrap overwrite because 0.10.2 does not contain the universal transactional updater. After that bootstrap, normal Vault patch ZIPs can be dropped either into the Vault application root or the configured Downloads intake path.
 
-## Contributing
+For a Vault-targeted update:
 
-This mod is in active design. Contributions, suggestions, and improvements are welcome. Please refer to the documentation for implementation details.
+1. Intake copies/hashes the transport into the durable Vault Library queue.
+2. `Apply Updates`, Build or Full Gate stages it into `updates/inbox`.
+3. `VaultPatchEngine` validates preimages and applies it transactionally.
+4. The exact transport is retained in the applied archive with receipts/recovery evidence.
+5. Vault reports that a restart is required and can relaunch itself.
 
-## License
 
-[To be determined based on Project Zomboid modding guidelines]
+## Default storage
+
+Vault prefers `D:\Vault` on Windows when D: exists and otherwise uses the user's local application data directory. The durable Library is stored below that root. Overrides:
+
+- `VAULT_DATA_ROOT`
+- `VAULT_PROJECT_REGISTRY`
+- `VAULT_STORAGE_ROOT`
+- `VAULT_INTAKE_PATHS` (semicolon-separated on Windows)
+- `VAULT_FORGEJO_HOSTS`
+
+Legacy `FORGE_*` and `PCC_VAULT_ROOT` variables are accepted only for migration compatibility.
+
+## Verification
+
+```text
+VerifyVault.cmd
+```
+
+or:
+
+```text
+python tools/VaultGate.py full
+```
+
+### Portable D: storage
+
+Vault can relocate its durable home to `D:\Vault`, set `D:\Projects` as the portable project root, scan `D:\` for nested/composite projects, and migrate the active project through a hash-verified staged copy while retaining the original as rollback evidence.
+## Source authority bootstrap
+
+Forge can onboard a project from GitHub or attach GitHub authority to an existing local source tree. `Initialize / Adopt Git` is safe for an unborn `.git` directory: if the declared remote already has `main` history, Forge adopts that history as the local parent with a mixed reset while preserving current working-tree files. The current tree can then be reviewed, Full-Gated, committed through `Commit GREEN`, and pushed normally. GitHub repository hints may be declared in `project.control.json` and are also retained in the Forge project registry/passport.

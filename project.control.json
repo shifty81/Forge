@@ -1,0 +1,93 @@
+{
+  "schema": "project.control.v1",
+  "project": {
+    "id": "forge-project-control-center",
+    "name": "Forge",
+    "kind": "python-application",
+    "version": "0.4.6-F60R6",
+    "build": "FORGE-F60R6"
+  },
+  "root_control_center": {
+    "launcher": "Forge.cmd"
+  },
+  "quality_gates": [
+    {
+      "key": "gate.full",
+      "label": "Full Quality Gate / Certify GREEN"
+    },
+    {
+      "key": "gate.fast",
+      "label": "Quick Forge Gate"
+    }
+  ],
+  "commands": [
+    {
+      "key": "gate.full",
+      "label": "FULL QUALITY GATE / CERTIFY GREEN",
+      "category": "gate",
+      "risk": "write",
+      "program": "python",
+      "args": [
+        "tools/ForgeGate.py",
+        "full"
+      ],
+      "mutates": true
+    },
+    {
+      "key": "gate.fast",
+      "label": "Quick Forge Gate",
+      "category": "gate",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/ForgeGate.py",
+        "quick"
+      ]
+    },
+    {
+      "key": "build.native",
+      "label": "Build / Syntax Verify",
+      "category": "build",
+      "risk": "write",
+      "program": "python",
+      "args": [
+        "tools/ForgeGate.py",
+        "build"
+      ],
+      "mutates": true
+    },
+    {
+      "key": "run.gui",
+      "label": "Run Forge GUI",
+      "category": "run",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "app/ForgeStandalone.py",
+        "--root",
+        "{root}"
+      ]
+    },
+    {
+      "key": "project.self-test",
+      "label": "Forge Self Test",
+      "category": "diagnostics",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "app/ForgeStandalone.py",
+        "--self-test"
+      ]
+    }
+  ],
+  "stateDirectory": ".forge",
+  "sourceControl": {
+    "github": {
+      "remote": "origin",
+      "cloneUrl": "https://github.com/shifty81/Forge.git",
+      "webUrl": "https://github.com/shifty81/Forge"
+    },
+    "defaultGitHubRemote": "origin",
+    "defaultForgejoRemote": "forgejo"
+  }
+}

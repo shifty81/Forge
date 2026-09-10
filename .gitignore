@@ -1,49 +1,25 @@
-# Build artifacts
-build/
-dist/
-*.exe
-*.app
-*.dmg
-*.zip
-*.dll
-*.so
-*.dylib
-*.lib
-*.a
-*.obj
-*.o
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-Makefile
-*.vcxproj
-*.vcxproj.filters
-*.sln
-
-# Dependencies
-node_modules/
-*.pyc
+# Forge local/runtime state
 __pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
 
-# IDE and editor files
-.vscode/
+# Local operation outputs
+artifacts/
+updates/
+logs/
+*.log
+
+# IDE / OS noise
+.vs/
 .idea/
-*.swp
-*.swo
-*~
+.vscode/
+Thumbs.db
 .DS_Store
 
-# Game engine specific
-*.tmp
-*.log
-*.cache
-
-# Map extraction output
-extracted_maps/
-*.tmx
-*.tbx
-*.pzw
-
-# OS specific
-Thumbs.db
-desktop.ini
+# Local package/update transports
+*_DebugBundle_*.zip
+*_RootPatch_*.zip
+*_UpdateKit.zip

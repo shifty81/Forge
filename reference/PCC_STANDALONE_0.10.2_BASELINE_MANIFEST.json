@@ -1,0 +1,148 @@
+{
+  "schema": "pcc.standalone.package.v1",
+  "standaloneVersion": "PCC-STANDALONE-0.1",
+  "guiVersion": "PCC-GUI-0.10.2",
+  "surfaceVersion": "PCC-SURFACE-0.4",
+  "autoAdapterVersion": "PCC-AUTO-ADAPTER-0.2",
+  "operationHostVersion": "PCC-OPERATION-HOST-0.1",
+  "projectContractRequired": false,
+  "thirdPartyPythonPackagesRequired": false,
+  "minimumPython": "3.11",
+  "preferredLauncher": "ProjectControlCenter.vbs",
+  "fallbackLauncher": "ProjectControlCenter.cmd",
+  "registryWindows": "%LOCALAPPDATA%\\ProjectControlCenter\\project_registry.json",
+  "vaultWindows": "%LOCALAPPDATA%\\ProjectControlCenter\\Vault",
+  "fileCount": 26,
+  "files": [
+    {
+      "path": "app/CortexPCCGui.py",
+      "bytes": 94174,
+      "sha256": "4d18d3208d78eebe3e02e50a5cd4a59e516d872a6b5b734de537fc045de51d17"
+    },
+    {
+      "path": "app/PCCAutoAdapter.py",
+      "bytes": 17371,
+      "sha256": "ae517324253fc5c08471965953b586bac047a7d40d961bbb90015145f4e59ed2"
+    },
+    {
+      "path": "app/PCCOperationHost.py",
+      "bytes": 2710,
+      "sha256": "f6054b570ef49e2eacff9acadee2e558faee04016a09af3cbf29398c20a35704"
+    },
+    {
+      "path": "app/PCCProjectDiscovery.py",
+      "bytes": 19217,
+      "sha256": "899d31b96e5b1bf7c074fe7c348b572393f7a7347b5c0002bbbfcbde15356202"
+    },
+    {
+      "path": "app/PCCRepoHygiene.py",
+      "bytes": 11787,
+      "sha256": "0bc732ce7eb8ef0b31480a15c748b004498d5c6fc74ce2b7f9d511e98d6e77dc"
+    },
+    {
+      "path": "app/PCCStandalone.py",
+      "bytes": 4326,
+      "sha256": "d561906c61dce881ee3ad6e785b96c788e9d71d4bc4a4ae528d49b188a4be651"
+    },
+    {
+      "path": "app/PCCSurfaceCommon.py",
+      "bytes": 21752,
+      "sha256": "2b54a7246f57d468b88be4428f9ebf959ba034da675b922dcc92a434a8c0c62d"
+    },
+    {
+      "path": "app/PCCVaultCatalog.py",
+      "bytes": 22490,
+      "sha256": "4cdd92c0d9c6d3af067dd879c3282a828d816eb67acdbefb09c973cca509e546"
+    },
+    {
+      "path": "app/sitecustomize.py",
+      "bytes": 547,
+      "sha256": "100db354f7319cfbe6db528dfd5c929945d7f948b00035c11d5f6157316d0a66"
+    },
+    {
+      "path": "CHANGELOG_STANDALONE.md",
+      "bytes": 760,
+      "sha256": "18528dc546ec50e657cf858d307b9b5172d098461d65f5e1858e805ad3bb85c1"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "bytes": 841,
+      "sha256": "bf87432e396f2566d4f512c948dc20e5c7683507879b24c916d64d6cea19fd32"
+    },
+    {
+      "path": "docs/PROJECT_ONBOARDING.md",
+      "bytes": 809,
+      "sha256": "6ce78bd1095c43ba79284d959ccd3317a3167ce4ebba1c1eb6a9a8c43cf22504"
+    },
+    {
+      "path": "docs/RECOVERY.md",
+      "bytes": 1020,
+      "sha256": "0a0661160bd0946d9f936d5ae4bbf4ea8fe9a0f587fc49420e4ad24939506cef"
+    },
+    {
+      "path": "ProjectControlCenter.cmd",
+      "bytes": 1021,
+      "sha256": "9cd7a50d2c6cbcefffd825065366336c7baf436410bc41d2570c0426571db247"
+    },
+    {
+      "path": "ProjectControlCenter.vbs",
+      "bytes": 1418,
+      "sha256": "581abfbc3c313588487da68eed898e4ad6a423acd21c34ad34465fd8fffcd644"
+    },
+    {
+      "path": "README_STANDALONE.md",
+      "bytes": 3412,
+      "sha256": "432dff991d8af22bcebab8790b352d37b7df04cf9499d7fb0e18e1ca4675a5d4"
+    },
+    {
+      "path": "reference/cortex-project-provider/project.control.json",
+      "bytes": 5473,
+      "sha256": "5b46482fc9de09333047daf2eac35a34985127296c676057b0db42ad0c224d58"
+    },
+    {
+      "path": "reference/cortex-project-provider/PROJECT_CONTROL_CENTER.cmd",
+      "bytes": 2888,
+      "sha256": "4ab32a5451b924930b7f52ead927f3df7fc11b8a40cce882a144843d63a27857"
+    },
+    {
+      "path": "reference/cortex-project-provider/README.md",
+      "bytes": 915,
+      "sha256": "87954c1df54dd5ca4fad9f4dfa16d1954d5158e4bda6794c3c6d02c3b53ed73c"
+    },
+    {
+      "path": "reference/cortex-project-provider/tools/control/CortexGitAuthority.py",
+      "bytes": 27306,
+      "sha256": "775e6b60cd5d13d87e5f2cf8535d6ec4419c244dfc75ad9e53657083c2dacf83"
+    },
+    {
+      "path": "reference/cortex-project-provider/tools/control/CortexPatchAuthority.py",
+      "bytes": 47293,
+      "sha256": "bad67dfab053f75c6c890ef9f1532c88eea63f66063f1651def339be4ab0ff19"
+    },
+    {
+      "path": "reference/cortex-project-provider/tools/control/CortexPCC.py",
+      "bytes": 58394,
+      "sha256": "803a8400514096645c9849cf1c605a00ee6ac139e8f6626e2de468cc84503d9e"
+    },
+    {
+      "path": "reference/cortex-project-provider/tools/control/CortexPCCConsole.py",
+      "bytes": 17656,
+      "sha256": "cdc88d7178cb8998ba035219de09af24a52521271fb3c20795f3f5a1fe401926"
+    },
+    {
+      "path": "reference/cortex-project-provider/tools/control/CortexPCCMaintenance.py",
+      "bytes": 16673,
+      "sha256": "d7a32f2c5fc2ccf1d98c930b799a0e6b85fa6a4d653a18fe8585da02d8f2a11d"
+    },
+    {
+      "path": "requirements.txt",
+      "bytes": 94,
+      "sha256": "0a571feae08ef9a98ecda82b0b465c1bd87a6274a0e571604ecd584610856565"
+    },
+    {
+      "path": "VerifyStandalone.cmd",
+      "bytes": 224,
+      "sha256": "6a47174bee7a71184becb00378d40e4a57d5da5f5174782b410e0a02e54567ff"
+    }
+  ]
+}
