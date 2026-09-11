@@ -59,7 +59,7 @@ def make_patch(path: Path, *, project: str = "Demo", patch_id: str = "DEMO-001")
         "title": "Forge intake smoke patch",
         "series": "demo",
         "sequence": 1,
-        "files": [{"path": "README.txt", "bytes": 4, "sha256": "unused-by-intake"}],
+        "files": [{"path": "README.txt", "bytes": 4, "sha256": "2a97516c354b68848cdbd8f54a226a0a55b21ed138e207ad6c5cbb9c00aa5aea"}],
     }
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("PATCH_MANIFEST.json", json.dumps(manifest))
@@ -84,7 +84,7 @@ class ForgeCoreTests(unittest.TestCase):
             make_patch(transport, project="unassigned", patch_id="UNASSIGNED-001")
             with env(FORGE_VAULT_ROOT=str(vault), VAULT_INTAKE_PATHS=str(base / "Downloads")):
                 item = ingest_patch(transport, remove_source=False, trusted_root=True)
-                self.assertEqual(item["state"], "QUEUED")
+                self.assertEqual(item["state"], "LINEAGE")
                 pending, invalid = counts_for_project("demo", "Demo")
                 self.assertEqual((pending, invalid), (0, 0))
                 health = evaluate_project(project, ProjectContract.load(project))
@@ -102,12 +102,12 @@ class ForgeCoreTests(unittest.TestCase):
             with env(FORGE_VAULT_ROOT=str(vault), FORGE_INTAKE_PATHS=str(downloads)):
                 # Simulate the pre-F60R1 bug by explicitly ingesting a Downloads item as trusted.
                 item = ingest_patch(transport, remove_source=False, trusted_root=True)
-                self.assertEqual(item["state"], "QUEUED")
+                self.assertEqual(item["state"], "LINEAGE")
                 self.assertEqual(counts_for_project("demo", "Demo"), (0, 0))
                 staged = stage_for_project(project)
                 self.assertEqual(staged["staged"], 0, staged)
                 rows = list_items(project="Demo")
-                self.assertEqual(rows[0]["state"], "AVAILABLE", rows)
+                self.assertEqual(rows[0]["state"], "LINEAGE", rows)
 
 
     def test_explicit_patch_apply_stages_forge_queue(self) -> None:
@@ -132,7 +132,7 @@ raise SystemExit(0)
                 encoding="utf-8",
             )
             write_contract(project, project_id="demo", name="Demo", provider="provider.py")
-            transport = project / "Demo_Patch_003.zip"
+            transport = project / "incoming.patch"
             make_patch(transport, patch_id="DEMO-003")
             with env(FORGE_VAULT_ROOT=str(vault), FORGE_INTAKE_PATHS=str(downloads)):
                 host = APP / "PCCOperationHost.py"
@@ -141,8 +141,10 @@ raise SystemExit(0)
                     cwd=project, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=os.environ.copy(), check=False,
                 )
                 self.assertEqual(cp.returncode, 0, cp.stdout)
-                self.assertIn("explicit patch apply", cp.stdout)
+                self.assertNotIn("explicit patch apply", cp.stdout)
+                self.assertEqual((project / "README.txt").read_text(encoding="utf-8"), "demo")
                 self.assertEqual(list_items(project="Demo")[0]["state"], "APPLIED", cp.stdout)
+                self.assertFalse((project / "updates" / "inbox").exists())
 
     def test_source_control_detects_github_and_forgejo(self) -> None:
         if not shutil_which("git"):
@@ -171,8 +173,8 @@ raise SystemExit(0)
                 self.assertEqual(len(result["ingested"]), 1, result)
                 self.assertFalse(transport.exists())
                 items = list_items(project="Demo")
-                self.assertEqual(items[0]["state"], "AVAILABLE", items)
-                self.assertIn("patches/available", items[0]["vault_path"].replace("\\", "/"))
+                self.assertEqual(items[0]["state"], "CANDIDATE", items)
+                self.assertIn("patches/candidates", items[0]["vault_path"].replace("\\", "/"))
                 pending, invalid = counts_for_project("demo", "Demo")
                 self.assertEqual((pending, invalid), (0, 0))
                 staged = stage_for_project(project)
@@ -214,7 +216,7 @@ raise SystemExit(0)
                 encoding="utf-8",
             )
             write_contract(project, project_id="demo", name="Demo", provider="provider.py")
-            transport = project / "Demo_Patch_002.zip"
+            transport = project / "incoming.patch"
             make_patch(transport, patch_id="DEMO-002")
             with env(FORGE_VAULT_ROOT=str(vault), FORGE_INTAKE_PATHS=str(downloads)):
                 host = APP / "PCCOperationHost.py"
@@ -223,8 +225,10 @@ raise SystemExit(0)
                     cwd=project, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=os.environ.copy(), check=False,
                 )
                 self.assertEqual(cp.returncode, 0, cp.stdout)
-                self.assertIn("fake patch authority", cp.stdout)
+                self.assertNotIn("fake patch authority", cp.stdout)
                 self.assertIn("fake build", cp.stdout)
+                self.assertEqual((project / "README.txt").read_text(encoding="utf-8"), "demo")
+                self.assertFalse((project / "updates" / "inbox").exists())
                 items = list_items(project="Demo")
                 self.assertEqual(items[0]["state"], "APPLIED", cp.stdout)
 
@@ -254,7 +258,7 @@ raise SystemExit(0)
             make_patch(transport, patch_id="DEMO-004")
             with env(FORGE_VAULT_ROOT=str(vault), FORGE_INTAKE_PATHS=str(downloads)):
                 scan = scan_downloads(force_stable=True, remove_source=True)
-                self.assertEqual(scan["ingested"][0]["state"], "AVAILABLE", scan)
+                self.assertEqual(scan["ingested"][0]["state"], "CANDIDATE", scan)
                 host = APP / "PCCOperationHost.py"
                 cp = subprocess.run(
                     [sys.executable, str(host), "--root", str(project), "--operation", "build", "--", sys.executable, str(provider), "build", "--root", str(project)],
@@ -264,7 +268,7 @@ raise SystemExit(0)
                 self.assertIn("[PASS] build only", cp.stdout)
                 self.assertNotIn("downloads patch should never execute", cp.stdout)
                 self.assertNotIn("Downloads intake", cp.stdout)
-                self.assertEqual(list_items(project="Demo")[0]["state"], "AVAILABLE")
+                self.assertEqual(list_items(project="Demo")[0]["state"], "CANDIDATE")
                 self.assertFalse((project / "updates" / "inbox" / "Demo_Patch_004.zip").exists())
 
 

@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-DISCOVERY_VERSION = "FORGE-DISCOVERY-0.4.6"
+DISCOVERY_VERSION = "FORGE-DISCOVERY-0.4.9"
 
 
 def _safe_json(path: Path) -> dict[str, Any] | None:
@@ -92,7 +92,7 @@ def _canonicalize_contract(root: Path, data: dict[str, Any]) -> dict[str, Any]:
     state_dir = str(data.get("stateDirectory") or data.get("state_directory") or "").strip()
 
     normalized = dict(data)
-    normalized["project"] = {"id": project_id, "name": name, "kind": kind}
+    normalized["project"] = {**project_obj, "id": project_id, "name": name, "kind": kind}
     normalized["commands"] = commands
     normalized["quality_gates"] = [{"key": key} for key in gate_keys]
     normalized["root_control_center"] = {

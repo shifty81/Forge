@@ -12,11 +12,11 @@ from ForgeHealth import evaluate_project
 from VaultIntake import reconcile_project, scan_intake, stage_for_project
 from VaultPaths import vault_root
 from VaultPatchEngine import restart_marker_path
-from ForgeVersion import VERSION as FORGE_VERSION
+from ForgePYVersion import VERSION as FORGE_VERSION
 from ForgeSourceControl import status as source_status
 from PCCSurfaceCommon import BackendClient, ProjectContract, ProjectRegistry, SurfaceError, latest_debug_bundle, open_path
 
-CONSOLE_VERSION = f"FORGE-CONSOLE-{FORGE_VERSION}"
+CONSOLE_VERSION = f"FORGEPY-CONSOLE-{FORGE_VERSION}"
 
 
 def _ansi_enabled() -> bool:
@@ -135,7 +135,7 @@ def _choose_project(registry: ProjectRegistry, current: Path) -> Path:
 def _header(root: Path, contract: ProjectContract, backend: BackendClient) -> None:
     os.system("cls" if os.name == "nt" else "clear")
     print("=" * 72)
-    print(f" FORGE  v{FORGE_VERSION}")
+    print(f" FORGEPY  v{FORGE_VERSION}")
     print("=" * 72)
     for line in _status_lines(root, contract, backend):
         print(line)
@@ -162,7 +162,7 @@ def run_console(initial_root: Path) -> int:
             contract = ProjectContract.load(root)
             backend = BackendClient(root, contract)
         except Exception as exc:
-            print(f"[{_token('FAIL', 'fail')}] Forge could not bind project authority: {exc}")
+            print(f"[{_token('FAIL', 'fail')}] ForgePY could not bind project authority: {exc}")
             return 1
         _header(root, contract, backend)
         choice = input("Select an option: ").strip()
@@ -205,7 +205,7 @@ def run_console(initial_root: Path) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description="Forge emergency/console Project Control Center")
+    ap = argparse.ArgumentParser(description="ForgePY emergency/console Project Control Center")
     ap.add_argument("--root", required=True)
     ap.add_argument("--command", help="Run one backend command non-interactively")
     ap.add_argument("--self-test", action="store_true")

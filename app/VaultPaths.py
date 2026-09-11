@@ -17,7 +17,7 @@ def _configured_path(*names: str) -> Path | None:
 
 
 def data_root() -> Path:
-    override = _configured_path("FORGE_DATA_ROOT", "VAULT_DATA_ROOT")
+    override = _configured_path("FORGEPY_DATA_ROOT", "FORGE_DATA_ROOT", "VAULT_DATA_ROOT")
     if override is not None:
         return override
     settings = load_settings()
@@ -27,22 +27,22 @@ def data_root() -> Path:
     if os.name == "nt":
         d_drive = Path("D:/")
         if d_drive.exists():
-            return d_drive / "Vault"
+            return d_drive / "ForgePY"
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        return base / "Vault"
+        return base / "ForgePY"
     base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    return base / "vault"
+    return base / "forgepy"
 
 
 def registry_path() -> Path:
-    override = _configured_path("FORGE_PROJECT_REGISTRY", "VAULT_PROJECT_REGISTRY")
+    override = _configured_path("FORGEPY_PROJECT_REGISTRY", "FORGE_PROJECT_REGISTRY", "VAULT_PROJECT_REGISTRY")
     if override is not None:
         return override
     return data_root() / "project_registry.json"
 
 
 def projects_root() -> Path:
-    override = _configured_path("VAULT_PROJECTS_ROOT")
+    override = _configured_path("FORGEPY_PROJECTS_ROOT", "FORGE_PROJECTS_ROOT", "VAULT_PROJECTS_ROOT")
     if override is not None:
         return override
     raw = str(load_settings().get("projectsRoot") or "").strip()
@@ -52,7 +52,7 @@ def projects_root() -> Path:
 
 
 def configured_scan_roots() -> tuple[Path, ...]:
-    raw_env = str(os.environ.get("FORGE_SCAN_ROOTS") or os.environ.get("VAULT_SCAN_ROOTS") or "").strip()
+    raw_env = str(os.environ.get("FORGEPY_SCAN_ROOTS") or os.environ.get("FORGE_SCAN_ROOTS") or os.environ.get("VAULT_SCAN_ROOTS") or "").strip()
     if raw_env:
         return _unique_paths(Path(x.strip()).expanduser() for x in raw_env.split(os.pathsep) if x.strip())
     settings = load_settings()
@@ -83,7 +83,7 @@ def legacy_registry_path() -> Path:
 
 
 def vault_root() -> Path:
-    override = _configured_path("FORGE_VAULT_ROOT", "VAULT_STORAGE_ROOT", "VAULT_VAULT_ROOT", "PCC_VAULT_ROOT")
+    override = _configured_path("FORGEPY_VAULT_ROOT", "FORGE_VAULT_ROOT", "VAULT_STORAGE_ROOT", "VAULT_VAULT_ROOT", "PCC_VAULT_ROOT")
     if override is not None:
         return override
     return data_root() / "Library"
@@ -91,7 +91,7 @@ def vault_root() -> Path:
 
 
 def artifact_central_root() -> Path:
-    override = _configured_path("FORGE_ARTIFACT_CENTRAL_ROOT", "VAULT_ARTIFACT_CENTRAL_ROOT")
+    override = _configured_path("FORGEPY_ARTIFACT_CENTRAL_ROOT", "FORGE_ARTIFACT_CENTRAL_ROOT", "VAULT_ARTIFACT_CENTRAL_ROOT")
     if override is not None:
         return override
     raw = str(load_settings().get("artifactCentralRoot") or "").strip()
@@ -125,7 +125,7 @@ def ensure_artifact_project_tree(project_id: str) -> dict[str, Path]:
     return mapping
 
 def downloads_roots() -> tuple[Path, ...]:
-    raw = str(os.environ.get("FORGE_INTAKE_PATHS") or os.environ.get("VAULT_INTAKE_PATHS") or "").strip()
+    raw = str(os.environ.get("FORGEPY_INTAKE_PATHS") or os.environ.get("FORGE_INTAKE_PATHS") or os.environ.get("VAULT_INTAKE_PATHS") or "").strip()
     candidates: list[Path] = []
     if raw:
         for item in raw.split(os.pathsep):

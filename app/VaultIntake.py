@@ -23,13 +23,14 @@ from VaultBuildIdentity import verify_manifest_preconditions
 from VaultPaths import downloads_roots, intake_roots, vault_root, ensure_artifact_project_tree
 from VaultArtifacts import archive_file as archive_artifact_file, auto_archive_candidate, classify_artifact, identify_project
 
-VAULT_INTAKE_VERSION = "FORGE-INTAKE-0.4.8"
+VAULT_INTAKE_VERSION = "FORGEPY-INTAKE-0.4.22"
 TEMP_SUFFIXES = {".crdownload", ".part", ".download", ".tmp"}
 PATCH_SUFFIXES = {".zip", ".patch"}
 INCOMING_PATCH_NAME = "incoming.patch"
 NON_PATCH_RE = re.compile(r"(?:debugbundle|debug[-_ ]?bundle|handoff|source[-_ ]?(?:rollup|bundle)|rollup|backup|support[-_ ]?bundle|archive)", re.I)
 PATCH_NAME_RE = re.compile(r"(?:root[-_ ]?patch|rootpatch|incremental[-_ ]?patch|patch[-_ ]?update|[_-]patch[_-]|^patch[_-])", re.I)
 PATCH_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
+CANONICAL_PATCH_FILE_RE = re.compile(r"^(?P<project>[A-Za-z0-9][A-Za-z0-9._-]{1,95})__(?P<date>\d{8})__(?P<version>[A-Za-z0-9][A-Za-z0-9._+-]{0,63})\.(?P<ext>patch|zip)$", re.I)
 MAX_FILES = 5000
 MAX_UNCOMPRESSED = 2 * 1024 * 1024 * 1024
 MAX_SINGLE_FILE = 512 * 1024 * 1024
@@ -43,6 +44,33 @@ class IntakeError(RuntimeError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_canonical_patch_filename(path: Path | str) -> dict[str, str]:
+    """Parse the ForgePY Downloads naming contract.
+
+    Canonical browser/download transport names are:
+      ProjectName__YYYYMMDD__Version.patch
+    The manifest remains authoritative; filename metadata is routing assistance.
+    """
+    name = Path(path).name if not isinstance(path, Path) else path.name
+    match = CANONICAL_PATCH_FILE_RE.fullmatch(name)
+    if not match:
+        return {}
+    out = {k: str(v) for k, v in match.groupdict().items()}
+    try:
+        datetime.strptime(out["date"], "%Y%m%d")
+    except ValueError:
+        return {}
+    return out
+
+
+def canonical_patch_filename(project: str, version: str, *, when: datetime | None = None, suffix: str = ".patch") -> str:
+    stamp = (when or datetime.now()).strftime("%Y%m%d")
+    safe_project = re.sub(r"[^A-Za-z0-9._-]+", "-", str(project or "Project")).strip("-._") or "Project"
+    safe_version = re.sub(r"[^A-Za-z0-9._+-]+", "-", str(version or "update")).strip("-._") or "update"
+    ext = ".zip" if str(suffix).casefold() == ".zip" else ".patch"
+    return f"{safe_project}__{stamp}__{safe_version}{ext}"
 
 
 def sha256_file(path: Path) -> str:
@@ -214,6 +242,9 @@ def inspect_patch(path: Path) -> dict[str, Any]:
     target = manifest.get("target")
     if project == "unassigned" and isinstance(target, dict):
         project = str(target.get("project") or target.get("projectId") or target.get("id") or "unassigned").strip()
+    filename_meta = parse_canonical_patch_filename(path)
+    if project == "unassigned" and filename_meta.get("project"):
+        project = str(filename_meta["project"]).strip()
     schema = str(manifest.get("schema") or "").strip()
     modern = schema.casefold().startswith("vault.patch.v2") or schema.casefold().startswith("forge.patch.v1")
     security = load_settings().get("security", {}) or {}
@@ -275,6 +306,7 @@ def inspect_patch(path: Path) -> dict[str, Any]:
         "boundFields": bound_fields,
         "verificationClass": verification_class,
         "title": str(manifest.get("title") or patch_id),
+        "filenameMeta": filename_meta,
         "manifest": manifest,
     }
 
@@ -319,7 +351,7 @@ def _existing_ingested(digest: str) -> dict[str, Any] | None:
     try:
         row = db.execute(
             "SELECT intake_id,source_name,original_path,sha256,bytes,classification,state,target_project,patch_id,received_utc,vault_path,manifest_json,error,approved_utc,approved_root "
-            "FROM intake_items WHERE sha256=? AND state IN ('AVAILABLE','QUEUED','STAGED','APPLIED','CERTIFIED','REVIEW') "
+            "FROM intake_items WHERE sha256=? AND state IN ('AVAILABLE','CANDIDATE','LINEAGE','QUEUED','STAGED','APPLIED','CERTIFIED','REVIEW','FAILED','REJECTED') "
             "ORDER BY received_utc DESC LIMIT 1",
             (digest,),
         ).fetchone()
@@ -424,50 +456,451 @@ def _persist_item(item: dict[str, Any]) -> None:
         db.close()
 
 
+
+def _safe_component(value: str, fallback: str = "unassigned") -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "")).strip("-.") or fallback
+
+
+def _project_identity_forms(value: str) -> set[str]:
+    raw = str(value or "").strip().casefold()
+    if not raw:
+        return set()
+    forms = {raw}
+    compact = re.sub(r"[^a-z0-9]+", "", raw)
+    if compact:
+        forms.add(compact)
+    stem = re.sub(r"(?:[-_. ](?:main|master|standalone|project|repo|repository|source|src))+$", "", raw).strip("-_. ")
+    if stem:
+        forms.add(stem)
+        compact_stem = re.sub(r"[^a-z0-9]+", "", stem)
+        if compact_stem:
+            forms.add(compact_stem)
+    return forms
+
+
+def _registered_root_for_project(project: str) -> Path | None:
+    """Resolve a patch target against ForgePY's registry conservatively.
+
+    Exact aliases win. A normalized/family alias (for example Cortex vs
+    Cortex-main) is accepted only when it resolves to exactly one registered root.
+    Ambiguous matches fail closed into Review.
+    """
+    wanted = str(project or "").strip().casefold()
+    if not wanted or wanted == "unassigned":
+        return None
+    try:
+        from PCCSurfaceCommon import ProjectRegistry
+        entries = list(ProjectRegistry().entries())
+        exact: list[Path] = []
+        fuzzy: list[Path] = []
+        wanted_forms = _project_identity_forms(wanted)
+        for entry in entries:
+            aliases = {entry.project_id.casefold(), entry.name.casefold(), entry.root.name.casefold()}
+            try:
+                from PCCProjectDiscovery import discover_project_contract_data
+                data = discover_project_contract_data(entry.root)
+                project_data = data.get("project") or {}
+                for value in (project_data.get("id"), project_data.get("name")):
+                    if value:
+                        aliases.add(str(value).strip().casefold())
+            except Exception:
+                pass
+            if wanted in aliases and entry.root.is_dir():
+                exact.append(entry.root.expanduser().resolve())
+                continue
+            alias_forms: set[str] = set()
+            for alias in aliases:
+                alias_forms.update(_project_identity_forms(alias))
+            if wanted_forms & alias_forms and entry.root.is_dir():
+                fuzzy.append(entry.root.expanduser().resolve())
+        exact_unique = list(dict.fromkeys(exact))
+        if len(exact_unique) == 1:
+            return exact_unique[0]
+        fuzzy_unique = list(dict.fromkeys(fuzzy))
+        if not exact_unique and len(fuzzy_unique) == 1:
+            return fuzzy_unique[0]
+    except Exception:
+        return None
+    return None
+
+
+def _lineage_relation(details: dict[str, Any], verification: dict[str, Any] | None = None) -> str:
+    if not bool(details.get("modern")):
+        return "legacy"
+    if not bool(details.get("buildBound")):
+        return "unbound"
+    if str(details.get("dateStatus") or "PASS").upper() != "PASS":
+        return "date-mismatch"
+    if verification is not None and verification.get("status") != "PASS":
+        return "base-mismatch"
+    return "historical"
+
+
+def _archive_lineage_transport(
+    source: Path,
+    details: dict[str, Any],
+    *,
+    relation: str,
+    remove_source: bool,
+    reason: str = "",
+) -> dict[str, Any]:
+    """Archive one inert patch transport into project Patch Lineage.
+
+    LINEAGE is intentionally non-executable.  It never contributes to pending update
+    counts and can never be staged until the user presents the same bytes through the
+    explicit incoming.patch/approval path and all live preconditions pass.
+    """
+    source = source.expanduser().resolve()
+    digest = sha256_file(source)
+    project = str(details.get("project") or "unassigned")
+    patch_id = str(details.get("patchId") or f"lineage-{digest[:12]}")
+    safe_project = _safe_component(project)
+    safe_patch = _safe_component(patch_id, f"lineage-{digest[:12]}")
+    safe_relation = _safe_component(relation, "historical")
+    tree = ensure_artifact_project_tree(safe_project)
+    package_dir = tree["patches"] / "lineage" / safe_relation / safe_patch
+    package_dir.mkdir(parents=True, exist_ok=True)
+    stored = package_dir / source.name
+    if stored.exists() and sha256_file(stored) != digest:
+        stored = package_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{source.name}"
+    if not stored.exists():
+        _promote_verified(source, stored, digest, remove_source=remove_source)
+    elif remove_source:
+        source.unlink(missing_ok=True)
+    Path(str(stored) + ".sha256").write_text(f"{digest}  {stored.name}\n", encoding="ascii")
+    manifest = details.get("manifest") if isinstance(details.get("manifest"), dict) else {}
+    (package_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    lineage = {
+        "schema": "forge.patch.lineage.v1",
+        "project": project,
+        "patchId": patch_id,
+        "relation": safe_relation,
+        "verificationClass": details.get("verificationClass", ""),
+        "packageCreatedUtc": details.get("packageCreatedUtc", ""),
+        "dateStatus": details.get("dateStatus", ""),
+        "sha256": digest,
+        "source": str(source),
+        "stored": str(stored),
+        "reason": str(reason or ""),
+        "catalogedUtc": utc_now(),
+    }
+    (package_dir / "lineage.json").write_text(json.dumps(lineage, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return {"stored": stored, "sha256": digest, "relation": safe_relation, "lineage": lineage}
+
+
+def _archive_review_transport(
+    source: Path,
+    details: dict[str, Any],
+    *,
+    reason: str,
+    relation: str = "review",
+    remove_source: bool = True,
+) -> dict[str, Any]:
+    """Retain a valid but non-executable package in actionable Review.
+
+    Review is intentionally distinct from historical Lineage: fresh packages that
+    need operator routing or whose preconditions do not currently match remain
+    visible and actionable instead of disappearing into archival history.
+    """
+    source = source.expanduser().resolve()
+    digest = sha256_file(source)
+    project = str(details.get("project") or "unassigned")
+    patch_id = str(details.get("patchId") or f"review-{digest[:12]}")
+    tree = ensure_artifact_project_tree(_safe_component(project))
+    target_dir = tree["review"] / _safe_component(relation, "review") / _safe_component(patch_id, f"review-{digest[:12]}")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stored = target_dir / source.name
+    if stored.exists() and sha256_file(stored) != digest:
+        stored = target_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{source.name}"
+    if not stored.exists():
+        _promote_verified(source, stored, digest, remove_source=remove_source)
+    elif remove_source:
+        source.unlink(missing_ok=True)
+    Path(str(stored) + ".sha256").write_text(f"{digest}  {stored.name}\n", encoding="ascii")
+    manifest = details.get("manifest") if isinstance(details.get("manifest"), dict) else {}
+    (target_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    item = {
+        "schema": "vault.intake.receipt.v1", "version": VAULT_INTAKE_VERSION,
+        "intake_id": f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:10]}",
+        "source_name": source.name, "original_path": str(source),
+        "sha256": digest, "bytes": int(stored.stat().st_size),
+        "classification": "PATCH-ACTIONABLE-REVIEW", "state": "REVIEW",
+        "target_project": project, "patch_id": patch_id, "received_utc": utc_now(),
+        "vault_path": str(stored), "manifest": manifest, "error": str(reason),
+        "approved_utc": "", "approved_root": "",
+        "package_created_utc": details.get("packageCreatedUtc", ""),
+        "date_status": details.get("dateStatus", ""),
+        "verification_class": details.get("verificationClass", ""),
+        "legacy_patch_id": bool(details.get("legacyPatchId")),
+        "build_bound": bool(details.get("buildBound")), "relationship": relation,
+    }
+    _persist_item(item); _write_receipt(item)
+    return item
+
+
+def _queue_existing_for_project(
+    root: Path,
+    existing: dict[str, Any],
+    *,
+    classification: str,
+    source_label: str,
+) -> dict[str, Any]:
+    """Promote already-cataloged patch evidence into the executable queue after live verification."""
+    root = root.expanduser().resolve()
+    manifest = existing.get("manifest") if isinstance(existing.get("manifest"), dict) else {}
+    target = str(existing.get("target_project") or "")
+    if target.casefold() not in _project_aliases(root):
+        raise IntakeError(f"{source_label} project identity does not match the active project")
+    verification = verify_manifest_preconditions(manifest, root)
+    if verification.get("status") != "PASS":
+        detail = "; ".join(
+            f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
+            for x in verification.get("mismatches", [])
+        )
+        raise IntakeError(f"{source_label} does not match active project/build identity: " + detail)
+    source = Path(str(existing.get("vault_path") or ""))
+    expected = str(existing.get("sha256") or "")
+    if not source.is_file() or not expected or sha256_file(source) != expected:
+        raise IntakeError(f"cataloged {source_label} evidence is missing or hash-mismatched")
+    approved_utc = utc_now()
+    db = _connect()
+    try:
+        db.execute(
+            "UPDATE intake_items SET state='QUEUED',classification=?,approved_utc=?,approved_root=?,error='' WHERE intake_id=?",
+            (classification, approved_utc, str(root), str(existing.get("intake_id") or "")),
+        )
+        db.commit()
+    finally:
+        db.close()
+    out = next(item for item in list_items() if str(item.get("intake_id")) == str(existing.get("intake_id")))
+    out["buildVerification"] = verification
+    return out
+
+
+def _queue_existing_from_incoming(root: Path, existing: dict[str, Any]) -> dict[str, Any]:
+    return _queue_existing_for_project(
+        root, existing, classification="PATCH-INCOMING-APPROVED", source_label="incoming.patch"
+    )
+
+
+def approve_manual_patch_for_project(root: Path, source: Path) -> dict[str, Any]:
+    """Explicitly approve a user-selected descriptive patch for the active project.
+
+    This is the F60R10/F60R11 manual-selection authority.  Unlike trusted-root
+    discovery it does not require the transport to be named ``incoming.patch``.
+    Selection in the Forge GUI is itself the approval gesture, but every normal
+    archive, project identity, date, build/source and hash check still applies.
+    The original selected file is retained; Forge works from its immutable Vault copy.
+    """
+    root = root.expanduser().resolve()
+    source = source.expanduser().resolve()
+    if not source.is_file():
+        raise IntakeError(f"selected patch file does not exist: {source}")
+
+    details = inspect_patch(source)
+    project = str(details.get("project") or "unassigned")
+    if project.casefold() not in _project_aliases(root):
+        raise IntakeError("selected patch project identity does not match the active project")
+    if not bool(details.get("modern")) or not bool(details.get("buildBound")):
+        raise IntakeError("selected patch must use a modern build-bound Forge/Vault patch schema")
+    if str(details.get("dateStatus") or "PASS").upper() != "PASS":
+        raise IntakeError(f"selected patch package date status is {details.get('dateStatus')}")
+
+    verification = verify_manifest_preconditions(details["manifest"], root)
+    if verification.get("status") != "PASS":
+        detail = "; ".join(
+            f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
+            for x in verification.get("mismatches", [])
+        )
+        raise IntakeError("selected patch does not match active project/build identity: " + detail)
+
+    digest = sha256_file(source)
+    existing = _existing_ingested(digest)
+    if existing is not None:
+        state = str(existing.get("state") or "").upper()
+        if state == "APPLIED":
+            raise IntakeError("selected patch is already recorded as applied")
+        if state in {"QUEUED", "STAGED"}:
+            out = dict(existing)
+            out["buildVerification"] = verification
+            return out
+        if state in {"CANDIDATE", "AVAILABLE", "LINEAGE", "REVIEW"}:
+            return _queue_existing_for_project(
+                root, existing, classification="PATCH-MANUAL-APPROVED", source_label="selected patch"
+            )
+
+    # Catalog a new selected transport without consuming the user's source file.
+    # The normal scanner stores a verified immutable Vault copy; explicit approval
+    # below promotes that exact stored evidence into the queue.
+    item = ingest_patch(source, remove_source=False, trusted_root=False)
+    state = str(item.get("state") or "").upper()
+    if state in {"CANDIDATE", "AVAILABLE"}:
+        approved = approve_available_for_project(root, str(item.get("intake_id") or ""))
+        db = _connect()
+        try:
+            db.execute(
+                "UPDATE intake_items SET classification='PATCH-MANUAL-APPROVED' WHERE intake_id=?",
+                (str(approved.get("intake_id") or ""),),
+            )
+            db.commit()
+        finally:
+            db.close()
+        approved = next(x for x in list_items() if str(x.get("intake_id")) == str(item.get("intake_id")))
+        approved["buildVerification"] = verification
+        return approved
+    if state == "QUEUED":
+        return item
+    raise IntakeError(f"selected patch could not be approved; catalog state is {state or 'UNKNOWN'}")
+
+
 def ingest_patch(source: Path, *, remove_source: bool = True, trusted_root: bool = False) -> dict[str, Any]:
     source = source.expanduser().resolve()
     details = inspect_patch(source)
     digest = sha256_file(source)
+    is_incoming = source.name.casefold() == INCOMING_PATCH_NAME
+
     existing = _existing_ingested(digest)
     if existing is not None:
-        # A package may have been cataloged from Downloads before the user deliberately
-        # drops the same bytes into the active project root.  Treat that trusted root
-        # drop as explicit approval instead of rejecting the duplicate hash.
-        if trusted_root and str(existing.get("state") or "").upper() == "AVAILABLE":
-            approved = approve_available_for_project(source.parent, str(existing.get("intake_id") or ""))
+        # The one deliberate project-root front door is incoming.patch. Presenting
+        # identical cataloged bytes through it is explicit approval, but only after
+        # the live project/build/source identity passes again.
+        if trusted_root and is_incoming and str(existing.get("state") or "").upper() in {"CANDIDATE", "AVAILABLE", "LINEAGE"}:
+            approved = _queue_existing_from_incoming(source.parent, existing)
             if remove_source:
                 source.unlink(missing_ok=True)
-            approved["classification"] = "PATCH-APPROVED-ROOT-DROP"
-            approved["source_name"] = source.name
+                for suffix in (".sha256", ".sha256.txt"):
+                    Path(str(source) + suffix).unlink(missing_ok=True)
             return approved
-        raise IntakeError("byte-identical patch is already queued/applied/reviewed")
+        # Any other duplicate is already durably represented. Consuming the duplicate
+        # transport is safe and prevents Downloads/root scans from rediscovering it forever.
+        if remove_source:
+            source.unlink(missing_ok=True)
+            for suffix in (".sha256", ".sha256.txt"):
+                Path(str(source) + suffix).unlink(missing_ok=True)
+        duplicate = dict(existing)
+        duplicate["classification"] = "PATCH-DUPLICATE-CATALOGED"
+        duplicate["duplicate"] = True
+        return duplicate
 
-    intake_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:10]}"
-    legacy_policy = str((load_settings().get("security", {}) or {}).get("legacyPatchPolicy") or "review").strip().casefold()
-    if not bool(details.get("modern")) and not trusted_root and legacy_policy == "review":
-        project = str(details.get("project") or "unassigned")
-        receipt = archive_artifact_file(
-            source, project, category="review", move=remove_source,
-            metadata={
-                "artifactType": "legacy-patch",
-                "verificationClass": details.get("verificationClass"),
-                "packageCreatedUtc": details.get("packageCreatedUtc", ""),
-                "dateStatus": details.get("dateStatus", ""),
-                "reason": "Legacy/unbound patch discovered outside a trusted project root; retained for review rather than auto-queued.",
-            },
-        )
-        item = {
-            "schema": "vault.intake.receipt.v1", "version": VAULT_INTAKE_VERSION,
-            "intake_id": intake_id, "source_name": source.name, "original_path": str(source),
-            "sha256": digest, "bytes": int(receipt.get("bytes", 0) or 0),
-            "classification": "PATCH-LEGACY-REVIEW", "state": "REVIEW",
-            "target_project": project, "patch_id": details["patchId"], "received_utc": utc_now(),
-            "vault_path": str(receipt.get("artifactPath") or ""), "manifest": details["manifest"],
-            "package_created_utc": details.get("packageCreatedUtc", ""), "date_status": details.get("dateStatus", ""),
-            "verification_class": details.get("verificationClass", "LEGACY-UNBOUND"),
-            "legacy_patch_id": bool(details.get("legacyPatchId")), "source_mtime_utc": "", "error": "",
-        }
+    project = str(details.get("project") or "unassigned")
+    verification: dict[str, Any] | None = None
+    classification = "PATCH-LINEAGE"
+    state = "LINEAGE"
+    relation = "historical"
+    approved_utc = ""
+    approved_root = ""
+
+    if trusted_root:
+        # F60R9 contract: only the exact reserved incoming.patch filename is an
+        # executable root transport. Arbitrary historical *.zip/*.patch files in a
+        # project root are lineage evidence, never implicit queue entries.
+        if not is_incoming:
+            relation = "legacy-root-transport"
+        else:
+            aliases = _project_aliases(source.parent)
+            if project.casefold() not in aliases:
+                archived = _archive_lineage_transport(
+                    source, details, relation="project-mismatch", remove_source=remove_source,
+                    reason="incoming.patch project identity does not match active project",
+                )
+                item = _lineage_item(source, details, archived, error="incoming.patch project identity does not match active project")
+                _persist_item(item); _write_receipt(item)
+                raise IntakeError("incoming.patch project identity mismatch; package moved to Patch Lineage")
+            if not bool(details.get("modern")) or not bool(details.get("buildBound")):
+                archived = _archive_lineage_transport(
+                    source, details, relation="unbound", remove_source=remove_source,
+                    reason="incoming.patch must use a modern build-bound Forge/Vault patch schema",
+                )
+                item = _lineage_item(source, details, archived, error="incoming.patch is not modern/build-bound")
+                _persist_item(item); _write_receipt(item)
+                raise IntakeError("incoming.patch is not modern/build-bound; package moved to Patch Lineage")
+            if str(details.get("dateStatus") or "PASS").upper() != "PASS":
+                archived = _archive_lineage_transport(
+                    source, details, relation="date-mismatch", remove_source=remove_source,
+                    reason=f"incoming.patch package date status is {details.get('dateStatus')}",
+                )
+                item = _lineage_item(source, details, archived, error="incoming.patch package date evidence failed")
+                _persist_item(item); _write_receipt(item)
+                raise IntakeError("incoming.patch package date evidence failed; package moved to Patch Lineage")
+            verification = verify_manifest_preconditions(details["manifest"], source.parent)
+            if verification.get("status") != "PASS":
+                relation = "base-mismatch"
+                archived = _archive_lineage_transport(
+                    source, details, relation=relation, remove_source=remove_source,
+                    reason="incoming.patch does not match active build/source preconditions",
+                )
+                item = _lineage_item(source, details, archived, error="incoming.patch build/source preconditions do not match")
+                _persist_item(item); _write_receipt(item)
+                detail = "; ".join(
+                    f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
+                    for x in verification.get("mismatches", [])
+                )
+                raise IntakeError("incoming.patch build/source mismatch; package moved to Patch Lineage: " + detail)
+            state = "QUEUED"
+            classification = "PATCH-INCOMING-APPROVED"
+            relation = "descendant-candidate"
+            approved_utc = utc_now()
+            approved_root = str(source.parent)
+    else:
+        # Downloads/global watchers never create executable queue state. Fresh valid
+        # packages that need attention stay in REVIEW; only clearly historical evidence
+        # is sent directly to Lineage. This keeps newly downloaded Cortex/project updates
+        # actionable instead of making them appear to vanish.
+        relation = _lineage_relation(details)
+        # Staleness is governed by package creation evidence, not the moment a user
+        # copied/downloaded the file. A months-old patch downloaded five seconds ago is
+        # still historical. Fall back to filesystem mtime only for legacy packages that
+        # have no trustworthy package timestamp.
+        age_seconds = max(0.0, time.time() - source.stat().st_mtime)
+        package_created = str(details.get("packageCreatedUtc") or "").strip()
+        if package_created:
+            try:
+                created_dt = datetime.fromisoformat(package_created.replace("Z", "+00:00"))
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=timezone.utc)
+                age_seconds = max(0.0, (datetime.now(timezone.utc) - created_dt.astimezone(timezone.utc)).total_seconds())
+            except Exception:
+                pass
+        historical_age = age_seconds > 3600.0
+
+        if project == "unassigned":
+            relation = "unassigned-project"
+            if not historical_age:
+                return _archive_review_transport(source, details, reason="patch project is not registered/identified", relation=relation, remove_source=remove_source)
+        elif bool(details.get("modern")) and bool(details.get("buildBound")) and str(details.get("dateStatus") or "PASS").upper() == "PASS":
+            target_root = _registered_root_for_project(project)
+            if target_root is not None:
+                verification = verify_manifest_preconditions(details["manifest"], target_root)
+                if verification.get("status") == "PASS":
+                    state = "CANDIDATE"
+                    classification = "PATCH-DESCENDANT-CANDIDATE"
+                    relation = "descendant-candidate"
+                else:
+                    relation = "base-mismatch"
+                    detail = "; ".join(
+                        f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
+                        for x in verification.get("mismatches", [])
+                    ) or "current project authority does not match package preconditions"
+                    if not historical_age:
+                        return _archive_review_transport(source, details, reason=detail, relation=relation, remove_source=remove_source)
+            else:
+                # A current modern package for a project not yet registered with this
+                # ForgePY instance stays globally discoverable as a non-executable
+                # candidate. It can later be routed once the project is registered.
+                state = "CANDIDATE"
+                classification = "PATCH-UNVERIFIED-CANDIDATE"
+                relation = "unregistered-project"
+        # Legacy/unbound/date-failed transports remain historical evidence. They are
+        # retained in Lineage rather than promoted merely because they were downloaded
+        # recently.
+
+    if state == "LINEAGE":
+        archived = _archive_lineage_transport(source, details, relation=relation, remove_source=remove_source)
+        item = _lineage_item(source, details, archived)
         _persist_item(item); _write_receipt(item)
+        if remove_source:
+            for suffix in (".sha256", ".sha256.txt"):
+                Path(str(source) + suffix).unlink(missing_ok=True)
         return item
 
     intake_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:10]}"
@@ -476,30 +909,21 @@ def ingest_patch(source: Path, *, remove_source: bool = True, trusted_root: bool
     staged = quarantine / source.name
     temp = quarantine / (source.name + ".copying")
     shutil.copy2(source, temp)
-    copied_digest = sha256_file(temp)
-    if copied_digest != digest:
+    if sha256_file(temp) != digest:
         temp.unlink(missing_ok=True)
-        raise IntakeError("Vault quarantine copy hash mismatch")
+        raise IntakeError("Forge quarantine copy hash mismatch")
     os.replace(temp, staged)
 
-    project = details["project"] or "unassigned"
-    safe_project = re.sub(r"[^A-Za-z0-9._-]+", "-", project).strip("-") or "unassigned"
-    safe_patch = re.sub(r"[^A-Za-z0-9._-]+", "-", details["patchId"]).strip("-") or intake_id
-    artifact_tree = ensure_artifact_project_tree(safe_project)
-    # Global intake (Downloads, watched folders) is catalog-only.  A downloaded patch
-    # must never become an executable update merely because it matches a registered
-    # project.  Only a deliberate trusted-root drop is QUEUED automatically.
-    intake_bucket = "queued" if trusted_root else "available"
-    intake_state = "QUEUED" if trusted_root else "AVAILABLE"
-    intake_classification = "PATCH" if trusted_root else "PATCH-AVAILABLE"
-    package_dir = artifact_tree["patches"] / intake_bucket / safe_patch
+    safe_project = _safe_component(project)
+    safe_patch = _safe_component(str(details.get("patchId") or intake_id), intake_id)
+    tree = ensure_artifact_project_tree(safe_project)
+    bucket = "queued" if state == "QUEUED" else "candidates"
+    package_dir = tree["patches"] / bucket / safe_patch
     package_dir.mkdir(parents=True, exist_ok=True)
     stored = package_dir / source.name
     if stored.exists():
         stored = package_dir / f"{intake_id}_{source.name}"
     _promote_verified(staged, stored, digest, remove_source=True)
-    # Preserve durable transport evidence beside the package regardless of whether
-    # it is only AVAILABLE or deliberately QUEUED.
     Path(str(stored) + ".sha256").write_text(f"{digest}  {stored.name}\n", encoding="ascii")
     (package_dir / "manifest.json").write_text(json.dumps(details["manifest"], indent=2, sort_keys=True) + "\n", encoding="utf-8")
     try:
@@ -508,62 +932,77 @@ def ingest_patch(source: Path, *, remove_source: bool = True, trusted_root: bool
         pass
 
     item = {
-        "schema": "vault.intake.receipt.v1",
-        "version": VAULT_INTAKE_VERSION,
-        "intake_id": intake_id,
-        "source_name": source.name,
-        "original_path": str(source),
-        "sha256": digest,
-        "bytes": source.stat().st_size,
-        "classification": intake_classification,
-        "state": intake_state,
-        "target_project": project,
-        "patch_id": details["patchId"],
-        "received_utc": utc_now(),
-        "vault_path": str(stored),
-        "manifest": details["manifest"],
-        "package_created_utc": details.get("packageCreatedUtc", ""),
-        "date_status": details.get("dateStatus", ""),
-        "legacy_patch_id": bool(details.get("legacyPatchId")),
-        "verification_class": details.get("verificationClass", ""),
-        "build_bound": bool(details.get("buildBound")),
-        "source_mtime_utc": datetime.fromtimestamp(source.stat().st_mtime, tz=timezone.utc).isoformat(),
-        "error": "",
+        "schema": "vault.intake.receipt.v1", "version": VAULT_INTAKE_VERSION,
+        "intake_id": intake_id, "source_name": source.name, "original_path": str(source),
+        "sha256": digest, "bytes": int(source.stat().st_size), "classification": classification,
+        "state": state, "target_project": project, "patch_id": details["patchId"], "received_utc": utc_now(),
+        "vault_path": str(stored), "manifest": details["manifest"], "error": "",
+        "approved_utc": approved_utc, "approved_root": approved_root,
+        "package_created_utc": details.get("packageCreatedUtc", ""), "date_status": details.get("dateStatus", ""),
+        "verification_class": details.get("verificationClass", ""), "legacy_patch_id": bool(details.get("legacyPatchId")),
+        "build_bound": bool(details.get("buildBound")), "relationship": relation,
     }
-    _persist_item(item)
-    _write_receipt(item)
-
-    # Never remove the browser/download copy until the Vault copy is durable and hash-verified.
+    _persist_item(item); _write_receipt(item)
     if remove_source:
-        source.unlink()
+        source.unlink(missing_ok=True)
         for suffix in (".sha256", ".sha256.txt"):
-            sidecar = Path(str(source) + suffix)
-            if sidecar.is_file():
-                sidecar.unlink()
+            Path(str(source) + suffix).unlink(missing_ok=True)
     return item
 
 
-def _archive_global_rejected_transport(path: Path, *, reason: str, remove_source: bool) -> dict[str, Any] | None:
-    """Move a rejected global patch candidate to Artifact Central review without executing it.
+def _lineage_item(source: Path, details: dict[str, Any], archived: dict[str, Any], *, error: str = "") -> dict[str, Any]:
+    intake_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:10]}"
+    return {
+        "schema": "vault.intake.receipt.v1", "version": VAULT_INTAKE_VERSION,
+        "intake_id": intake_id, "source_name": source.name, "original_path": str(source),
+        "sha256": str(archived.get("sha256") or ""), "bytes": int(Path(str(archived.get("stored"))).stat().st_size),
+        "classification": "PATCH-LINEAGE", "state": "LINEAGE",
+        "target_project": str(details.get("project") or "unassigned"),
+        "patch_id": str(details.get("patchId") or f"lineage-{str(archived.get('sha256') or '')[:12]}"),
+        "received_utc": utc_now(), "vault_path": str(archived.get("stored") or ""),
+        "manifest": details.get("manifest") if isinstance(details.get("manifest"), dict) else {},
+        "error": str(error or ""), "approved_utc": "", "approved_root": "",
+        "package_created_utc": details.get("packageCreatedUtc", ""), "date_status": details.get("dateStatus", ""),
+        "verification_class": details.get("verificationClass", ""), "legacy_patch_id": bool(details.get("legacyPatchId")),
+        "build_bound": bool(details.get("buildBound")), "relationship": str(archived.get("relation") or "historical"),
+    }
 
-    This intentionally does not parse/extract the transport again.  Even an oversized or
-    malformed ZIP can be retained as inert evidence.  Project attribution is conservative
-    and uses only the registered-project filename matcher; otherwise the item is unassigned.
-    """
+def _archive_global_rejected_transport(path: Path, *, reason: str, remove_source: bool) -> dict[str, Any] | None:
+    """Retain rejected Downloads packages as inert lineage when project attribution is known."""
     if not remove_source or not path.is_file():
         return None
     project = identify_project(path) or "unassigned"
+    if project != "unassigned":
+        try:
+            digest = sha256_file(path)
+            details = {
+                "project": project,
+                "patchId": f"invalid-{digest[:12]}",
+                "manifest": {},
+                "verificationClass": "INVALID",
+                "packageCreatedUtc": "",
+                "dateStatus": "INVALID",
+                "modern": False,
+                "buildBound": False,
+                "legacyPatchId": False,
+            }
+            archived = _archive_lineage_transport(path, details, relation="invalid", remove_source=True, reason=reason)
+            item = _lineage_item(path, details, archived, error=str(reason))
+            item["classification"] = "PATCH-LINEAGE-INVALID"
+            _persist_item(item); _write_receipt(item)
+            for suffix in (".sha256", ".sha256.txt"):
+                Path(str(path) + suffix).unlink(missing_ok=True)
+            return item
+        except Exception:
+            pass
     try:
         receipt = archive_artifact_file(
-            path,
-            project,
-            category="review",
-            move=True,
+            path, "unassigned", category="review", move=True,
             metadata={
                 "artifactType": "rejected-patch-transport",
                 "intakeDisposition": "REVIEW-NONEXECUTABLE",
                 "reason": str(reason),
-                "sourceMtimeUtc": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(),
+                "sourceMtimeUtc": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat() if path.exists() else "",
                 "intakeUtc": utc_now(),
             },
         )
@@ -572,29 +1011,19 @@ def _archive_global_rejected_transport(path: Path, *, reason: str, remove_source
     digest = str(receipt.get("sha256") or "")
     intake_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:10]}"
     item = {
-        "schema": "vault.intake.receipt.v1",
-        "version": VAULT_INTAKE_VERSION,
-        "intake_id": intake_id,
-        "source_name": path.name,
-        "original_path": str(path),
-        "sha256": digest,
-        "bytes": int(receipt.get("bytes", 0) or 0),
-        "classification": "PATCH-REJECTED-REVIEW",
-        "state": "REVIEW",
-        "target_project": project,
-        "patch_id": f"review-{digest[:12]}" if digest else f"review-{uuid.uuid4().hex[:12]}",
-        "received_utc": utc_now(),
-        "vault_path": str(receipt.get("artifactPath") or ""),
-        "manifest": {},
-        "error": str(reason),
+        "schema": "vault.intake.receipt.v1", "version": VAULT_INTAKE_VERSION,
+        "intake_id": intake_id, "source_name": path.name, "original_path": str(path),
+        "sha256": digest, "bytes": int(receipt.get("bytes", 0) or 0),
+        "classification": "PATCH-REJECTED-REVIEW", "state": "REVIEW",
+        "target_project": "unassigned", "patch_id": f"review-{digest[:12]}" if digest else f"review-{uuid.uuid4().hex[:12]}",
+        "received_utc": utc_now(), "vault_path": str(receipt.get("artifactPath") or ""), "manifest": {},
+        "error": str(reason), "approved_utc": "", "approved_root": "",
     }
     try:
-        _persist_item(item)
-        _write_receipt(item)
+        _persist_item(item); _write_receipt(item)
     except Exception:
         pass
     return item
-
 
 def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_source: bool = True, trusted_roots: Iterable[Path] = ()) -> dict[str, Any]:
     """Scan top-level trusted intake roots for patches and recognized project artifacts.
@@ -741,7 +1170,9 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
 
 
 def scan_downloads(*, force_stable: bool = False, remove_source: bool = True) -> dict[str, Any]:
-    # Compatibility wrapper used by older Forge/PCC surfaces.
+    # Repair stale pre-F60R9 queue state before cataloging anything new. Downloads
+    # itself remains discovery/lineage authority only.
+    normalize_queue_authority()
     return scan_roots(downloads_roots(), force_stable=force_stable, remove_source=remove_source)
 
 
@@ -794,15 +1225,15 @@ def _origin_is_global_download(path_value: str) -> bool:
 
 
 def available_for_project(root: Path, *, compatible_only: bool = True) -> list[dict[str, Any]]:
-    """Return catalog-only Downloads patches that target the selected project.
+    """Return non-executable descendant candidates for the selected project.
 
-    AVAILABLE never means executable.  When compatible_only is true the patch must
-    also pass the live project/build/source precondition check.
+    Compatibility note: F60R8 used AVAILABLE.  Those rows are accepted here only so
+    they can be live-verified and migrated; new scans create CANDIDATE or LINEAGE.
     """
     root = root.expanduser().resolve()
     aliases = _project_aliases(root)
     matches: list[dict[str, Any]] = []
-    for item in list_items(state="AVAILABLE"):
+    for item in [x for x in list_items() if str(x.get("state") or "").upper() in {"CANDIDATE", "AVAILABLE"}]:
         if str(item.get("target_project") or "").casefold() not in aliases:
             continue
         manifest = item.get("manifest") if isinstance(item.get("manifest"), dict) else {}
@@ -816,15 +1247,14 @@ def available_for_project(root: Path, *, compatible_only: bool = True) -> list[d
 
 
 def approve_available_for_project(root: Path, intake_id: str) -> dict[str, Any]:
-    """Explicitly promote one cataloged download into the executable queue.
-
-    This is intentionally separate from Downloads scanning.  A user/UI approval is
-    required, is recorded durably, and the target build is re-verified immediately.
-    """
+    """Explicitly authorize one cataloged descendant candidate for execution."""
     root = root.expanduser().resolve()
-    selected = next((item for item in list_items(state="AVAILABLE") if str(item.get("intake_id")) == str(intake_id)), None)
+    selected = next(
+        (item for item in list_items() if str(item.get("intake_id")) == str(intake_id) and str(item.get("state") or "").upper() in {"CANDIDATE", "AVAILABLE"}),
+        None,
+    )
     if selected is None:
-        raise IntakeError("selected downloaded patch is no longer AVAILABLE")
+        raise IntakeError("selected downloaded patch is not an executable candidate")
     aliases = _project_aliases(root)
     if str(selected.get("target_project") or "").casefold() not in aliases:
         raise IntakeError("downloaded patch does not target the active project")
@@ -841,12 +1271,18 @@ def approve_available_for_project(root: Path, intake_id: str) -> dict[str, Any]:
             f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
             for x in verification.get("mismatches", [])
         )
-        raise IntakeError("downloaded patch does not match active project/build identity: " + detail)
+        # A package that no longer matches current authority is historical lineage,
+        # not a failed/pending update.
+        _relocate_catalog_item_to_lineage(
+            selected, "base-mismatch",
+            error="candidate base no longer matches current authority: " + detail,
+        )
+        raise IntakeError("downloaded patch no longer matches active project/build identity; moved to Patch Lineage: " + detail)
     approved_utc = utc_now()
     db = _connect()
     try:
         db.execute(
-            "UPDATE intake_items SET state='QUEUED',approved_utc=?,approved_root=?,error='' WHERE intake_id=? AND state='AVAILABLE'",
+            "UPDATE intake_items SET state='QUEUED',classification='PATCH-EXPLICITLY-APPROVED',approved_utc=?,approved_root=?,error='' WHERE intake_id=? AND state IN ('CANDIDATE','AVAILABLE')",
             (approved_utc, str(root), str(intake_id)),
         )
         if db.total_changes != 1:
@@ -855,20 +1291,15 @@ def approve_available_for_project(root: Path, intake_id: str) -> dict[str, Any]:
     finally:
         db.close()
     approved = next(item for item in list_items() if str(item.get("intake_id")) == str(intake_id))
-    safe_project = re.sub(r"[^A-Za-z0-9._-]+", "-", str(approved.get("target_project") or "unassigned")).strip("-") or "unassigned"
+    safe_project = _safe_component(str(approved.get("target_project") or "unassigned"))
     receipt_dir = ensure_artifact_project_tree(safe_project)["patches"] / "receipts"
     receipt_dir.mkdir(parents=True, exist_ok=True)
     receipt = receipt_dir / f"approval-{intake_id}.json"
     payload = {
-        "schema": "forge.patch.approval.v1",
-        "intakeId": str(intake_id),
-        "patchId": approved.get("patch_id"),
-        "project": approved.get("target_project"),
-        "approvedUtc": approved_utc,
-        "approvedRoot": str(root),
-        "sha256": expected,
-        "buildVerification": verification,
-        "source": str(source),
+        "schema": "forge.patch.approval.v1", "intakeId": str(intake_id),
+        "patchId": approved.get("patch_id"), "project": approved.get("target_project"),
+        "approvedUtc": approved_utc, "approvedRoot": str(root), "sha256": expected,
+        "buildVerification": verification, "source": str(source),
     }
     temp = receipt.with_suffix(receipt.suffix + ".tmp")
     temp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -878,48 +1309,216 @@ def approve_available_for_project(root: Path, intake_id: str) -> dict[str, Any]:
     return approved
 
 
+def _authorized_queue_item(item: dict[str, Any], root: Path | None = None) -> bool:
+    state = str(item.get("state") or "").upper()
+    if state not in {"QUEUED", "STAGED"}:
+        return False
+    if str(item.get("approved_utc") or "").strip() and str(item.get("approved_root") or "").strip():
+        if root is None:
+            return True
+        try:
+            return Path(str(item.get("approved_root"))).expanduser().resolve() == root.expanduser().resolve()
+        except Exception:
+            return False
+    # No approval evidence means a pre-F60R9 queue row. It is never executable.
+    return False
+
+
+def _relocate_catalog_item_to_lineage(item: dict[str, Any], relation: str, *, error: str = "") -> None:
+    intake_id = str(item.get("intake_id") or "")
+    source = Path(str(item.get("vault_path") or ""))
+    project = _safe_component(str(item.get("target_project") or "unassigned"))
+    patch_id = _safe_component(str(item.get("patch_id") or intake_id), intake_id or "lineage")
+    target_dir = ensure_artifact_project_tree(project)["patches"] / "lineage" / _safe_component(relation, "historical") / patch_id
+    new_path = source
+    try:
+        if source.is_file():
+            source_dir = source.parent
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+            final_dir = target_dir
+            if final_dir.exists() and source_dir.resolve() != final_dir.resolve():
+                final_dir = target_dir.with_name(target_dir.name + "-" + (intake_id[-6:] or uuid.uuid4().hex[:6]))
+            if source_dir.resolve() != final_dir.resolve():
+                shutil.move(str(source_dir), str(final_dir))
+            new_path = final_dir / source.name
+    except Exception:
+        new_path = source
+    _set_item_state(intake_id, "LINEAGE", vault_path_value=str(new_path), error=error)
+
+
+def review_items() -> list[dict[str, Any]]:
+    """Return every actionable non-executable download/review item globally.
+
+    CANDIDATE means the package is structurally current but has not received explicit
+    execution authority. REVIEW means operator routing/compatibility attention is
+    required. Both belong in the same decision surface.
+    """
+    return [item for item in list_items() if str(item.get("state") or "").upper() in {"REVIEW", "CANDIDATE"}]
+
+
+def reevaluate_review_item(intake_id: str, root: Path) -> dict[str, Any]:
+    """Re-check a reviewed patch against an explicitly selected project root."""
+    root = root.expanduser().resolve()
+    item = next((x for x in list_items() if str(x.get("intake_id")) == str(intake_id) and str(x.get("state") or "").upper() in {"REVIEW", "CANDIDATE", "LINEAGE"}), None)
+    if item is None:
+        raise IntakeError("review item no longer exists")
+    return _queue_existing_for_project(root, item, classification="PATCH-REVIEW-APPROVED", source_label="reviewed patch")
+
+
+
+def retarget_review_item(intake_id: str, target_project: str) -> dict[str, Any]:
+    """Change Review routing without granting execution authority.
+
+    The operator may correct a filename/alias classification here. The package remains
+    REVIEW/CANDIDATE until separately re-evaluated and approved against that project's
+    actual root/build/source preconditions.
+    """
+    target_project = str(target_project or "").strip()
+    if not target_project:
+        raise IntakeError("target project is required")
+    item = next((x for x in list_items() if str(x.get("intake_id")) == str(intake_id) and str(x.get("state") or "").upper() in {"REVIEW", "CANDIDATE"}), None)
+    if item is None:
+        raise IntakeError("review item no longer exists")
+    with _connect() as db:
+        db.execute(
+            "UPDATE intake_items SET target_project=?, error=? WHERE intake_id=?",
+            (target_project, f"operator routed to {target_project}; approval still required", str(intake_id)),
+        )
+        db.commit()
+    updated = next(x for x in list_items() if str(x.get("intake_id")) == str(intake_id))
+    _write_receipt(updated)
+    return updated
+
+def archive_review_item(intake_id: str, *, relation: str = "operator-archived") -> dict[str, Any]:
+    item = next((x for x in list_items() if str(x.get("intake_id")) == str(intake_id) and str(x.get("state") or "").upper() in {"REVIEW", "CANDIDATE"}), None)
+    if item is None:
+        raise IntakeError("review item no longer exists")
+    _relocate_catalog_item_to_lineage(item, relation, error=str(item.get("error") or "archived from Review"))
+    return next(x for x in list_items() if str(x.get("intake_id")) == str(intake_id))
+
+
+def ignore_review_item(intake_id: str) -> dict[str, Any]:
+    item = next((x for x in list_items() if str(x.get("intake_id")) == str(intake_id) and str(x.get("state") or "").upper() in {"REVIEW", "CANDIDATE"}), None)
+    if item is None:
+        raise IntakeError("review item no longer exists")
+    _set_item_state(str(intake_id), "IGNORED", error=str(item.get("error") or "ignored by operator"))
+    return next(x for x in list_items() if str(x.get("intake_id")) == str(intake_id))
+
+
+def normalize_queue_authority(root: Path | None = None) -> dict[str, Any]:
+    """Repair legacy queue rows so discovery can never become execution authority.
+
+    F60R8 and earlier builds could leave QUEUED/STAGED rows without durable approval
+    evidence.  F60R9 demotes every such row to LINEAGE.  This is intentionally
+    idempotent and is called before health counts and staging.
+    """
+    changed: list[dict[str, Any]] = []
+    for item in list_items():
+        state = str(item.get("state") or "").upper()
+        if state not in {"QUEUED", "STAGED", "AVAILABLE"}:
+            continue
+        if state == "AVAILABLE":
+            # Reclassify old Downloads rows against current project authority.  An
+            # outdated package becomes lineage immediately rather than lingering as
+            # a misleading update candidate.
+            manifest = item.get("manifest") if isinstance(item.get("manifest"), dict) else {}
+            schema = str(manifest.get("schema") or "").casefold()
+            modern = schema.startswith("vault.patch.v2") or schema.startswith("forge.patch.v1")
+            declared = {}
+            for key in ("requires", "preconditions", "targetBuild"):
+                value = manifest.get(key)
+                if isinstance(value, dict):
+                    declared.update(value)
+            bound = any(declared.get(k) not in (None, "") for k in (
+                "gitCommit","gitHead","commit","sourceCommit","projectVersion","version","targetVersion",
+                "projectBuild","build","buildId","baseline","greenId","gateId","green"
+            ))
+            target_root = _registered_root_for_project(str(item.get("target_project") or ""))
+            next_state = "CANDIDATE"
+            reason = "migrated from pre-F60R9 AVAILABLE state"
+            if not modern or not bound:
+                next_state = "LINEAGE"
+                reason = "legacy/unbound pre-F60R9 Downloads entry moved to Patch Lineage"
+            elif target_root is not None:
+                verification = verify_manifest_preconditions(manifest, target_root)
+                if verification.get("status") != "PASS":
+                    next_state = "LINEAGE"
+                    reason = "pre-F60R9 Downloads entry no longer matches current project authority"
+            if next_state == "LINEAGE":
+                _relocate_catalog_item_to_lineage(item, "migrated-historical", error=reason)
+            else:
+                _set_item_state(str(item.get("intake_id") or ""), next_state, error=reason)
+            changed.append({"patchId": item.get("patch_id"), "from": "AVAILABLE", "to": next_state})
+            continue
+        if _authorized_queue_item(item, root):
+            continue
+        # Never delete arbitrary project files.  If an old STAGED copy can be proven
+        # byte-identical to Forge's catalog entry, remove only that compatibility copy.
+        if state == "STAGED":
+            target_root = root or _registered_root_for_project(str(item.get("target_project") or ""))
+            if target_root is not None:
+                for name in {str(item.get("source_name") or ""), "incoming.zip"}:
+                    if not name:
+                        continue
+                    staged = target_root / "updates" / "inbox" / name
+                    try:
+                        if staged.is_file() and sha256_file(staged) == str(item.get("sha256") or ""):
+                            staged.unlink(missing_ok=True)
+                            Path(str(staged) + ".sha256").unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        _relocate_catalog_item_to_lineage(
+            item, "unauthorized-legacy-queue",
+            error="pre-F60R9 queue lacked explicit approval evidence; demoted to Patch Lineage",
+        )
+        changed.append({"patchId": item.get("patch_id"), "from": state, "to": "LINEAGE"})
+    return {"normalized": len(changed), "items": changed}
+
 def counts_for_project(*names: str) -> tuple[int, int]:
+    """Return executable queue counts only.
+
+    Discovery/candidate/lineage states never count as pending updates.  A queue row
+    must carry explicit approval evidence; stale pre-F60R9 rows are normalized away.
+    """
+    normalize_queue_authority()
     wanted = {name.strip().casefold() for name in names if name and name.strip()}
     db = _connect()
     try:
-        rows = db.execute("SELECT target_project,state,error,original_path,approved_utc FROM intake_items WHERE state IN ('QUEUED','STAGED','REJECTED','FAILED')").fetchall()
+        rows = db.execute(
+            "SELECT intake_id,target_project,state,error,approved_utc,approved_root FROM intake_items WHERE state IN ('QUEUED','STAGED','REJECTED','FAILED')"
+        ).fetchall()
     finally:
         db.close()
     pending = invalid = 0
-    for project, state, error, original_path, approved_utc in rows:
+    for intake_id, project, state, error, approved_utc, approved_root in rows:
         project_key = str(project or "").casefold()
-        # Downloads is catalog-only. Legacy rows created before F60R1 must never show up
-        # as executable pending work, even if an older scanner assigned a project name.
-        if (
-            str(state).upper() in {"QUEUED", "STAGED"}
-            and _origin_is_global_download(str(original_path or ""))
-            and not str(approved_utc or "").strip()
-        ):
-            continue
-        # A global/unassigned legacy queue entry is not an update for every project.
-        # Only an explicit target alias may contribute to this project's pending/invalid counts.
         if wanted and project_key not in wanted:
             continue
-        if str(state).upper() in {"QUEUED", "STAGED"}:
+        upper = str(state or "").upper()
+        if upper in {"QUEUED", "STAGED"}:
+            if not str(approved_utc or "").strip() or not str(approved_root or "").strip():
+                continue
             pending += 1
         else:
             invalid += 1
     return pending, invalid
 
-
 def _project_aliases(root: Path) -> set[str]:
-    aliases = {root.name.casefold()}
+    raw_aliases = {root.name.casefold()}
     try:
         from PCCProjectDiscovery import discover_project_contract_data
         data = discover_project_contract_data(root)
         project = data.get("project") or {}
         for value in (project.get("id"), project.get("name")):
             if value:
-                aliases.add(str(value).strip().casefold())
+                raw_aliases.add(str(value).strip().casefold())
     except Exception:
         pass
-    if "forge-project-control-center" in aliases or (root / "app" / "ForgeVersion.py").is_file():
-        aliases.update({"forge", "vault", "vault-project-control-center"})
+    if "forgepy" in raw_aliases or "forge-project-control-center" in raw_aliases or (root / "app" / "ForgePYVersion.py").is_file() or (root / "app" / "ForgeVersion.py").is_file():
+        raw_aliases.update({"forgepy", "forge-py", "forge", "vault", "vault-project-control-center", "forge-project-control-center"})
+    aliases: set[str] = set()
+    for value in raw_aliases:
+        aliases.update(_project_identity_forms(value))
     return {x for x in aliases if x}
 
 
@@ -935,77 +1534,78 @@ def _set_item_state(intake_id: str, state: str, *, vault_path_value: str | None 
         db.close()
 
 
-def stage_for_project(root: Path) -> dict[str, Any]:
+def stage_for_project(root: Path, *, compatibility_inbox: bool = False) -> dict[str, Any]:
+    """Validate explicitly approved queue items for one project.
+
+    Canonical Forge patches stay in Artifact Central and are applied from there.
+    `compatibility_inbox=True` is reserved for legacy project-native patch authorities
+    that still require updates/inbox.  Discovery alone can never reach this function.
+    """
     root = root.expanduser().resolve()
+    normalize_queue_authority(root)
     aliases = _project_aliases(root)
-    items = [item for item in list_items() if item.get("state") in {"QUEUED", "STAGED"}]
-
-    # F60R2 migration guard: older releases could queue Downloads entries. Downloads is
-    # now catalog-only, so demote any such legacy rows before an operation can stage/apply them.
-    for item in items:
-        if str(item.get("target_project") or "").casefold() not in aliases:
-            continue
-        if not _origin_is_global_download(str(item.get("original_path") or "")):
-            continue
-        if str(item.get("approved_utc") or "").strip():
-            # Explicit user approval turns a catalog-only download into a legitimate
-            # queue item.  The approval receipt is the trust boundary.
-            continue
-        if str(item.get("state") or "").upper() == "STAGED":
-            staged_copy = root / "updates" / "inbox" / str(item.get("source_name") or "")
-            try:
-                if staged_copy.is_file() and sha256_file(staged_copy) == str(item.get("sha256") or ""):
-                    staged_copy.unlink(missing_ok=True)
-                    Path(str(staged_copy) + ".sha256").unlink(missing_ok=True)
-            except OSError:
-                pass
-        _set_item_state(str(item.get("intake_id") or ""), "AVAILABLE", error="legacy Downloads queue demoted to catalog-only by Forge F60R2")
-
-    items = [item for item in list_items() if item.get("state") in {"QUEUED", "STAGED"}]
-    selected = [item for item in items if str(item.get("target_project") or "").casefold() in aliases]
+    items = [item for item in list_items() if str(item.get("state") or "").upper() in {"QUEUED", "STAGED"}]
+    selected = [
+        item for item in items
+        if str(item.get("target_project") or "").casefold() in aliases and _authorized_queue_item(item, root)
+    ]
     if not selected:
-        return {"staged": 0, "items": [], "root": str(root)}
-    inbox = root / "updates" / "inbox"
-    inbox.mkdir(parents=True, exist_ok=True)
+        return {"staged": 0, "items": [], "root": str(root), "compatibilityInbox": bool(compatibility_inbox)}
+
     staged_rows: list[dict[str, Any]] = []
+    inbox = root / "updates" / "inbox"
+    if compatibility_inbox:
+        inbox.mkdir(parents=True, exist_ok=True)
+
     for item in selected:
-        source = Path(str(item["vault_path"]))
+        source = Path(str(item.get("vault_path") or ""))
         if not source.is_file():
-            _set_item_state(str(item["intake_id"]), "FAILED", error="queued Vault transport missing")
-            raise IntakeError(f"queued Vault transport missing: {source}")
-        expected = str(item["sha256"])
+            _set_item_state(str(item.get("intake_id") or ""), "FAILED", error="approved Forge transport missing")
+            raise IntakeError(f"approved Forge transport missing: {source}")
+        expected = str(item.get("sha256") or "")
+        if not expected or sha256_file(source) != expected:
+            _set_item_state(str(item.get("intake_id") or ""), "FAILED", error="approved Forge transport hash mismatch")
+            raise IntakeError(f"approved Forge transport hash mismatch: {source}")
         manifest = item.get("manifest") if isinstance(item.get("manifest"), dict) else {}
         verification = verify_manifest_preconditions(manifest, root)
         if verification.get("status") != "PASS":
-            detail = "; ".join(f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}" for x in verification.get("mismatches", []))
-            _set_item_state(str(item["intake_id"]), "FAILED", error="build identity mismatch: " + detail)
-            raise IntakeError("patch does not match active project/build identity: " + detail)
-        if sha256_file(source) != expected:
-            _set_item_state(str(item["intake_id"]), "FAILED", error="queued Vault transport hash mismatch")
-            raise IntakeError(f"queued Vault transport hash mismatch: {source}")
-        # Preserve the logical intake name rather than an Artifact Central collision
-        # suffix.  This keeps the normalized single-file project front door stable.
-        logical_name = str(item.get("source_name") or source.name)
-        # `incoming.patch` is the normalized user-facing root transport.  Internally
-        # stage it as a ZIP-compatible filename so established project-native PCC
-        # patch authorities that enumerate `*.zip` can consume it unchanged.
-        staged_name = "incoming.zip" if logical_name.casefold() == INCOMING_PATCH_NAME else logical_name
-        dest = inbox / staged_name
-        if dest.exists():
-            if sha256_file(dest) != expected:
-                raise IntakeError(f"project inbox already contains conflicting transport: {dest.name}")
-        else:
-            temp = inbox / (source.name + ".vault-copying")
-            shutil.copy2(source, temp)
-            if sha256_file(temp) != expected:
-                temp.unlink(missing_ok=True)
-                raise IntakeError(f"project inbox copy hash mismatch: {source.name}")
-            os.replace(temp, dest)
-        Path(str(dest) + ".sha256").write_text(f"{expected}  {dest.name}\n", encoding="ascii")
-        _set_item_state(str(item["intake_id"]), "STAGED")
-        staged_rows.append({"patchId": item["patch_id"], "source": str(source), "projectInbox": str(dest), "buildVerification": verification})
-    return {"staged": len(staged_rows), "items": staged_rows, "root": str(root)}
+            detail = "; ".join(
+                f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
+                for x in verification.get("mismatches", [])
+            )
+            # Authority moved after approval. This is no longer a pending/failing
+            # update; it is historical lineage evidence.
+            _relocate_catalog_item_to_lineage(
+                item, "base-mismatch",
+                error="approved patch base no longer matches: " + detail,
+            )
+            raise IntakeError("approved patch no longer matches active project/build identity; demoted to Patch Lineage: " + detail)
 
+        project_inbox = ""
+        if compatibility_inbox:
+            logical_name = str(item.get("source_name") or source.name)
+            staged_name = "incoming.zip" if logical_name.casefold() == INCOMING_PATCH_NAME else logical_name
+            dest = inbox / staged_name
+            if dest.exists():
+                if sha256_file(dest) != expected:
+                    raise IntakeError(f"project compatibility inbox already contains conflicting transport: {dest.name}")
+            else:
+                temp = inbox / (staged_name + ".forge-copying")
+                shutil.copy2(source, temp)
+                if sha256_file(temp) != expected:
+                    temp.unlink(missing_ok=True)
+                    raise IntakeError(f"project compatibility inbox copy hash mismatch: {source.name}")
+                os.replace(temp, dest)
+            Path(str(dest) + ".sha256").write_text(f"{expected}  {dest.name}\n", encoding="ascii")
+            project_inbox = str(dest)
+
+        _set_item_state(str(item.get("intake_id") or ""), "STAGED")
+        staged_rows.append({
+            "intakeId": item.get("intake_id"), "patchId": item.get("patch_id"),
+            "source": str(source), "projectInbox": project_inbox,
+            "buildVerification": verification,
+        })
+    return {"staged": len(staged_rows), "items": staged_rows, "root": str(root), "compatibilityInbox": bool(compatibility_inbox)}
 
 def _applied_patch_ids(root: Path) -> set[str]:
     folders = [
@@ -1068,7 +1668,8 @@ def watch(*, interval: float = 3.0) -> int:
         while True:
             result = scan_downloads()
             for item in result["ingested"]:
-                print(f"[PASS] QUEUED {item['patch_id']} -> {item['vault_path']}", flush=True)
+                state = str(item.get("state") or "CATALOGED").upper()
+                print(f"[INFO] {state} {item['patch_id']} -> {item['vault_path']}", flush=True)
             for item in result["errors"]:
                 print(f"[WARN] intake rejected {item['path']}: {item['error']}", flush=True)
             time.sleep(max(1.0, interval))

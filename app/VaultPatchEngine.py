@@ -16,7 +16,7 @@ from typing import Any
 
 from VaultPaths import vault_root
 
-PATCH_ENGINE_VERSION = "FORGE-PATCH-0.3"
+PATCH_ENGINE_VERSION = "FORGE-PATCH-0.4"
 SUPPORTED_SCHEMAS = {
     "vault.patch.v1",
     "forge.patch.v1",
@@ -39,8 +39,8 @@ def restart_marker_path() -> Path:
 
 def _is_vault_application_root(root: Path, manifest: dict[str, Any]) -> bool:
     target = str(manifest.get("project") or manifest.get("projectId") or manifest.get("project_id") or "").strip().casefold()
-    if target in {"vault", "vault-project-control-center", "vault-project-control-centre", "forge", "forge-project-control-center", "forge-project-control-centre"}:
-        return (root / "app" / "ForgeStandalone.py").is_file() or (root / "app" / "VaultStandalone.py").is_file()
+    if target in {"vault", "vault-project-control-center", "vault-project-control-centre", "forgepy", "forge-py", "forge", "forge-project-control-center", "forge-project-control-centre"}:
+        return (root / "app" / "ForgePYStandalone.py").is_file() or (root / "app" / "ForgeStandalone.py").is_file() or (root / "app" / "VaultStandalone.py").is_file()
     return False
 
 
@@ -50,6 +50,43 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(block)
     return h.hexdigest()
+
+
+_TEXT_PREIMAGE_SUFFIXES = {
+    ".py", ".pyw", ".md", ".txt", ".json", ".toml", ".yaml", ".yml",
+    ".ini", ".cfg", ".cmd", ".bat", ".ps1", ".psm1", ".psd1", ".vbs",
+    ".xml", ".html", ".css", ".js", ".ts", ".rs", ".c", ".cc", ".cpp",
+    ".h", ".hpp", ".cmake", ".props", ".targets", ".sln", ".vcxproj",
+}
+
+
+def _normalized_text_sha256(path: Path) -> str:
+    data = path.read_bytes()
+    if data.startswith(b"\xef\xbb\xbf"):
+        data = data[3:]
+    data = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(data).hexdigest()
+
+
+def _hash_matches(path: Path, expected: str) -> bool:
+    expected = (expected or "").strip().casefold()
+    if not expected or not path.is_file():
+        return False
+    if sha256_file(path) == expected:
+        return True
+    if path.suffix.casefold() in _TEXT_PREIMAGE_SUFFIXES:
+        try:
+            return _normalized_text_sha256(path) == expected
+        except OSError:
+            return False
+    return False
+
+
+def _row_already_satisfied(target: Path, row: dict[str, Any]) -> bool:
+    if row["operation"] == "delete":
+        return not target.exists()
+    target_sha = str(row.get("sha256") or "").strip().casefold()
+    return bool(target_sha and target.is_file() and _hash_matches(target, target_sha))
 
 
 def _safe_rel(raw: str) -> str:
@@ -162,12 +199,13 @@ def validate_transport(path: Path, root: Path | None = None) -> dict[str, Any]:
                     raise PatchError(f"payload byte-size mismatch: {rel}")
             if root is not None:
                 target = _target(root, rel)
-                if row["preSha256"]:
+                already_satisfied = _row_already_satisfied(target, row)
+                if row["preSha256"] and not already_satisfied:
                     if not target.is_file():
                         raise PatchError(f"preimage required but missing: {rel}")
-                    if sha256_file(target) != row["preSha256"]:
+                    if not _hash_matches(target, row["preSha256"]):
                         raise PatchError(f"preimage hash mismatch: {rel}")
-                if row["operation"] == "delete" and not target.exists() and not row["allowMissing"]:
+                if row["operation"] == "delete" and not target.exists() and not already_satisfied and not row["allowMissing"]:
                     raise PatchError(f"delete target is missing: {rel}")
     return {"manifest": manifest, "files": files, "sha256": sha256_file(path)}
 
@@ -198,6 +236,14 @@ def apply_transport(path: Path, root: Path) -> dict[str, Any]:
                 rel = row["path"]
                 target = _target(root, rel)
                 existed = target.exists()
+                if _row_already_satisfied(target, row):
+                    applied.append({
+                        "path": rel,
+                        "operation": row["operation"],
+                        "existed": existed,
+                        "status": "already-satisfied",
+                    })
+                    continue
                 if existed:
                     backup = preimage / Path(rel)
                     backup.parent.mkdir(parents=True, exist_ok=True)
@@ -228,7 +274,7 @@ def apply_transport(path: Path, root: Path) -> dict[str, Any]:
                             pass
                     if row["sha256"] and sha256_file(target) != row["sha256"]:
                         raise PatchError(f"post-write verification failed: {rel}")
-                applied.append({"path": rel, "operation": row["operation"], "existed": existed})
+                applied.append({"path": rel, "operation": row["operation"], "existed": existed, "status": "applied"})
 
         receipt_dir = root / "artifacts" / "patches" / "receipts"
         receipt_dir.mkdir(parents=True, exist_ok=True)
@@ -269,6 +315,8 @@ def apply_transport(path: Path, root: Path) -> dict[str, Any]:
     except Exception as exc:
         rollback_errors: list[str] = []
         for row in reversed(applied):
+            if row.get("status") == "already-satisfied":
+                continue
             rel = row["path"]
             target = _target(root, rel)
             backup = backups.get(rel)

@@ -10,9 +10,9 @@ from typing import Sequence
 from PCCSurfaceCommon import BackendClient, ProjectContract, ProjectRegistry, SurfaceError
 from ForgeGui import ForgeGui, GUI_VERSION
 from ForgeConsole import run_console
-from ForgeVersion import VERSION as FORGE_VERSION
+from ForgePYVersion import VERSION as FORGE_VERSION
 
-STANDALONE_VERSION = f"FORGE-STANDALONE-{FORGE_VERSION}"
+STANDALONE_VERSION = f"FORGEPY-STANDALONE-{FORGE_VERSION}"
 
 
 def _valid_root(path: Path | None) -> Path | None:
@@ -50,7 +50,7 @@ def _choose_root() -> Path | None:
     chooser = tk.Tk()
     chooser.withdraw()
     try:
-        raw = filedialog.askdirectory(title="Select a project folder for Forge", mustexist=True)
+        raw = filedialog.askdirectory(title="Select a project folder for ForgePY", mustexist=True)
     finally:
         chooser.destroy()
     return _valid_root(Path(raw)) if raw else None
@@ -88,11 +88,14 @@ def self_test(root: Path | None = None) -> int:
         import PCCOperationHost  # noqa: F401
         import PCCRepoHygiene  # noqa: F401
         import PCCVaultCatalog  # noqa: F401
-        import VaultPaths  # noqa: F401
-        import ForgeHealth  # noqa: F401
-        import VaultIntake  # noqa: F401
-        import VaultPatchEngine  # noqa: F401
-        print("PASS forge-modules=loaded")
+        import ForgePYPaths  # noqa: F401
+        import ForgePYHealth  # noqa: F401
+        import ForgePYIntake  # noqa: F401
+        import ForgePYPatchEngine  # noqa: F401
+        import ForgePYSourceControl  # noqa: F401
+        import ForgePYInternalGit  # noqa: F401
+        import ForgePYBrand  # noqa: F401
+        print("PASS forgepy-modules=loaded")
     except Exception as exc:
         print(f"FAIL universal-modules={exc}")
         return 1
@@ -111,7 +114,7 @@ def self_test(root: Path | None = None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Forge — Universal Project Control Center")
+    parser = argparse.ArgumentParser(description="ForgePY — Universal Project Control Center")
     parser.add_argument("--root", help="Project folder to open initially")
     parser.add_argument("--choose", action="store_true", help="Always show the project-folder picker")
     parser.add_argument("--self-test", action="store_true", help="Verify the standalone Forge package")

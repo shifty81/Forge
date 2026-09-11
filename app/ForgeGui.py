@@ -43,24 +43,34 @@ from PCCVaultCatalog import (
     vault_root as global_vault_root,
 )
 from PCCRepoHygiene import prepare as repo_hygiene_prepare
-from ForgeHealth import evaluate_project
-from VaultIntake import (
+from ForgePYHealth import evaluate_project
+from ForgePYIntake import (
     scan_intake as vault_scan_intake,
     scan_roots as vault_scan_roots,
     scan_downloads as vault_scan_downloads,
     available_for_project as vault_available_for_project,
     approve_available_for_project as vault_approve_available_for_project,
+    approve_manual_patch_for_project as vault_approve_manual_patch_for_project,
     counts_for_project as vault_update_counts_for_project,
+    stage_for_project as vault_stage_for_project,
+    reconcile_project as vault_reconcile_project,
+    list_items as vault_list_intake_items,
+    review_items as vault_review_items,
+    reevaluate_review_item as vault_reevaluate_review_item,
+    archive_review_item as vault_archive_review_item,
+    ignore_review_item as vault_ignore_review_item,
+    retarget_review_item as vault_retarget_review_item,
+    parse_canonical_patch_filename as vault_parse_patch_filename,
 )
-from VaultPaths import configured_scan_roots, data_root as vault_data_root, downloads_roots, intake_roots, projects_root as vault_projects_root, artifact_central_root, ensure_artifact_project_tree
-from VaultPatchEngine import restart_marker_path
-from ForgeVersion import VERSION as FORGE_VERSION
-from VaultSettings import load_settings, save_settings, set_projects_root, set_section, set_vault_home, set_scan_roots, set_artifact_central_root
+from ForgePYPaths import configured_scan_roots, data_root as vault_data_root, downloads_roots, intake_roots, projects_root as vault_projects_root, artifact_central_root, ensure_artifact_project_tree
+from ForgePYPatchEngine import restart_marker_path, apply_transport as vault_apply_transport, can_apply_transport as vault_can_apply_transport
+from ForgePYVersion import VERSION as FORGE_VERSION
+from ForgePYSettings import load_settings, save_settings, set_projects_root, set_section, set_vault_home, set_scan_roots, set_artifact_central_root
 from VaultStorage import migrate_home as vault_migrate_home, migrate_project as vault_migrate_project
-from VaultDriveIndex import scan as vault_drive_scan, list_projects as vault_drive_projects
+from VaultDriveIndex import (scan as vault_drive_scan, list_projects as vault_drive_projects, list_entries as vault_drive_entries, search_entries as vault_drive_search, latest_summary as vault_drive_latest_summary, lineage_groups as vault_drive_lineage_groups, entry_counts as vault_drive_counts)
 from VaultForgejo import server_status as forgejo_server_status
-from ForgeSourceControl import status as vault_source_status
-from VaultTray import ForgeTray, supported as tray_supported
+from ForgePYSourceControl import status as forgepy_source_status, repository_tree as forgepy_repository_tree, branch_graph as forgepy_branch_graph, list_tags as forgepy_list_tags
+from ForgePYTray import ForgeTray, supported as tray_supported
 from VaultIde import list_files as ide_list_files, read_file as ide_read_file, write_file as ide_write_file, runtime_ready as ide_runtime_ready, host_ready as ide_host_ready, launch_monaco as ide_launch_monaco, monaco_root as ide_monaco_root
 from VaultCortex import status as cortex_status, start as cortex_start, find_cortex_root
 from VaultArtifacts import summary as artifact_summary
@@ -69,8 +79,11 @@ from VaultBlender import version as blender_version, run_script as blender_run_s
 from VaultComponents import inventory as component_inventory
 from ForgeProjectSource import clone_repository as forge_clone_repository, project_github as forge_project_github, github_web_url_from_remote
 from ForgeUniversalTooling import capability_matrix as forge_capability_matrix, build_all_registered as forge_build_all_registered
+from ForgePYBrand import apply_window_icon
+from ForgePerformance import record as forge_perf_record, recent as forge_perf_recent, export as forge_perf_export
+from ForgeGit import status as forgegit_status, repository_path as forgegit_repository_path, branches as forgegit_branches
 
-GUI_VERSION = f"FORGE-GUI-{FORGE_VERSION}"
+GUI_VERSION = f"FORGEPY-GUI-{FORGE_VERSION}"
 
 BG = "#090b0e"
 PANEL = "#11151a"
@@ -109,7 +122,8 @@ class ForgeGui:
         self.registry.touch(self.root_path)
 
         self.window = tk.Tk()
-        self.window.title(f"Forge — {self.contract.name}")
+        apply_window_icon(self.window)
+        self.window.title(f"ForgePY — {self.contract.name}")
         self.window.geometry("1280x860")
         self.window.minsize(1040, 720)
         self.window.configure(bg=BG)
@@ -131,12 +145,20 @@ class ForgeGui:
         self._project_health_generation = 0
         self._active_health_scan_running = False
         self._status_refresh_running = False
+        self._source_workspace_refresh_running = False
+        self._source_workspace_last_refresh = 0.0
+        self._current_app_tab = ""
         self._last_console_scroll = 0.0
         self._busy = False
         self._vault_busy = False
         self._vault_cancel = False
         self._vault_node_paths: dict[str, Path] = {}
         self._vault_metrics: dict[str, Any] = {}
+        self._vault_browser_mode = "drive"
+        self._vault_drive_offset = 0
+        self._vault_page_size = 500
+        self._vault_initialized = False
+        self._vault_drive_records: dict[str, dict[str, Any]] = {}
         self._intake_stop = threading.Event()
         self._seen_available_download_ids: set[str] = set()
         self._download_approval_busy = False
@@ -144,6 +166,7 @@ class ForgeGui:
         self._project_migration_busy = False
         self._forgejo_status: dict[str, Any] = {}
         self._tray: ForgeTray | None = None
+        self._tray_minimize_notice_sent = False
         self._exit_requested = False
         self._app_rail_collapsed = False
         self._health_rail_collapsed = False
@@ -157,7 +180,7 @@ class ForgeGui:
         self._refresh_projects()
         self._show_page("Dashboard")
         self._show_app_tab("Projects")
-        self._append_log(f"[PASS] Forge {GUI_VERSION} ACTIVE.\n", "pass")
+        self._append_log(f"[PASS] ForgePY {GUI_VERSION} ACTIVE.\n", "pass")
         self._append_log(f"Active project: {self.contract.name} — {self.root_path}\n", "muted")
         moved = int(self._startup_hygiene.get("moved", 0) or 0)
         if self._startup_hygiene.get("error"):
@@ -208,7 +231,7 @@ class ForgeGui:
 
         title_block = tk.Frame(header, bg=BG)
         title_block.pack(side="left", fill="y")
-        tk.Label(title_block, text="FORGE", bg=BG, fg=CYAN, font=("Segoe UI Semibold", 18)).pack(anchor="w")
+        tk.Label(title_block, text="FORGEPY", bg=BG, fg=CYAN, font=("Segoe UI Semibold", 18)).pack(anchor="w")
         self.active_project_label = tk.Label(title_block, text="", bg=BG, fg=MUTED, font=("Segoe UI", 9))
         self.active_project_label.pack(anchor="w", pady=(4, 0))
         self._update_header()
@@ -233,12 +256,12 @@ class ForgeGui:
         self.app_nav_host.pack_propagate(False)
         self.app_nav_header = tk.Frame(self.app_nav_host, bg=PANEL)
         self.app_nav_header.pack(fill="x", padx=8, pady=(8, 6))
-        self.app_nav_title = tk.Label(self.app_nav_header, text="FORGE WORKSPACES", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8), anchor="w")
+        self.app_nav_title = tk.Label(self.app_nav_header, text="FORGEPY WORKSPACES", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8), anchor="w")
         self.app_nav_title.pack(side="left", fill="x", expand=True)
         self.app_nav_collapse = tk.Button(self.app_nav_header, text="‹", command=self._toggle_app_rail, bg=PANEL, fg=CYAN, activebackground=PANEL_2, activeforeground=CYAN, bd=0, relief="flat", font=("Segoe UI Semibold", 13), cursor="hand2")
         self.app_nav_collapse.pack(side="right")
 
-        nav_items = (("Projects", "Projects"), ("Project Workspace", "Workspace"), ("Vault", "Vault"), ("Forgejo", "Forgejo"), ("IDE", "IDE"), ("Cortex", "Cortex"), ("Settings", "Settings"))
+        nav_items = (("Projects", "Projects"), ("Project Workspace", "Workspace"), ("Vault", "Vault"), ("Source Control", "Source Control"), ("IDE", "IDE"), ("Cortex", "Cortex"), ("Settings", "Settings"))
         for name, label in nav_items:
             btn = tk.Button(self.app_nav_host, text=label, command=lambda n=name: self._show_app_tab(n), bg=PANEL, fg=TEXT, activebackground=PANEL_2, activeforeground=CYAN, bd=0, relief="flat", cursor="hand2", font=("Segoe UI Semibold", 10), anchor="w", padx=20, pady=10)
             btn.pack(fill="x", padx=5, pady=1)
@@ -246,7 +269,7 @@ class ForgeGui:
 
         self.app_content = tk.Frame(self.main_body, bg=BG)
         self.app_content.pack(side="left", fill="both", expand=True)
-        for name in ("Projects", "Project Workspace", "Vault", "Forgejo", "IDE", "Cortex", "Settings"):
+        for name in ("Projects", "Project Workspace", "Vault", "Source Control", "IDE", "Cortex", "Settings"):
             self._app_frames[name] = tk.Frame(self.app_content, bg=BG)
 
         self.health_host = tk.Frame(self.main_body, bg=PANEL, width=225, highlightthickness=1, highlightbackground=BORDER)
@@ -257,7 +280,7 @@ class ForgeGui:
         self._build_projects_tab(self._app_frames["Projects"])
         self._build_workspace_tab(self._app_frames["Project Workspace"])
         self._build_vault_tab(self._app_frames["Vault"])
-        self._build_forgejo_tab(self._app_frames["Forgejo"])
+        self._build_source_control_tab(self._app_frames["Source Control"])
         self._build_ide_tab(self._app_frames["IDE"])
         self._build_cortex_tab(self._app_frames["Cortex"])
         self._build_settings_tab(self._app_frames["Settings"])
@@ -277,7 +300,7 @@ class ForgeGui:
         self._section_title(
             shell,
             "Registered Projects",
-            "Forge project registry. Select a project to load its Project Workspace.",
+            "ForgePY project registry. Select a project to load its Project Workspace.",
         )
 
         toolbar = tk.Frame(shell, bg=BG)
@@ -465,7 +488,7 @@ class ForgeGui:
         self.content = tk.Frame(center, bg=PANEL)
         self.content.pack(fill="both", expand=True, padx=13, pady=12)
 
-        pages = ("Dashboard", "Build & Run", "Updates", "Source Control", "Diagnostics", "Tooling", "Advanced Commands")
+        pages = ("Dashboard", "ForgePY Self", "Build & Run", "Updates", "Source Control", "Diagnostics", "Tooling", "Advanced Commands")
         scroll_pages = {"Build & Run", "Updates", "Source Control", "Diagnostics", "Tooling"}
         for page in pages:
             frame = tk.Frame(self.content, bg=PANEL)
@@ -473,6 +496,7 @@ class ForgeGui:
             self._page_bodies[page] = self._make_scrollable_page(frame) if page in scroll_pages else frame
 
         self._build_dashboard(self._page_bodies["Dashboard"])
+        self._build_forgepy_self_page(self._page_bodies["ForgePY Self"])
         self._build_build_page(self._page_bodies["Build & Run"])
         self._build_updates_page(self._page_bodies["Updates"])
         self._build_source_page(self._page_bodies["Source Control"])
@@ -558,21 +582,22 @@ class ForgeGui:
         shell.pack(fill="both", expand=True, padx=18, pady=14)
         self._section_title(
             shell,
-            "Vault Library",
-            "Local-first project intelligence, source/asset catalog, patch intake, build-tool discovery and recovery evidence.",
+            "Vault Catalog",
+            "Whole-drive inventory and project lineage: classify files, projects, components, patches, archives, generated data and unassigned content before governed moves.",
         )
 
         toolbar = tk.Frame(shell, bg=BG)
         toolbar.pack(fill="x", pady=(0, 9))
-        self._button(toolbar, "Scan Active Project", lambda: self._start_vault_scan(False), primary=True, compact=True).pack(side="left", padx=(0, 6))
-        self._button(toolbar, "Deep Hash Scan", lambda: self._start_vault_scan(True), compact=True).pack(side="left", padx=6)
-        self._button(toolbar, "Refresh Browser", self._vault_refresh_tree, compact=True).pack(side="left", padx=6)
-        self._button(toolbar, "Open Catalog", lambda: open_path(vault_catalog_dir(self.root_path)), compact=True).pack(side="left", padx=6)
-        self._button(toolbar, "Open Vault Library", lambda: open_path(global_vault_root()), compact=True).pack(side="left", padx=6)
-        self._button(toolbar, "Artifact Central", lambda: open_path(artifact_central_root()), compact=True).pack(side="left", padx=6)
-        self._button(toolbar, "Scan Intake", self._vault_scan_intake, compact=True).pack(side="left", padx=6)
-        self._button(toolbar, "Capture Baseline", self._vault_capture_baseline, compact=True).pack(side="left", padx=6)
-        self._button(toolbar, "Compare Baseline", self._vault_compare_baseline, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Scan Vault Drive", self._vault_scan_d_drive, primary=True, compact=True).pack(side="left", padx=(0, 6))
+        self._button(toolbar, "Drive Catalog", self._vault_show_drive_catalog, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Load More", self._vault_load_more, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Active Project", self._vault_show_project_files, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Project Scan", lambda: self._start_vault_scan(False), compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Deep Project Hash", lambda: self._start_vault_scan(True), compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Patch Review", self._open_patch_review, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Lineage", self._vault_show_lineage_groups, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Unclassified", self._vault_show_unclassified, compact=True).pack(side="left", padx=6)
+        self._button(toolbar, "Artifact Central", self._open_artifact_central_browser, compact=True).pack(side="left", padx=6)
         self.vault_scan_status = tk.Label(toolbar, text="Idle", bg=BG, fg=MUTED, font=("Segoe UI", 9))
         self.vault_scan_status.pack(side="right")
 
@@ -595,22 +620,22 @@ class ForgeGui:
         self._button(loc_row1, "Migrate Active Project…", self._vault_migrate_active_project, compact=True).pack(side="left", padx=3)
         loc_row2 = tk.Frame(loc_actions, bg=PANEL)
         loc_row2.pack(anchor="e")
-        self._button(loc_row2, "Scan D Drive", self._vault_scan_d_drive, compact=True).pack(side="left", padx=3)
-        self._button(loc_row2, "Register Scanned", self._vault_register_scanned_projects, compact=True).pack(side="left", padx=3)
+        self._button(loc_row2, "Register Project Authorities", self._vault_register_scanned_projects, compact=True).pack(side="left", padx=3)
+        self._button(loc_row2, "Open Vault Data", lambda: open_path(global_vault_root()), compact=True).pack(side="left", padx=3)
         self._refresh_location_labels()
 
         metrics = tk.Frame(shell, bg=BG)
         metrics.pack(fill="x", pady=(0, 9))
         self.vault_metric_labels: dict[str, Any] = {}
         for key, title in (
-            ("files", "Cataloged"),
-            ("source", "Source"),
-            ("assets", "Assets"),
-            ("commands", "Tool Commands"),
-            ("large", "Large Files"),
-            ("duplicates", "Duplicates"),
-            ("json", "Invalid JSON"),
-            ("artifacts", "Artifacts"),
+            ("items", "Cataloged"),
+            ("projects", "Projects"),
+            ("components", "Components"),
+            ("patches", "Patches"),
+            ("unknown", "Unclassified"),
+            ("archives", "Archives"),
+            ("generated", "Build / Cache"),
+            ("lineages", "Lineage Groups"),
         ):
             card = tk.Frame(metrics, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
             card.pack(side="left", fill="x", expand=True, padx=(0, 8))
@@ -622,8 +647,8 @@ class ForgeGui:
         panes = tk.PanedWindow(shell, orient="horizontal", bg=BG, sashwidth=5, sashrelief="flat", bd=0)
         panes.pack(fill="both", expand=True)
 
-        left = self._panel(panes, "Project Files")
-        right = self._panel(panes, "Catalog Detail")
+        left = self._panel(panes, "Vault Browser")
+        right = self._panel(panes, "Classification / Ownership")
         panes.add(left, minsize=470, stretch="always")
         panes.add(right, minsize=390, stretch="always")
 
@@ -695,8 +720,144 @@ class ForgeGui:
         self.vault_detail.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
         dscroll.pack(side="right", fill="y", padx=(4, 8), pady=8)
         self.vault_detail.configure(state="disabled")
-        self._vault_refresh_tree()
-        self._vault_render_summary(vault_latest_summary(self.root_path))
+        self.vault_tree.insert("", "end", iid="vault-lazy", text="Open Vault to load catalog", values=("LAZY", "", ""), open=True)
+        self._vault_render_summary({})
+
+    def _build_source_control_tab(self, parent: Any) -> None:
+        tk = self.tk
+        ttk = self.ttk
+        shell = tk.Frame(parent, bg=BG)
+        shell.pack(fill="both", expand=True, padx=16, pady=14)
+        self._section_title(
+            shell,
+            "Source Control",
+            "Visual Git workspace. Working Tree, ForgeGit and GitHub are first-class; Forgejo remains optional compatibility hosting.",
+        )
+
+        status_panel = self._panel(shell, "Active Project Source Authority")
+        status_panel.pack(fill="x", pady=(0, 8))
+        body = tk.Frame(status_panel, bg=PANEL)
+        body.pack(fill="x", padx=12, pady=(0, 10))
+        self.source_workspace_status_label = tk.Label(
+            body, text="Source-control status loads when this workspace opens.", bg=PANEL, fg=MUTED,
+            font=("Consolas", 9), anchor="w", justify="left",
+        )
+        self.source_workspace_status_label.pack(side="left", fill="x", expand=True)
+        self._button(body, "Refresh", self._refresh_source_workspace_async, compact=True).pack(side="right", padx=(8, 0))
+
+        panes = tk.PanedWindow(shell, orient="horizontal", bg=BG, sashwidth=5, sashrelief="flat", bd=0)
+        panes.pack(fill="both", expand=True)
+        left = self._panel(panes, "Actions")
+        center = self._panel(panes, "Repository")
+        right = self._panel(panes, "Branches / Tags")
+        panes.add(left, minsize=285, width=320, stretch="never")
+        panes.add(center, minsize=470, stretch="always")
+        panes.add(right, minsize=220, width=250, stretch="never")
+
+        # High-frequency actions stay on the far left.  The action rail scrolls
+        # independently so commands remain reachable at smaller window heights.
+        action_body = self._make_scrollable_page(left)
+
+        branch_tools = tk.Frame(right, bg=PANEL)
+        branch_tools.pack(fill="x", padx=8, pady=(0, 6))
+        self._button(branch_tools, "+ Branch", self._source_create_branch, primary=True, compact=True).pack(side="left", padx=(0, 4))
+        self._button(branch_tools, "Switch", self._source_switch_branch, compact=True).pack(side="left", padx=4)
+        self._button(branch_tools, "Merge", self._source_merge_branch, compact=True).pack(side="left", padx=4)
+        self._button(branch_tools, "Rename", self._source_rename_branch, compact=True).pack(side="left", padx=4)
+        self._button(branch_tools, "Delete", self._source_delete_branch, compact=True, danger=True).pack(side="left", padx=4)
+
+        self.source_branch_tree = ttk.Treeview(right, columns=("head", "upstream"), show="tree headings", selectmode="browse", height=10)
+        self.source_branch_tree.heading("#0", text="Branch")
+        self.source_branch_tree.column("#0", width=190, anchor="w")
+        self.source_branch_tree.heading("head", text="HEAD")
+        self.source_branch_tree.column("head", width=85, anchor="w")
+        self.source_branch_tree.heading("upstream", text="Upstream")
+        self.source_branch_tree.column("upstream", width=145, anchor="w")
+        self.source_branch_tree.pack(fill="both", expand=True, padx=8, pady=(0, 7))
+        self.source_branch_tree.bind("<Double-1>", lambda _e: self._source_switch_branch())
+
+        tag_box = tk.Frame(right, bg=PANEL_2, highlightthickness=1, highlightbackground=BORDER)
+        tag_box.pack(fill="x", padx=8, pady=(0, 8))
+        tk.Label(tag_box, text="QUICK RECOVERY", bg=PANEL_2, fg=MUTED, font=("Segoe UI Semibold", 8), anchor="w").pack(fill="x", padx=8, pady=(7, 2))
+        self._button(tag_box, "Create Recovery Branch", self._source_recovery_branch, compact=True).pack(fill="x", padx=8, pady=3)
+        self._button(tag_box, "Create Tag", self._source_create_tag, compact=True).pack(fill="x", padx=8, pady=3)
+        self._button(tag_box, "Branch from Selected Tag", self._source_branch_from_tag, compact=True).pack(fill="x", padx=8, pady=3)
+        self._button(tag_box, "Delete Selected Tag", self._source_delete_tag, compact=True, danger=True).pack(fill="x", padx=8, pady=(3, 8))
+
+        repo_toolbar = tk.Frame(center, bg=PANEL)
+        repo_toolbar.pack(fill="x", padx=8, pady=(0, 6))
+        self.source_repo_filter_var = tk.StringVar()
+        source_filter = tk.Entry(repo_toolbar, textvariable=self.source_repo_filter_var, bg="#090c10", fg=TEXT, insertbackground=TEXT, relief="flat", font=("Segoe UI", 9))
+        source_filter.pack(side="left", fill="x", expand=True, ipady=5)
+        source_filter.bind("<KeyRelease>", lambda _e: self._source_render_repo_tree())
+        self._button(repo_toolbar, "Stage", self._source_stage_selected, compact=True).pack(side="left", padx=(6, 2))
+        self._button(repo_toolbar, "Unstage", self._source_unstage_selected, compact=True).pack(side="left", padx=2)
+        self._button(repo_toolbar, "Diff", self._source_diff_selected, compact=True).pack(side="left", padx=2)
+        self._button(repo_toolbar, "Discard", self._source_discard_selected, compact=True, danger=True).pack(side="left", padx=2)
+
+        repo_split = tk.PanedWindow(center, orient="vertical", bg=PANEL, sashwidth=4, bd=0)
+        repo_split.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        tree_holder = tk.Frame(repo_split, bg=PANEL)
+        detail_holder = tk.Frame(repo_split, bg="#07090b")
+        repo_split.add(tree_holder, minsize=220, stretch="always")
+        repo_split.add(detail_holder, minsize=180, stretch="always")
+        self.source_repo_tree = ttk.Treeview(tree_holder, columns=("status",), show="tree headings", selectmode="extended")
+        self.source_repo_tree.heading("#0", text="Path")
+        self.source_repo_tree.column("#0", width=520, anchor="w")
+        self.source_repo_tree.heading("status", text="Git")
+        self.source_repo_tree.column("status", width=65, anchor="center")
+        rscroll = tk.Scrollbar(tree_holder, command=self.source_repo_tree.yview, bg=PANEL)
+        self.source_repo_tree.configure(yscrollcommand=rscroll.set)
+        self.source_repo_tree.pack(side="left", fill="both", expand=True)
+        rscroll.pack(side="right", fill="y")
+        self.source_repo_tree.bind("<Double-1>", lambda _e: self._source_diff_selected())
+
+        self.source_detail = tk.Text(detail_holder, bg="#07090b", fg=TEXT, insertbackground=TEXT, bd=0, relief="flat", font=("Consolas", 9), wrap="none")
+        detail_scroll = tk.Scrollbar(detail_holder, command=self.source_detail.yview, bg=PANEL)
+        self.source_detail.configure(yscrollcommand=detail_scroll.set)
+        self.source_detail.pack(side="left", fill="both", expand=True, padx=(7, 0), pady=7)
+        detail_scroll.pack(side="right", fill="y", padx=(3, 5), pady=5)
+        self.source_detail.insert("1.0", "Select a file for diff, or use Branch Graph / History.\n")
+        self.source_detail.configure(state="disabled")
+
+        self._command_category_list(action_body, "Working Tree", (
+            ("Commit GREEN", "Universal ForgePY GREEN-protected commit for every Git project.", self._commit_green, True),
+            ("Commit + Push GREEN", "Commit once, snapshot to ForgeGit, then push GitHub when configured.", self._commit_push_green, False),
+            ("Review Changes", "Show status and diff summary against HEAD.", lambda: self._start_builtin_source("review"), False),
+            ("Pull FF Only", "Update from upstream without merge commits.", lambda: self._start_builtin_source("pull-ff"), False),
+            ("Repair / Rebind Source", "Initialize/adopt GitHub authority and ensure ForgeGit after a folder recovery/overwrite.", self._repair_source_authority, False),
+            ("Authority Matrix", "Compare the current commit across Working Tree, ForgeGit and GitHub.", lambda: self._start_builtin_source("authority-json", [self.contract.project_id]), False),
+            ("Branch Graph", "Render the recent local/remote branch graph.", self._source_show_graph, False),
+        ))
+        self._command_category_list(action_body, "ForgeGit", (
+            ("Ensure ForgeGit", "Create or adopt the project's local bare ForgeGit authority.", lambda: self._start_forgegit("ensure"), True),
+            ("Snapshot Current Commit", "Push the current committed branch into ForgeGit.", lambda: self._start_forgegit("push"), False),
+            ("ForgeGit History", "Show history retained by the local ForgeGit repository.", lambda: self._start_forgegit("history"), False),
+            ("Verify ForgeGit", "Run a full non-destructive object/ref integrity check.", lambda: self._start_forgegit("verify"), False),
+            ("Export Recovery Bundle", "Create and verify a portable Git bundle of every ForgeGit ref in Artifact Central.", lambda: self._start_forgegit("export-bundle"), False),
+            ("Optimize ForgeGit", "Run explicit bare-repository maintenance without touching the working tree.", lambda: self._start_forgegit("optimize"), False),
+            ("Restore ForgeGit Branch", "Recover a ForgeGit branch into a new local branch without switching working files.", self._source_restore_forgegit_branch, False),
+            ("Open ForgeGit Repository", "Open the local bare repository folder.", lambda: open_path(forgegit_repository_path(self.contract.project_id)), False),
+        ))
+        self._command_category_list(action_body, "GitHub", (
+            ("Push GitHub", "Push the current committed branch to configured GitHub remotes without force.", lambda: self._start_builtin_source("push-github"), True),
+            ("Sync ForgeGit + GitHub", "Push the same current commit to both primary authorities.", lambda: self._start_builtin_source("sync-primary", [self.contract.project_id]), False),
+            ("Configure GitHub", "Add or update the GitHub remote URL for this working tree.", lambda: self._configure_source_remote("github"), False),
+            ("Open GitHub", "Open the active project's GitHub repository.", self._open_active_github, False),
+        ))
+        self._command_category_list(action_body, "Advanced", (
+            ("Fetch / Prune All", "Fetch every configured remote and prune stale refs.", lambda: self._start_builtin_source("fetch-all"), True),
+            ("Remotes", "List and classify GitHub, ForgeGit and optional Forgejo remotes.", lambda: self._start_builtin_source("remotes"), False),
+            ("Forgejo Compatibility", "Open the optional Forgejo compatibility controls.", self._refresh_forgejo_status_async, False),
+        ))
+        self.forgejo_status_label = tk.Label(action_body, text="Forgejo compatibility status not checked.", bg=PANEL, fg=MUTED, font=("Consolas", 8), anchor="w", justify="left")
+        self.forgejo_status_label.pack(fill="x", padx=8, pady=(4, 8))
+
+        self._source_repo_records = []
+        self._source_branches = []
+        self._source_tags = []
+        self._source_workspace_loaded = False
+
 
     def _build_forgejo_tab(self, parent: Any) -> None:
         tk = self.tk
@@ -705,7 +866,7 @@ class ForgeGui:
         self._section_title(
             shell,
             "Local Forgejo",
-            "Vault-owned local repository hosting, recovery mirror and source-control authority. GitHub remains a peer remote, not a replacement.",
+            "Optional Forgejo compatibility hosting. ForgeGit is the primary local source authority and GitHub is the standard external remote.",
         )
 
         status_panel = self._panel(shell, "Instance Status")
@@ -751,7 +912,7 @@ class ForgeGui:
         tk = self.tk
         header = tk.Frame(parent, bg=PANEL)
         header.pack(fill="x", padx=10, pady=(9, 3))
-        self.health_title = tk.Label(header, text="FORGE HEALTH", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8), anchor="w")
+        self.health_title = tk.Label(header, text="FORGEPY HEALTH", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8), anchor="w")
         self.health_title.pack(side="left", fill="x", expand=True)
         self.health_collapse_btn = tk.Button(header, text="›", command=self._toggle_health_rail, bg=PANEL, fg=CYAN, activebackground=PANEL_2, activeforeground=CYAN, bd=0, relief="flat", font=("Segoe UI Semibold", 13), cursor="hand2")
         self.health_collapse_btn.pack(side="right")
@@ -781,6 +942,24 @@ class ForgeGui:
         self.health_reason_label = tk.Label(self.health_expanded, text="Health evaluation pending.", bg=PANEL, fg=MUTED, font=("Segoe UI", 8), wraplength=190, justify="left", anchor="nw")
         self.health_reason_label.pack(fill="x", pady=(8, 0))
 
+        tk.Frame(self.health_expanded, bg=BORDER, height=1).pack(fill="x", padx=4, pady=(10, 7))
+        tk.Label(self.health_expanded, text="PATCH INTAKE", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8), anchor="w").pack(fill="x", padx=2)
+        self.right_patch_status_label = tk.Label(
+            self.health_expanded, text="Checking update state…", bg=PANEL, fg=MUTED,
+            font=("Segoe UI", 8), wraplength=190, justify="left", anchor="w",
+        )
+        self.right_patch_status_label.pack(fill="x", padx=2, pady=(3, 5))
+        self._button(self.health_expanded, "Select .patch…", self._apply_patch_file, compact=True, primary=True).pack(fill="x", padx=2, pady=(0, 3))
+        self._button(self.health_expanded, "Check Downloads", self._check_downloads_now, compact=True).pack(fill="x", padx=2, pady=(0, 3))
+
+        tk.Frame(self.health_expanded, bg=BORDER, height=1).pack(fill="x", padx=4, pady=(8, 7))
+        tk.Label(self.health_expanded, text="PROJECT CONTEXT", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8), anchor="w").pack(fill="x", padx=2)
+        self.right_context_label = tk.Label(
+            self.health_expanded, text="", bg=PANEL, fg=TEXT, font=("Consolas", 8),
+            wraplength=190, justify="left", anchor="nw",
+        )
+        self.right_context_label.pack(fill="x", padx=2, pady=(4, 0))
+
         self.health_collapsed_btn = tk.Button(parent, text="H\nE\nA\nL\nT\nH", command=self._toggle_health_rail, bg=PANEL, fg=CYAN, activebackground=PANEL_2, activeforeground=CYAN, bd=0, relief="flat", font=("Segoe UI Semibold", 8), cursor="hand2", padx=4)
 
     def _render_health_gauge(self, health: Any) -> None:
@@ -802,8 +981,28 @@ class ForgeGui:
                 label.configure(text=state, fg=c)
             reasons = tuple(getattr(health, "reasons", ()) or ())
             self.health_reason_label.configure(text=(reasons[0] if reasons else "All evaluated authorities are healthy."), fg=(MUTED if not reasons else color))
+            status = getattr(health, "status", {}) or {}
+            patches = status.get("patches") or {}
+            pending = int(patches.get("pending", 0) or 0)
+            invalid = int(patches.get("invalid", 0) or 0)
+            self.right_patch_status_label.configure(
+                text=f"{pending} queued · {invalid} invalid\nDownloads watcher + explicit approval",
+                fg=RED if invalid else (YELLOW if pending else MUTED),
+            )
+            project_meta = self.contract.raw.get("project") or {}
+            git = status.get("git") or {}
+            source = status.get("sourceControl") or {}
+            internal_state = "ready" if source.get("forgeGitConfigured") or source.get("internalGitConfigured") else "setup needed"
+            github_state = "ready" if source.get("githubConfigured") else "setup needed"
+            context_identity = FORGE_VERSION if self._is_forgepy_self_project() else (project_meta.get("version") or project_meta.get("build") or self.contract.kind)
+            self.right_context_label.configure(
+                text=(f"{context_identity}\n"
+                      f"Branch: {git.get('branch') or '—'}\n"
+                      f"GitHub: {github_state}\nForgeGit: {internal_state}\n"
+                      f"{compact_path(self.root_path, 30)}")
+            )
             if self._tray is not None:
-                self._tray.set_status(f"Forge — {self.contract.name} — {level} {score}/100")
+                self._tray.set_status(f"ForgePY — {self.contract.name} — {level} {score}/100")
         except Exception:
             pass
 
@@ -811,9 +1010,9 @@ class ForgeGui:
         self._app_rail_collapsed = bool(collapsed)
         width = 38 if collapsed else 158
         self.app_nav_host.configure(width=width)
-        self.app_nav_title.configure(text="" if collapsed else "FORGE WORKSPACES")
+        self.app_nav_title.configure(text="" if collapsed else "FORGEPY WORKSPACES")
         self.app_nav_collapse.configure(text="›" if collapsed else "‹")
-        display = {"Projects":"P", "Project Workspace":"W", "Vault":"V", "Forgejo":"F", "IDE":"I", "Cortex":"C", "Settings":"S"}
+        display = {"Projects":"P", "Project Workspace":"W", "Vault":"V", "Source Control":"G", "IDE":"I", "Cortex":"C", "Settings":"S"}
         for key, btn in self._app_tab_buttons.items():
             btn.configure(text=display.get(key, key[:1]) if collapsed else ("Workspace" if key == "Project Workspace" else key), anchor="center" if collapsed else "w", padx=5 if collapsed else 20)
         try:
@@ -853,7 +1052,7 @@ class ForgeGui:
         tk, ttk = self.tk, self.ttk
         shell = tk.Frame(parent, bg=BG)
         shell.pack(fill="both", expand=True, padx=14, pady=12)
-        self._section_title(shell, "Forge IDE", "Project-aware source editing. Native editing stays available for recovery; Monaco opens in its own Forge-themed desktop window.")
+        self._section_title(shell, "ForgePY IDE", "Project-aware source editing. Native editing stays available for recovery; Monaco opens in its own Forge-themed desktop window.")
         toolbar = tk.Frame(shell, bg=BG); toolbar.pack(fill="x", pady=(0, 8))
         self._button(toolbar, "Refresh Files", self._ide_refresh_files, primary=True, compact=True).pack(side="left", padx=(0, 5))
         self._button(toolbar, "Save", self._ide_save_native, compact=True).pack(side="left", padx=5)
@@ -905,7 +1104,7 @@ class ForgeGui:
         rel=getattr(self,"_ide_current_path","")
         if not rel: return
         try: info=ide_write_file(self.root_path,rel,self.ide_editor.get("1.0","end-1c"))
-        except Exception as exc: self._popup("Forge IDE",str(exc),kind="error"); return
+        except Exception as exc: self._popup("ForgePY IDE",str(exc),kind="error"); return
         self.ide_status_label.configure(text=f"Saved · {rel} · {info.get('bytes',0)} bytes",fg=GREEN)
 
     def _ide_install_monaco(self) -> None:
@@ -918,25 +1117,25 @@ class ForgeGui:
 
     def _ide_enable_monaco(self) -> None:
         if not ide_runtime_ready():
-            self._popup("Forge IDE", "Install the local Monaco component first. The native editor remains fully available.", kind="warning")
+            self._popup("ForgePY IDE", "Install the local Monaco component first. The native editor remains fully available.", kind="warning")
             return
         if not ide_host_ready():
-            self._popup("Forge IDE", "Install the pywebview IDE host first. On Windows it uses WebView2 and runs Monaco in a separate process/window.", kind="warning")
+            self._popup("ForgePY IDE", "Install the pywebview IDE host first. On Windows it uses WebView2 and runs Monaco in a separate process/window.", kind="warning")
             return
         initial = str(getattr(self, "_ide_current_path", "") or "")
         try:
             ide_launch_monaco(self.root_path, initial_file=initial)
         except Exception as exc:
-            self._popup("Forge IDE", f"Monaco pop-out failed. Native editor remains available.\n\n{exc}", kind="error")
+            self._popup("ForgePY IDE", f"Monaco pop-out failed. Native editor remains available.\n\n{exc}", kind="error")
             return
-        self.ide_status_label.configure(text="Forge Monaco window launched", fg=GREEN)
+        self.ide_status_label.configure(text="ForgePY Monaco window launched", fg=GREEN)
 
     def _build_cortex_tab(self, parent: Any) -> None:
         tk=self.tk; shell=tk.Frame(parent,bg=BG); shell.pack(fill="both",expand=True,padx=18,pady=14)
         self._section_title(shell,"Cortex","Cortex remains a standalone application/service, but Vault is its machine/project operations brain and recovery surface.")
         status=self._panel(shell,"Cortex Connection"); status.pack(fill="x",pady=(0,10)); self.cortex_status_label=tk.Label(status,text="Checking…",bg=PANEL,fg=MUTED,font=("Consolas",9),anchor="w",justify="left"); self.cortex_status_label.pack(fill="x",padx=12,pady=(0,10))
         self._command_category_list(shell,"Application / Service",(("Start Cortex","Launch the configured Cortex executable or registered project launcher.",self._cortex_start,True),("Refresh Status","Re-read Cortex registration and service configuration.",self._refresh_cortex_status,False),("Open Cortex Folder","Open the registered Cortex project root.",self._cortex_open_folder,False)))
-        self._command_category_list(shell,"Project Authority",(("Open Cortex Workspace","Make Cortex the active Forge project and open its Project Workspace.",self._cortex_open_workspace,True),("Cortex Settings","Open Forge Settings directly to the Cortex integration page.",lambda:(self._show_app_tab("Settings"),self._show_settings_page("Cortex")),False)))
+        self._command_category_list(shell,"Project Authority",(("Open Cortex Workspace","Make Cortex the active ForgePY project and open its Project Workspace.",self._cortex_open_workspace,True),("Cortex Settings","Open ForgePY Settings directly to the Cortex integration page.",lambda:(self._show_app_tab("Settings"),self._show_settings_page("Cortex")),False)))
         self._refresh_cortex_status()
 
     def _refresh_cortex_status(self) -> None:
@@ -960,7 +1159,7 @@ class ForgeGui:
 
     def _build_settings_tab(self, parent: Any) -> None:
         tk=self.tk; shell=tk.Frame(parent,bg=BG); shell.pack(fill="both",expand=True,padx=14,pady=12)
-        self._section_title(shell,"Settings","Vault application, services, storage, intake, source-control, IDE and Cortex integration settings.")
+        self._section_title(shell,"Settings","ForgePY application, services, Vault storage, intake, source-control, IDE and Cortex integration settings.")
         body=tk.PanedWindow(shell,orient="horizontal",bg=BG,sashwidth=4,bd=0); body.pack(fill="both",expand=True)
         nav=self._panel(body,"SETTINGS"); nav.configure(width=170); nav.pack_propagate(False); pages=tk.Frame(body,bg=BG); body.add(nav,minsize=155,width=170); body.add(pages,minsize=650,stretch="always")
         self._settings_vars={}; self._settings_pages={}; self._settings_nav={}
@@ -984,23 +1183,25 @@ class ForgeGui:
         p=self._settings_panel("Services","Background Services")
         self._setting_check(p,"services.intakeWatcher","Downloads / root intake watcher",bool(svc.get("intakeWatcher",True)),"Watches configured intake roots without blocking unrelated project gates.")
         self._setting_check(p,"services.driveWatcher","Drive/project watcher",bool(svc.get("driveWatcher",False)),"Reserved for incremental D: catalog watching; manual scan remains available.")
-        self._setting_check(p,"services.forgejoAutoStart","Start Forgejo with Vault",bool(svc.get("forgejoAutoStart",False)),"Starts the Vault-owned local source host when configured.")
-        self._setting_check(p,"services.cortexAutoStart","Start Cortex with Vault",bool(svc.get("cortexAutoStart",False)),"Optional; Cortex remains independently launchable.")
-        self._command_category_list(self._settings_pages["Services"],"Service Controls",(("Scan Intake Now","Run the intake classifier immediately.",self._vault_scan_intake,True),("Forgejo Status","Open the local source-hosting workspace.",lambda:self._show_app_tab("Forgejo"),False),("Cortex Status","Open Cortex integration status.",lambda:self._show_app_tab("Cortex"),False)))
+        self._setting_check(p,"services.forgejoAutoStart","Start optional Forgejo with ForgePY",bool(svc.get("forgejoAutoStart",False)),"Optional compatibility hosting; ForgeGit works without Forgejo.")
+        self._setting_check(p,"services.cortexAutoStart","Start Cortex with ForgePY",bool(svc.get("cortexAutoStart",False)),"Optional; Cortex remains independently launchable.")
+        self._command_category_list(self._settings_pages["Services"],"Service Controls",(("Scan Intake Now","Run the intake classifier immediately.",self._vault_scan_intake,True),("Source Control","Open GitHub / ForgeGit authority.",lambda:self._show_app_tab("Source Control"),False),("Performance Report","Show recent ForgePY GUI stall telemetry.",self._show_performance_report,False),("Cortex Status","Open Cortex integration status.",lambda:self._show_app_tab("Cortex"),False)))
 
         p=self._settings_panel("Storage","Portable Storage Authority")
-        self._setting_entry(p,"vaultHome","Forge Home",str(cfg.get("vaultHome") or "")); self._setting_entry(p,"projectsRoot","Projects Root",str(cfg.get("projectsRoot") or "")); self._setting_entry(p,"artifactCentralRoot","Artifact Central",str(cfg.get("artifactCentralRoot") or "")); self._setting_entry(p,"scanRoots","Scan Roots",";".join(str(x) for x in cfg.get("scanRoots") or []),"Semicolon-separated roots; D:\\ is supported.")
+        self._setting_entry(p,"vaultHome","ForgePY Home",str(cfg.get("vaultHome") or "")); self._setting_entry(p,"projectsRoot","Projects Root",str(cfg.get("projectsRoot") or "")); self._setting_entry(p,"artifactCentralRoot","Artifact Central",str(cfg.get("artifactCentralRoot") or "")); self._setting_entry(p,"scanRoots","Scan Roots",";".join(str(x) for x in cfg.get("scanRoots") or []),"Semicolon-separated roots; D:\\ is supported.")
 
         p=self._settings_panel("Intake & Artifacts","Package Verification / Classification")
         self._setting_check(p,"intake.watchDownloads","Watch Downloads",bool(intake.get("watchDownloads",True))); self._setting_check(p,"intake.watchProjectRoot","Watch active project/root transport area",bool(intake.get("watchProjectRoot",True))); self._setting_check(p,"intake.requirePackageDate","Require package creation date",bool(intake.get("requirePackageDate",False)),"Legacy packages can remain compatible while new Vault patches are date-stamped."); self._setting_check(p,"intake.archiveNonPatchArtifacts","Archive recognized non-patch artifacts",bool(intake.get("archiveNonPatchArtifacts",True)))
         self._setting_entry(p,"intake.packageClockToleranceHours","ZIP/package clock tolerance (hours)",str(intake.get("packageClockToleranceHours",48))); self._setting_entry(p,"intake.futureClockToleranceMinutes","Future clock tolerance (minutes)",str(intake.get("futureClockToleranceMinutes",10)))
         self._command_category_list(self._settings_pages["Intake & Artifacts"],"Artifact Central",(("Open Artifact Central","Open the durable per-project evidence and artifact hierarchy.",lambda:open_path(artifact_central_root()),True),("Open Active Project Artifacts","Open the selected project's Artifact Central folder.",lambda:open_path(ensure_artifact_project_tree(self.contract.project_id)["root"]),False)))
 
-        p=self._settings_panel("Source Control","Git / Hosted Authorities")
-        self._setting_entry(p,"sourceControl.gitBinary","Git binary",str(sc.get("gitBinary") or "")); self._setting_entry(p,"sourceControl.githubCliBinary","GitHub CLI (gh)",str(sc.get("githubCliBinary") or "")); self._setting_entry(p,"sourceControl.defaultGitHubRemote","GitHub remote",str(sc.get("defaultGitHubRemote") or "origin")); self._setting_entry(p,"sourceControl.defaultForgejoRemote","Forgejo remote",str(sc.get("defaultForgejoRemote") or "forgejo")); self._setting_check(p,"sourceControl.fetchOnStatus","Fetch remotes during status",bool(sc.get("fetchOnStatus",False)))
+        p=self._settings_panel("Source Control","Git / Primary Authorities")
+        self._setting_entry(p,"sourceControl.gitBinary","Git binary",str(sc.get("gitBinary") or "")); self._setting_entry(p,"sourceControl.githubCliBinary","GitHub CLI (gh)",str(sc.get("githubCliBinary") or "")); self._setting_entry(p,"sourceControl.defaultGitHubRemote","GitHub remote",str(sc.get("defaultGitHubRemote") or "origin")); self._setting_check(p,"sourceControl.forgeGitEnabled","Enable ForgeGit",bool(sc.get("forgeGitEnabled",sc.get("internalGitEnabled",True))),"Local bare repository authority used alongside GitHub."); self._setting_entry(p,"sourceControl.forgeGitRoot","ForgeGit root",str(sc.get("forgeGitRoot") or sc.get("internalGitRoot") or "")); self._setting_entry(p,"sourceControl.defaultForgeGitRemote","ForgeGit remote",str(sc.get("defaultForgeGitRemote") or sc.get("defaultInternalGitRemote") or "forgegit")); self._setting_check(p,"sourceControl.fetchOnStatus","Fetch remotes during status",bool(sc.get("fetchOnStatus",False)))
+        p=self._settings_panel("Source Control","Forgejo Compatibility (Optional)")
+        self._setting_entry(p,"sourceControl.defaultForgejoRemote","Forgejo remote",str(sc.get("defaultForgejoRemote") or "forgejo"),"Only used when optional Forgejo hosting is configured.")
 
-        p=self._settings_panel("IDE","Forge IDE / Monaco Pop-out")
-        self._setting_check(p,"ide.enabled","Enable IDE workspace",bool(ide.get("enabled",True))); self._setting_entry(p,"ide.monacoRoot","Monaco component root",str(ide.get("monacoRoot") or "")); self._setting_entry(p,"ide.monacoVersion","Monaco version",str(ide.get("monacoVersion") or "0.56.0")); self._setting_entry(p,"ide.pywebviewVersion","pywebview version",str(ide.get("pywebviewVersion") or "6.2.1")); self._setting_entry(p,"ide.fontSize","Editor font size",str(ide.get("fontSize",13))); self._setting_entry(p,"ide.windowWidth","Pop-out width",str(ide.get("windowWidth",1500))); self._setting_entry(p,"ide.windowHeight","Pop-out height",str(ide.get("windowHeight",920))); self._setting_check(p,"ide.minimap","Monaco minimap",bool(ide.get("minimap",True))); self._command_category_list(self._settings_pages["IDE"],"IDE Runtime",(("Install Monaco","Install the pinned local Monaco package into Forge Home.",self._ide_install_monaco,True),("Install pywebview","Install the BSD-licensed pop-out WebView2 host.",self._ide_install_host,False),("Open Monaco Window","Open the active project in Forge's separate Monaco editor.",self._ide_enable_monaco,False)))
+        p=self._settings_panel("IDE","ForgePY IDE / Monaco Pop-out")
+        self._setting_check(p,"ide.enabled","Enable IDE workspace",bool(ide.get("enabled",True))); self._setting_entry(p,"ide.monacoRoot","Monaco component root",str(ide.get("monacoRoot") or "")); self._setting_entry(p,"ide.monacoVersion","Monaco version",str(ide.get("monacoVersion") or "0.56.0")); self._setting_entry(p,"ide.pywebviewVersion","pywebview version",str(ide.get("pywebviewVersion") or "6.2.1")); self._setting_entry(p,"ide.fontSize","Editor font size",str(ide.get("fontSize",13))); self._setting_entry(p,"ide.windowWidth","Pop-out width",str(ide.get("windowWidth",1500))); self._setting_entry(p,"ide.windowHeight","Pop-out height",str(ide.get("windowHeight",920))); self._setting_check(p,"ide.minimap","Monaco minimap",bool(ide.get("minimap",True))); self._command_category_list(self._settings_pages["IDE"],"IDE Runtime",(("Install Monaco","Install the pinned local Monaco package into ForgePY Home.",self._ide_install_monaco,True),("Install pywebview","Install the BSD-licensed pop-out WebView2 host.",self._ide_install_host,False),("Open Monaco Window","Open the active project in ForgePY's separate Monaco editor.",self._ide_enable_monaco,False)))
 
         p=self._settings_panel("Tooling","Project Tool Discovery")
         self._setting_check(p,"tooling.deepScanRegisteredProjects","Deep-scan registered projects",bool(tooling.get("deepScanRegisteredProjects",True)),"Indexes existing project scripts/tools without executing them."); self._setting_check(p,"tooling.includeArchivedTooling","Include archived tooling",bool(tooling.get("includeArchivedTooling",False))); self._setting_entry(p,"tooling.preferredBlenderBinary","Preferred Blender",str(tooling.get("preferredBlenderBinary") or "")); self._command_category_list(self._settings_pages["Tooling"],"Tool Index",(("Audit Active Project","Build a categorized tooling/script report for the active project.",self._tooling_audit,True),("Audit All Registered","Build the global registered-project tool index.",self._tooling_audit_all,False)))
@@ -1017,16 +1218,31 @@ class ForgeGui:
         self._setting_entry(p,"cortex.projectRoot","Cortex project root",str(cx.get("projectRoot") or "")); self._setting_entry(p,"cortex.executable","Cortex executable",str(cx.get("executable") or "")); self._setting_entry(p,"cortex.serviceUrl","Cortex service URL",str(cx.get("serviceUrl") or "")); self._setting_entry(p,"cortex.healthPath","Health path",str(cx.get("healthPath") or ""))
 
         p=self._settings_panel("Security","Verification / Execution Policy")
-        self._setting_check(p,"security.strictModernPatches","Strict modern Vault patches",bool(security.get("strictModernPatches",True)),"Modern Vault packages must carry canonical IDs, package time and build binding."); self._setting_entry(p,"security.legacyPatchPolicy","Legacy patch policy",str(security.get("legacyPatchPolicy") or "review"),"Recommended: review. Legacy unbound packages are retained but not auto-applied."); self._setting_check(p,"security.requireModernBuildBinding","Require build binding for modern patches",bool(security.get("requireModernBuildBinding",True))); self._setting_check(p,"security.blenderDisableAutoexec","Disable Blender autoexec for CLI jobs",bool(security.get("blenderDisableAutoexec",True)))
+        self._setting_check(p,"security.strictModernPatches","Strict modern ForgePY patches",bool(security.get("strictModernPatches",True)),"Modern ForgePY packages must carry canonical IDs, package time and build binding."); self._setting_entry(p,"security.legacyPatchPolicy","Legacy patch policy",str(security.get("legacyPatchPolicy") or "review"),"Recommended: review. Legacy unbound packages are retained but not auto-applied."); self._setting_check(p,"security.requireModernBuildBinding","Require build binding for modern patches",bool(security.get("requireModernBuildBinding",True))); self._setting_check(p,"security.blenderDisableAutoexec","Disable Blender autoexec for CLI jobs",bool(security.get("blenderDisableAutoexec",True)))
 
         p=self._settings_panel("Interface","Window / Rails / Tray")
-        self._setting_check(p,"ui.closeToTray","Close button hides Vault to tray",bool(ui.get("closeToTray",True))); self._setting_check(p,"ui.minimizeToTray","Minimize hides Vault to tray",bool(ui.get("minimizeToTray",True))); self._setting_check(p,"ui.startMinimized","Start minimized to tray",bool(ui.get("startMinimized",False))); self._setting_check(p,"ui.showTrayNotifications","System tray notifications",bool(ui.get("showTrayNotifications",True))); self._setting_check(p,"ui.leftRailCollapsed","Collapse workspace rail",bool(ui.get("leftRailCollapsed",False))); self._setting_check(p,"ui.healthRailCollapsed","Collapse health rail",bool(ui.get("healthRailCollapsed",False)))
+        self._setting_check(p,"ui.closeToTray","Close button hides ForgePY to tray",bool(ui.get("closeToTray",True))); self._setting_check(p,"ui.minimizeToTray","Minimize hides ForgePY to tray",bool(ui.get("minimizeToTray",True))); self._setting_check(p,"ui.startMinimized","Start minimized to tray",bool(ui.get("startMinimized",False))); self._setting_check(p,"ui.showTrayNotifications","System tray notifications",bool(ui.get("showTrayNotifications",True))); self._setting_check(p,"ui.leftRailCollapsed","Collapse workspace rail",bool(ui.get("leftRailCollapsed",False))); self._setting_check(p,"ui.healthRailCollapsed","Collapse health rail",bool(ui.get("healthRailCollapsed",False)))
         for name,page in self._settings_pages.items():
             actions=self.tk.Frame(page,bg=BG); actions.pack(fill="x",side="bottom",pady=(8,0)); self._button(actions,"Save Settings",self._settings_save,primary=True,compact=True).pack(side="right")
 
     def _show_settings_page(self,name:str) -> None:
         for key,frame in self._settings_pages.items(): frame.pack_forget(); self._settings_nav[key].configure(bg=PANEL,fg=TEXT)
         self._settings_pages[name].pack(fill="both",expand=True); self._settings_nav[name].configure(bg=PANEL_2,fg=CYAN)
+
+    def _show_performance_report(self) -> None:
+        rows = forge_perf_recent(120)
+        if not rows:
+            self._popup("ForgePY Performance", "No performance telemetry has been recorded yet.")
+            return
+        lines = ["Recent ForgePY performance telemetry", ""]
+        for row in rows[-80:]:
+            lines.append(f"{row.get('timestamp','')}  {row.get('name',''):<28} {float(row.get('milliseconds') or 0):8.1f} ms  {row.get('metadata') or {}}")
+        try:
+            path = forge_perf_export()
+            lines.extend(["", f"Export: {path}"])
+        except Exception as exc:
+            lines.extend(["", f"Export unavailable: {exc}"])
+        self._popup("ForgePY Performance", "\n".join(lines), kind="warning" if any(float(r.get('milliseconds') or 0) >= 250 for r in rows) else "success")
 
     def _settings_save(self) -> None:
         data=load_settings()
@@ -1044,8 +1260,8 @@ class ForgeGui:
             data[section]=out
         data["vaultHome"]=value("vaultHome"); data["projectsRoot"]=value("projectsRoot"); data["artifactCentralRoot"]=value("artifactCentralRoot"); data["scanRoots"]=[x.strip() for x in str(value("scanRoots")).split(";") if x.strip()]
         try: path=save_settings(data)
-        except Exception as exc: self._popup("Vault Settings",str(exc),kind="error"); return
-        self._set_app_rail_collapsed(bool(data["ui"].get("leftRailCollapsed"))); self._set_health_rail_collapsed(bool(data["ui"].get("healthRailCollapsed"))); self._refresh_location_labels(); self._popup("Vault Settings",f"Settings saved.\n\n{path}\n\nSome service/component changes take effect after restart.",kind="success")
+        except Exception as exc: self._popup("ForgePY Settings",str(exc),kind="error"); return
+        self._set_app_rail_collapsed(bool(data["ui"].get("leftRailCollapsed"))); self._set_health_rail_collapsed(bool(data["ui"].get("healthRailCollapsed"))); self._refresh_location_labels(); self._popup("ForgePY Settings",f"Settings saved.\n\n{path}\n\nSome service/component changes take effect after restart.",kind="success")
 
     @staticmethod
     def _human_bytes(value: int) -> str:
@@ -1057,12 +1273,177 @@ class ForgeGui:
             amount /= 1024.0
         return f"{int(value)} B"
 
+    def _vault_show_drive_catalog(self) -> None:
+        self._vault_browser_mode = "drive"
+        self._vault_drive_offset = 0
+        self._vault_refresh_tree()
+
+    def _vault_load_more(self) -> None:
+        mode = getattr(self, "_vault_browser_mode", "drive")
+        if mode not in {"drive", "unclassified"}:
+            return
+        self._vault_drive_offset += int(getattr(self, "_vault_page_size", 500))
+        if mode == "unclassified":
+            self._vault_refresh_unclassified(append=True)
+        else:
+            self._vault_refresh_drive_tree(append=True)
+
+    def _vault_show_project_files(self) -> None:
+        self._vault_browser_mode = "project"
+        self._vault_refresh_tree()
+
+    def _vault_show_unclassified(self) -> None:
+        """Show drive items ForgePY cannot place confidently, paged on demand."""
+        self._vault_browser_mode = "unclassified"
+        self._vault_drive_offset = 0
+        self._vault_refresh_unclassified(append=False)
+
+    def _vault_refresh_unclassified(self, *, append: bool = False) -> None:
+        if not hasattr(self, "vault_tree"):
+            return
+        root = self._vault_scan_root()
+        page = int(getattr(self, "_vault_page_size", 500))
+        offset = int(getattr(self, "_vault_drive_offset", 0))
+        rows = vault_drive_entries(root, classification="UNKNOWN", limit=page, offset=offset)
+        if not append:
+            for iid in self.vault_tree.get_children():
+                self.vault_tree.delete(iid)
+            self._vault_node_paths.clear(); self._vault_drive_records.clear()
+            top = "vault-unclassified"
+            counts = vault_drive_counts(root)
+            total = int(counts.get("UNKNOWN") or 0)
+            self.vault_tree.insert("", "end", iid=top, text="Unclassified drive content", values=("REVIEW", f"{total} total", str(root)), open=True)
+        top = "vault-unclassified"
+        if not self.vault_tree.exists(top):
+            self.vault_tree.insert("", "end", iid=top, text="Unclassified drive content", values=("REVIEW", "paged", str(root)), open=True)
+        base = len(self._vault_drive_records)
+        for index, item in enumerate(rows):
+            path = Path(str(item.get("path") or ""))
+            iid = f"unclassified:{offset + index}:{base}"
+            self.vault_tree.insert(top, "end", iid=iid, text=str(item.get("name") or path.name), values=("UNKNOWN", self._human_bytes(int(item.get("bytes") or 0)), str(item.get("ownerProjectRoot") or "<unassigned>")))
+            self._vault_node_paths[iid] = path
+            self._vault_drive_records[iid] = item
+        self._append_log(f"[INFO] Vault unclassified page: offset {offset}, loaded {len(rows)} item(s).\n", "info")
+
+    def _vault_show_lineage_groups(self) -> None:
+        """Show probable project/version families without moving anything."""
+        tk = self.tk
+        groups = vault_drive_lineage_groups(self._vault_scan_root(), limit=1000)
+        dialog = tk.Toplevel(self.window); dialog.withdraw(); dialog.configure(bg=BG); dialog.overrideredirect(True); dialog.transient(self.window)
+        shell = tk.Frame(dialog, bg=PANEL, highlightthickness=1, highlightbackground=CYAN); shell.pack(fill="both", expand=True)
+        tk.Label(shell, text="Vault Project Lineage", bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 13), anchor="w").pack(fill="x", padx=16, pady=(14,4))
+        tk.Label(shell, text="Probable project families inferred from the drive catalog. Review only: ForgePY does not move or delete source automatically.", bg=PANEL, fg=MUTED, font=("Segoe UI",9), anchor="w").pack(fill="x", padx=16, pady=(0,8))
+        frame=tk.Frame(shell,bg=PANEL); frame.pack(fill="both",expand=True,padx=16,pady=(0,8))
+        tree=self.ttk.Treeview(frame,columns=("count","primary","kind"),show="tree headings",selectmode="browse")
+        tree.heading("#0",text="Family / Member"); tree.column("#0",width=360,anchor="w")
+        for key,title,width in (("count","Copies",70),("primary","Primary candidate",360),("kind","Kind",100)):
+            tree.heading(key,text=title); tree.column(key,width=width,anchor="w")
+        scroll=tk.Scrollbar(frame,command=tree.yview,bg=PANEL); tree.configure(yscrollcommand=scroll.set); tree.pack(side="left",fill="both",expand=True); scroll.pack(side="right",fill="y")
+        paths: dict[str,Path] = {}
+        for gi,group in enumerate(groups):
+            family=str(group.get("familyHint") or "unknown"); primary=str((group.get("primaryCandidate") or {}).get("root") or "")
+            gid=f"family:{gi}"; tree.insert("","end",iid=gid,text=family,values=(group.get("count") or 0,primary,"FAMILY"),open=False)
+            for mi,member in enumerate(group.get("members") or []):
+                root=Path(str(member.get("root") or "")); iid=f"{gid}:{mi}"; paths[iid]=root
+                tree.insert(gid,"end",iid=iid,text=root.name or str(root),values=("",str(root),str(member.get("kind") or "project")))
+        actions=tk.Frame(shell,bg=PANEL); actions.pack(fill="x",padx=16,pady=(0,14))
+        def reveal():
+            sel=tree.selection(); path=paths.get(sel[0]) if sel else None
+            if path: open_path(path)
+        self._button(actions,"Open Selected",reveal,primary=True,compact=True).pack(side="left")
+        self._button(actions,"Close",dialog.destroy,compact=True).pack(side="right")
+        if not groups:
+            tree.insert("","end",text="No duplicate/version families detected yet",values=(0,"Run Scan Vault Drive first",""))
+        self._center_modal(dialog, 980, 610); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); tree.focus_force()
+
+    def _vault_scan_root(self) -> Path:
+        summary = vault_drive_latest_summary()
+        raw = str((summary or {}).get("root") or "").strip()
+        if raw:
+            try:
+                return Path(raw).expanduser().resolve()
+            except Exception:
+                pass
+        roots = configured_scan_roots()
+        if roots:
+            return roots[0].expanduser().resolve()
+        if os.name == "nt" and Path("D:/").exists():
+            return Path("D:/")
+        return vault_projects_root().expanduser().resolve()
+
     def _vault_refresh_tree(self) -> None:
+        if getattr(self, "_vault_browser_mode", "drive") == "project":
+            self._vault_refresh_project_tree()
+        else:
+            self._vault_refresh_drive_tree()
+
+    def _vault_refresh_drive_tree(self, append: bool = False) -> None:
+        if not hasattr(self, "vault_tree"):
+            return
+        if not append:
+            for iid in self.vault_tree.get_children():
+                self.vault_tree.delete(iid)
+            self._vault_node_paths.clear()
+            self._vault_drive_records.clear()
+        summary = vault_drive_latest_summary()
+        scan_root = self._vault_scan_root()
+        page_size = int(getattr(self, "_vault_page_size", 500))
+        offset = int(getattr(self, "_vault_drive_offset", 0))
+        rows = vault_drive_entries(scan_root if summary else None, limit=page_size, offset=offset) if summary else []
+        if not rows:
+            iid = "drive-empty"
+            self.vault_tree.insert("", "end", iid=iid, text="Vault drive not cataloged yet", values=("SCAN REQUIRED", "", ""), open=True)
+            self._vault_render_summary({})
+            return
+        root_iid = "drive-root"
+        if not self.vault_tree.exists(root_iid):
+            self.vault_tree.insert("", "end", iid=root_iid, text=str(scan_root), values=("VAULT_DRIVE", "", ""), open=True)
+        groups: dict[str, str] = {}
+        counts: dict[str, int] = vault_drive_counts(scan_root) if summary else {}
+        for child in self.vault_tree.get_children(root_iid):
+            values = self.vault_tree.item(child, "values")
+            if values:
+                groups[str(values[0])] = child
+        for row in rows:
+            cls = str(row.get("classification") or "UNKNOWN")
+            if cls not in groups:
+                gid = "drive-class:" + re.sub(r"[^A-Za-z0-9_-]+", "-", cls)
+                groups[cls] = gid
+                self.vault_tree.insert(root_iid, "end", iid=gid, text=cls.replace("_", " ").title(), values=(cls, "", ""), open=cls in {"PROJECT_ROOT", "PATCH_TRANSPORT", "UNKNOWN"})
+            path = Path(str(row.get("path") or ""))
+            iid = f"drive:{offset + len(self._vault_drive_records)}"
+            modified = ""
+            try:
+                modified = datetime.fromtimestamp(int(row.get("mtimeNs") or 0) / 1_000_000_000).strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                pass
+            size = "" if str(row.get("kind")) == "directory" else self._human_bytes(int(row.get("bytes") or 0))
+            label = str(row.get("name") or path.name)
+            owner = str(row.get("ownerProjectRoot") or "")
+            if owner and cls not in {"PROJECT_ROOT", "PROJECT_COMPONENT"}:
+                try:
+                    label = f"{label}  ·  {Path(owner).name}"
+                except Exception:
+                    pass
+            self.vault_tree.insert(groups[cls], "end", iid=iid, text=label, values=(cls, size, modified), tags=(cls,))
+            self._vault_node_paths[iid] = path
+            self._vault_drive_records[iid] = row
+        for cls, gid in groups.items():
+            values = list(self.vault_tree.item(gid, "values"))
+            if len(values) >= 2:
+                values[1] = f"{counts.get(cls, 0)} item(s)"
+                self.vault_tree.item(gid, values=values)
+        shown = min(offset + len(rows), sum(counts.values()) if counts else offset + len(rows))
+        self.vault_tree.item(root_iid, values=("VAULT_DRIVE", f"{shown} / {sum(counts.values()) if counts else shown} shown", ""))
+        self._vault_render_summary(summary)
+
+    def _vault_refresh_project_tree(self) -> None:
         if not hasattr(self, "vault_tree"):
             return
         for iid in self.vault_tree.get_children():
             self.vault_tree.delete(iid)
         self._vault_node_paths.clear()
+        self._vault_drive_records.clear()
         root = self.root_path
         iid = "vault-root"
         self.vault_tree.insert("", "end", iid=iid, text=root.name, values=("PRIMARY_PROJECT", "", ""), open=True, tags=("SOURCE",))
@@ -1103,6 +1484,8 @@ class ForgeGui:
                     pass
 
     def _vault_tree_opened(self, _event: Any = None) -> None:
+        if getattr(self, "_vault_browser_mode", "drive") != "project":
+            return
         iid = self.vault_tree.focus()
         path = self._vault_node_paths.get(iid)
         if path and path.is_dir():
@@ -1113,7 +1496,31 @@ class ForgeGui:
         path = self._vault_node_paths.get(iid)
         if not path:
             return
+        if getattr(self, "_vault_browser_mode", "drive") == "drive":
+            record = self._vault_drive_records.get(iid)
+            if record is not None:
+                self._vault_show_drive_record(record)
+                return
         self._vault_show_path(path)
+
+    def _vault_show_drive_record(self, record: dict[str, Any]) -> None:
+        path = Path(str(record.get("path") or ""))
+        lines = [
+            f"Path           : {path}",
+            f"Classification : {record.get('classification') or 'UNKNOWN'}",
+            f"Type           : {record.get('kind') or ''}",
+            f"Size           : {self._human_bytes(int(record.get('bytes') or 0)) if str(record.get('kind')) != 'directory' else 'Directory'}",
+            f"Owner Project  : {record.get('ownerProjectRoot') or '<unassigned>'}",
+            f"Lineage Family : {record.get('familyHint') or '<none>'}",
+            f"SHA256         : {record.get('sha256') or '<not hashed>'}",
+            f"Catalog Note   : {record.get('note') or '—'}",
+            "",
+            "Vault cataloging is non-destructive. Classification and project ownership are evidence for a later approved move/archive plan; ForgePY does not silently relocate arbitrary drive content.",
+        ]
+        self.vault_detail.configure(state="normal")
+        self.vault_detail.delete("1.0", "end")
+        self.vault_detail.insert("1.0", "\n".join(lines))
+        self.vault_detail.configure(state="disabled")
 
     def _vault_show_path(self, path: Path) -> None:
         try:
@@ -1181,12 +1588,23 @@ class ForgeGui:
         if not query:
             self._vault_refresh_tree()
             return
-        results = vault_search_catalog(self.root_path, query)
         for iid in self.vault_tree.get_children():
             self.vault_tree.delete(iid)
         self._vault_node_paths.clear()
+        self._vault_drive_records.clear()
         root_iid = "vault-search"
-        self.vault_tree.insert("", "end", iid=root_iid, text=f"Search: {query}", values=("CATALOG_SEARCH", f"{len(results)} result(s)", ""), open=True)
+        if getattr(self, "_vault_browser_mode", "drive") == "drive":
+            results = vault_drive_search(query, scan_root=self._vault_scan_root(), limit=2000)
+            self.vault_tree.insert("", "end", iid=root_iid, text=f"Vault search: {query}", values=("DRIVE_SEARCH", f"{len(results)} result(s)", ""), open=True)
+            for index, item in enumerate(results):
+                path = Path(str(item.get("path") or ""))
+                iid = f"drive-search:{index}"
+                self.vault_tree.insert(root_iid, "end", iid=iid, text=str(item.get("name") or path.name), values=(item.get("classification") or "", self._human_bytes(int(item.get("bytes") or 0)) if str(item.get("kind")) != "directory" else "", str(item.get("ownerProjectRoot") or "")), tags=(str(item.get("classification") or ""),))
+                self._vault_node_paths[iid] = path
+                self._vault_drive_records[iid] = item
+            return
+        results = vault_search_catalog(self.root_path, query)
+        self.vault_tree.insert("", "end", iid=root_iid, text=f"Project search: {query}", values=("CATALOG_SEARCH", f"{len(results)} result(s)", ""), open=True)
         for index, item in enumerate(results):
             rel = str(item.get("relPath") or "")
             path = self.root_path / Path(rel)
@@ -1320,19 +1738,32 @@ class ForgeGui:
                 label.configure(text="—", fg=MUTED)
             return
         classes = summary.get("classCounts") or {}
-        tooling = summary.get("tooling") or {}
-        values = {
-            "files": int(summary.get("files") or 0),
-            "source": int(classes.get("SOURCE") or 0),
-            "assets": int(classes.get("ASSET") or 0),
-            "commands": int(tooling.get("commandCount") or 0),
-            "large": int(summary.get("largeFiles") or 0),
-            "duplicates": int(summary.get("duplicateGroups") or 0),
-            "json": int(summary.get("invalidJson") or 0),
-            "artifacts": int((artifact_summary(self.contract.project_id) or {}).get("files") or 0),
-        }
+        is_drive = str(summary.get("schema") or "").startswith("forgepy.drive-catalog")
+        if is_drive:
+            lineages = len(vault_drive_lineage_groups(Path(str(summary.get("root") or self._vault_scan_root()))))
+            values = {
+                "items": int(summary.get("entries") or 0),
+                "projects": int(summary.get("projects") or 0),
+                "components": int(summary.get("components") or 0),
+                "patches": int(classes.get("PATCH_TRANSPORT") or 0),
+                "unknown": int(summary.get("unknown") or 0),
+                "archives": int(classes.get("ARCHIVE") or 0),
+                "generated": int(classes.get("BUILD_OUTPUT") or 0) + int(classes.get("CACHE") or 0),
+                "lineages": int(lineages),
+            }
+        else:
+            values = {
+                "items": int(summary.get("files") or 0),
+                "projects": 1,
+                "components": int(classes.get("COMPONENT") or 0),
+                "patches": int(classes.get("PATCH_TRANSPORT") or 0),
+                "unknown": int(classes.get("UNKNOWN") or 0),
+                "archives": int(classes.get("ARCHIVE") or 0),
+                "generated": int(classes.get("BUILD_OUTPUT") or 0) + int(classes.get("CACHE") or 0),
+                "lineages": 0,
+            }
         for key, value in values.items():
-            color = RED if key == "json" and value else (YELLOW if key in {"large", "duplicates"} and value else GREEN)
+            color = YELLOW if key in {"unknown", "lineages"} and value else GREEN
             self.vault_metric_labels[key].configure(text=str(value), fg=color)
         self._vault_metrics = summary
 
@@ -1344,12 +1775,12 @@ class ForgeGui:
         projects = Path(str(settings.get("projectsRoot") or vault_projects_root()))
         scans = ", ".join(str(p) for p in configured_scan_roots())
         artifacts = Path(str(settings.get("artifactCentralRoot") or artifact_central_root()))
-        self.vault_home_label.configure(text=f"Forge Home : {home}   ·   Artifact Central: {artifacts}")
+        self.vault_home_label.configure(text=f"ForgePY Home : {home}   ·   Artifact Central: {artifacts}")
         self.vault_projects_label.configure(text=f"Projects   : {projects}   ·   Scan roots: {scans}")
 
     def _vault_choose_home(self) -> None:
         current = str(vault_data_root())
-        chosen = self.filedialog.askdirectory(title="Choose Forge Home", initialdir=current if Path(current).exists() else None)
+        chosen = self.filedialog.askdirectory(title="Choose ForgePY Home", initialdir=current if Path(current).exists() else None)
         if not chosen:
             return
         source = vault_data_root()
@@ -1357,7 +1788,7 @@ class ForgeGui:
         if target.name.casefold() != "vault":
             target = target / "Vault"
         if not self._popup(
-            "Migrate Forge Home",
+            "Migrate ForgePY Home",
             f"Copy Vault's durable data from:\n{source}\n\nto:\n{target}\n\nThe old location is retained as rollback evidence. Projects are not moved automatically.",
             kind="warning", confirm=True,
         ):
@@ -1420,11 +1851,12 @@ class ForgeGui:
 
     def _vault_scan_d_drive(self) -> None:
         if self._drive_scan_busy:
-            self._popup("Drive Scan", "A Vault drive/project scan is already running.", kind="warning")
+            self._popup("Vault Catalog", "A Vault drive catalog scan is already running.", kind="warning")
             return
         root = Path("D:/") if os.name == "nt" and Path("D:/").exists() else (configured_scan_roots()[0] if configured_scan_roots() else vault_projects_root())
         self._drive_scan_busy = True
-        self.vault_scan_status.configure(text=f"Scanning {root} for projects…", fg=CYAN)
+        self._vault_browser_mode = "drive"
+        self.vault_scan_status.configure(text=f"Cataloging {root}…", fg=CYAN)
         def progress(payload: dict[str, Any]) -> None:
             self._event_q.put(("drive-scan-progress", payload))
         def work() -> None:
@@ -1436,7 +1868,7 @@ class ForgeGui:
         threading.Thread(target=work, daemon=True, name="VaultDriveScan").start()
 
     def _vault_register_scanned_projects(self) -> None:
-        records = vault_drive_projects()
+        records = vault_drive_projects(include_components=False)
         if not records:
             self._popup("Register Scanned Projects", "No drive-index projects are available yet. Run Scan D Drive first.", kind="warning")
             return
@@ -1457,14 +1889,247 @@ class ForgeGui:
     def _refresh_source_status_async(self) -> None:
         if not hasattr(self, "source_status_label"):
             return
-        self.source_status_label.configure(text="Checking Git / GitHub / Forgejo remotes…", fg=MUTED)
+        self.source_status_label.configure(text="Checking Git / GitHub / ForgeGit…", fg=MUTED)
         root = self.root_path
         def work() -> None:
             try:
-                self._event_q.put(("source-status", vault_source_status(root)))
+                self._event_q.put(("source-status", forgepy_source_status(root)))
             except Exception as exc:
                 self._event_q.put(("source-status-error", str(exc)))
-        threading.Thread(target=work, daemon=True, name="VaultSourceStatus").start()
+        threading.Thread(target=work, daemon=True, name="ForgePYSourceStatus").start()
+
+    def _refresh_source_workspace_async(self) -> None:
+        if not hasattr(self, "source_workspace_status_label"):
+            return
+        now = time.monotonic()
+        debounce_ms = int((load_settings().get("ui") or {}).get("sourceRefreshDebounceMs") or 350)
+        if self._source_workspace_refresh_running or (now - self._source_workspace_last_refresh) * 1000.0 < debounce_ms:
+            return
+        self._source_workspace_refresh_running = True
+        self._source_workspace_last_refresh = now
+        self.source_workspace_status_label.configure(text="Checking GitHub / ForgeGit…", fg=MUTED)
+        root = self.root_path
+        project_id = self.contract.project_id
+        sc = load_settings().get("sourceControl") or {}
+        tree_limit = int(sc.get("repoTreeLimit") or 5000)
+        def work() -> None:
+            try:
+                source = forgepy_source_status(root)
+                forgegit = forgegit_status(root, project_id)
+                repo_rows = forgepy_repository_tree(root, tree_limit)
+                branch_rows = forgegit_branches(root)
+                tags = forgepy_list_tags(root)
+                self._event_q.put(("source-workspace-status", (source, forgegit, repo_rows, branch_rows, tags)))
+            except Exception as exc:
+                self._event_q.put(("source-workspace-error", str(exc)))
+        threading.Thread(target=work, daemon=True, name="ForgePYSourceWorkspaceStatus").start()
+
+    def _start_forgegit(self, action: str, extra: Sequence[str] = ()) -> None:
+        script = Path(__file__).resolve().parent / "ForgeGit.py"
+        argv = [sys.executable, str(script), action, "--root", str(self.root_path), "--project-id", self.contract.project_id, *[str(x) for x in extra]]
+        self._start_builtin_argv(argv, label=f"forgegit-{action}", cwd=self.root_path, stay_on_tab=True)
+
+    def _start_internal_git(self, action: str) -> None:
+        # Compatibility alias retained for older button callbacks / tray actions.
+        self._start_forgegit(action)
+
+    def _source_set_detail(self, text: str) -> None:
+        if not hasattr(self, "source_detail"):
+            return
+        self.source_detail.configure(state="normal")
+        self.source_detail.delete("1.0", "end")
+        self.source_detail.insert("1.0", str(text or ""))
+        self.source_detail.configure(state="disabled")
+
+    def _source_render_repo_tree(self) -> None:
+        if not hasattr(self, "source_repo_tree"):
+            return
+        tree = self.source_repo_tree
+        tree.delete(*tree.get_children())
+        query = str(getattr(self, "source_repo_filter_var", None).get() if hasattr(self, "source_repo_filter_var") else "").strip().casefold()
+        nodes: dict[str, str] = {"": ""}
+        for row in getattr(self, "_source_repo_records", []):
+            rel = str(row.get("path") or "")
+            if query and query not in rel.casefold() and query not in str(row.get("status") or "").casefold():
+                continue
+            parts = [p for p in rel.replace("\\", "/").split("/") if p]
+            parent_key = ""
+            accum: list[str] = []
+            for index, part in enumerate(parts):
+                accum.append(part)
+                key = "/".join(accum)
+                if key in nodes:
+                    parent_key = nodes[key]
+                    continue
+                leaf = index == len(parts) - 1
+                status = str(row.get("status") or "").strip() if leaf else ""
+                iid = tree.insert(parent_key, "end", text=part, values=(status,), open=(len(parts) <= 2))
+                nodes[key] = iid
+                parent_key = iid
+        self._source_tree_nodes = nodes
+
+    def _source_selected_paths(self) -> list[str]:
+        if not hasattr(self, "source_repo_tree"):
+            return []
+        reverse = {v: k for k, v in getattr(self, "_source_tree_nodes", {}).items() if k}
+        out = []
+        for iid in self.source_repo_tree.selection():
+            rel = reverse.get(iid, "")
+            if rel and any(str(r.get("path") or "") == rel for r in getattr(self, "_source_repo_records", [])):
+                out.append(rel)
+        return out
+
+    def _source_selected_branch(self) -> str:
+        if not hasattr(self, "source_branch_tree"):
+            return ""
+        sel = self.source_branch_tree.selection()
+        if not sel:
+            return ""
+        iid = str(sel[0])
+        if not iid.startswith("source:branch:"):
+            return ""
+        item = self.source_branch_tree.item(iid)
+        return str(item.get("text") or "").lstrip("* ").strip()
+
+    def _source_selected_tag(self) -> str:
+        if not hasattr(self, "source_branch_tree"):
+            return ""
+        sel = self.source_branch_tree.selection()
+        if not sel or not str(sel[0]).startswith("source:tag:"):
+            return ""
+        return str(self.source_branch_tree.item(sel[0]).get("text") or "").strip()
+
+    def _source_create_branch(self) -> None:
+        name = self._ask_text("New Branch", "Branch name:", initial="feature/")
+        if not name or not name.strip():
+            return
+        start = self._ask_text("New Branch", "Start point (HEAD, branch, tag or commit):", initial="HEAD") or "HEAD"
+        self._start_builtin_source("create-branch", [name.strip(), start.strip()])
+
+    def _source_switch_branch(self) -> None:
+        name = self._source_selected_branch()
+        if not name:
+            self._popup("Source Control", "Select a branch first.", kind="warning")
+            return
+        self._start_builtin_source("switch-branch", [name])
+
+    def _source_merge_branch(self) -> None:
+        name = self._source_selected_branch()
+        if not name:
+            self._popup("Source Control", "Select a branch to merge into the current branch.", kind="warning")
+            return
+        if self._popup("Merge Branch", f"Merge {name} into the current branch?", kind="warning", confirm=True):
+            self._start_builtin_source("merge-branch", [name])
+
+    def _source_rename_branch(self) -> None:
+        old = self._source_selected_branch()
+        if not old:
+            self._popup("Source Control", "Select a branch first.", kind="warning")
+            return
+        new = self._ask_text("Rename Branch", "New branch name:", initial=old)
+        if new and new.strip() and new.strip() != old:
+            self._start_builtin_source("rename-branch", [old, new.strip()])
+
+    def _source_delete_branch(self) -> None:
+        name = self._source_selected_branch()
+        if not name:
+            self._popup("Source Control", "Select a local branch first.", kind="warning")
+            return
+        if self._popup("Delete Branch", f"Delete local branch {name}?\n\nForgePY will use Git's safe delete and refuse unmerged/current branches.", kind="warning", confirm=True):
+            self._start_builtin_source("delete-branch", [name])
+
+    def _source_recovery_branch(self) -> None:
+        label = self._ask_text("Recovery Branch", "Optional label:", initial="before-change")
+        if label is None:
+            return
+        self._start_builtin_source("recovery-branch", [label.strip()])
+
+    def _source_create_tag(self) -> None:
+        name = self._ask_text("Create Tag", "Tag name:", initial="green-")
+        if not name or not name.strip():
+            return
+        message = self._ask_text("Create Tag", "Tag message:", initial=f"ForgePY restore point {name.strip()}") or f"ForgePY restore point {name.strip()}"
+        self._start_builtin_source("create-tag", [name.strip(), message])
+
+    def _source_branch_from_tag(self) -> None:
+        tag = self._source_selected_tag()
+        if not tag:
+            self._popup("Source Control", "Select a tag / restore point first.", kind="warning")
+            return
+        name = self._ask_text("Branch from Tag", "New branch name:", initial=f"restore/{tag}")
+        if name and name.strip():
+            self._start_builtin_source("branch-from-tag", [tag, name.strip()])
+
+    def _source_delete_tag(self) -> None:
+        tag = self._source_selected_tag()
+        if not tag:
+            self._popup("Source Control", "Select a tag / restore point first.", kind="warning")
+            return
+        if self._popup("Delete Tag", f"Delete local tag {tag}?", kind="warning", confirm=True):
+            self._start_builtin_source("delete-tag", [tag])
+
+    def _source_stage_selected(self) -> None:
+        paths = self._source_selected_paths()
+        if not paths:
+            self._popup("Source Control", "Select one or more files first.", kind="warning")
+            return
+        self._start_builtin_source("stage", paths)
+
+    def _source_unstage_selected(self) -> None:
+        paths = self._source_selected_paths()
+        if not paths:
+            self._popup("Source Control", "Select one or more files first.", kind="warning")
+            return
+        self._start_builtin_source("unstage", paths)
+
+    def _source_diff_selected(self) -> None:
+        paths = self._source_selected_paths()
+        if not paths:
+            self._popup("Source Control", "Select a file first.", kind="warning")
+            return
+        root = self.root_path
+        rel = paths[0]
+        def work() -> None:
+            try:
+                from ForgePYSourceControl import command as source_command
+                cp = source_command(root, "diff-file", rel)
+                self._event_q.put(("source-detail", cp.stdout or f"No unstaged diff for {rel}."))
+            except Exception as exc:
+                self._event_q.put(("source-detail", f"Diff unavailable: {exc}"))
+        threading.Thread(target=work, daemon=True, name="ForgePYSourceFileDiff").start()
+
+    def _source_discard_selected(self) -> None:
+        paths = self._source_selected_paths()
+        if not paths:
+            self._popup("Source Control", "Select one or more tracked files first.", kind="warning")
+            return
+        if self._popup("Discard Tracked Changes", "Restore selected tracked files from Git?\n\nUntracked files are never deleted by this action.", kind="warning", confirm=True):
+            self._start_builtin_source("discard", paths)
+
+    def _source_restore_forgegit_branch(self) -> None:
+        branch = self._ask_text("Restore ForgeGit Branch", "ForgeGit branch name to recover:", initial="main")
+        if not branch or not branch.strip():
+            return
+        local = self._ask_text("Restore ForgeGit Branch", "New local branch name:", initial=f"forgegit-restore/{branch.strip().replace('/', '-')}")
+        if not local or not local.strip():
+            return
+        self._start_forgegit("restore-branch", [branch.strip(), local.strip()])
+
+    def _repair_source_authority(self) -> None:
+        hint = self._active_project_github_hint()
+        if not self._popup("Repair / Rebind Source", "Repair source authority for this working folder?\n\nThis initializes/adopts Git history without replacing working files, then ensures ForgeGit. GitHub is bound only when declared/configured.", kind="warning", confirm=True):
+            return
+        self._start_builtin_source("repair-authority", [self.contract.project_id, hint])
+
+    def _source_show_graph(self) -> None:
+        root = self.root_path
+        limit = int((load_settings().get("sourceControl") or {}).get("branchGraphLimit") or 120)
+        def work() -> None:
+            try:
+                self._event_q.put(("source-detail", forgepy_branch_graph(root, limit)))
+            except Exception as exc:
+                self._event_q.put(("source-detail", f"Branch graph unavailable: {exc}"))
+        threading.Thread(target=work, daemon=True, name="ForgePYSourceGraph").start()
 
     def _refresh_forgejo_status_async(self) -> None:
         if not hasattr(self, "forgejo_status_label"):
@@ -1868,6 +2533,45 @@ class ForgeGui:
         # Legacy compatibility shim. Health is now rendered in the application header.
         return
 
+    def _build_forgepy_self_page(self, parent: Any) -> None:
+        self._section_title(parent, "ForgePY Control", "Dedicated self-management authority for the ForgePY application itself. Project repositories never own or modify this code.")
+        identity = self._panel(parent, "Application Authority")
+        identity.pack(fill="x", pady=(0, 10))
+        body = self.tk.Frame(identity, bg=PANEL)
+        body.pack(fill="x", padx=12, pady=(0, 10))
+        self.forgepy_self_status = self.tk.Label(
+            body,
+            text=f"Version : {FORGE_VERSION}\nRoot    : {Path(__file__).resolve().parents[1]}\nUpdate  : Downloads → verify → approve → transactional self-apply → restart → gate\nConsole : embedded Project Console only",
+            bg=PANEL, fg=TEXT, font=("Consolas", 9), anchor="w", justify="left",
+        )
+        self.forgepy_self_status.pack(fill="x")
+
+        update = self._panel(parent, "Self Update")
+        update.pack(fill="x", pady=(0, 10))
+        row = self.tk.Frame(update, bg=PANEL)
+        row.pack(fill="x", padx=12, pady=(0, 10))
+        self._button(row, "Check Downloads", self._check_downloads_now, primary=True, compact=True).pack(side="left", padx=(0, 6))
+        self._button(row, "Review / Route", self._open_patch_review, compact=True).pack(side="left", padx=6)
+        self._button(row, "Apply Approved Self Update", self._apply_updates, compact=True).pack(side="left", padx=6)
+
+        release = self._panel(parent, "Certification / Source Authority")
+        release.pack(fill="x", pady=(0, 10))
+        row2 = self.tk.Frame(release, bg=PANEL)
+        row2.pack(fill="x", padx=12, pady=(0, 10))
+        self._button(row2, "Full Gate / Certify GREEN", lambda: self._start_command("full"), primary=True, compact=True).pack(side="left", padx=(0, 6))
+        self._button(row2, "Source Control", lambda: self._show_page("Source Control"), compact=True).pack(side="left", padx=6)
+        self._button(row2, "Artifact Central", self._open_artifact_central_browser, compact=True).pack(side="left", padx=6)
+        self._button(row2, "Vault Catalog", lambda: self._show_app_tab("Vault"), compact=True).pack(side="left", padx=6)
+
+        note = self._panel(parent, "Self-Hosted Contract")
+        note.pack(fill="both", expand=True)
+        self.tk.Label(
+            note,
+            text=("ForgePY is a registered project only so its own releases can use the same governed intake, Git, artifact and certification infrastructure.\n\n"
+                  "Its self-update path is intentionally special: it never depends on a project-provided patch-apply command. The ForgePY transactional patch engine applies approved canonical updates directly and then requires restart/certification."),
+            bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", anchor="nw", wraplength=520,
+        ).pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
     def _build_dashboard(self, parent: Any) -> None:
         tk = self.tk
         self._section_title(
@@ -1916,7 +2620,8 @@ class ForgeGui:
         patch_root = lambda: ensure_artifact_project_tree(self.contract.project_id)["patches"]
         review_root = lambda: ensure_artifact_project_tree(self.contract.project_id)["review"]
         self._command_category_list(parent, "Queue", (
-            ("Inspect Queue", "Show deliberately queued project updates and validation state.", lambda: self._start_command("patch-status"), True),
+            ("Apply Patch…", "Select a descriptive .patch or .zip package, validate it against the active project, and apply it without renaming it to incoming.patch.", self._apply_patch_file, True),
+            ("Inspect Queue", "Show deliberately queued project updates and validation state.", lambda: self._start_command("patch-status"), False),
             ("Apply Validated Queue", "Stage and apply only deliberately queued updates using the project or Vault transaction engine.", self._apply_updates, False),
             ("Check Downloads", "Scan Downloads now. Matching packages are cataloged safely and remain non-executable until you approve one.", self._check_downloads_now, False),
             ("Approve Download…", "Choose a verified compatible download and explicitly promote it into this project's update queue.", self._approve_available_download, True),
@@ -1924,7 +2629,7 @@ class ForgeGui:
             ("Refresh Health", "Refresh update, Git and provider health after intake changes.", self._refresh_status_async, False),
         ))
         self._command_category_list(parent, "Evidence / Recovery", (
-            ("Review", "Open rejected, legacy, oversized or otherwise non-executable intake evidence.", lambda: open_path(review_root()), False),
+            ("Review / Route…", "Review actionable patch transports across all registered projects and choose queue, apply, archive, ignore or reveal.", self._open_patch_review, False),
             ("Applied", "Open applied patch evidence for this project.", lambda: open_path(patch_root() / "applied"), False),
             ("Failed", "Open failed/rolled-back patch evidence.", lambda: open_path(patch_root() / "failed"), False),
             ("Receipts", "Open transaction receipts and patch lineage.", lambda: open_path(patch_root() / "receipts"), False),
@@ -1933,7 +2638,7 @@ class ForgeGui:
 
 
     def _build_source_page(self, parent: Any) -> None:
-        self._section_title(parent, "Source Control", "One Git working tree with separate GitHub and local Forgejo authorities.")
+        self._section_title(parent, "Source Control", "One Git working tree with ForgeGit and GitHub as the primary source authorities.")
         status_panel = self._panel(parent, "Repository Authority")
         status_panel.pack(fill="x", pady=(0, 9))
         body = self.tk.Frame(status_panel, bg=PANEL)
@@ -1951,24 +2656,29 @@ class ForgeGui:
             ("Fetch All", "Fetch and prune every configured remote without modifying the working tree.", lambda: self._start_builtin_source("fetch-all"), False),
         ))
         self._command_category_list(parent, "Certified GREEN", (
-            ("Commit GREEN", "Commit only through the project's certified GREEN authority.", self._commit_green, True),
-            ("Commit + Push GREEN", "Commit certified source, then use the project-protected push path.", self._commit_push_green, False),
+            ("Commit GREEN", "Universal ForgePY GREEN-protected commit available to every Git project.", self._commit_green, True),
+            ("Commit + Push GREEN", "Commit once, snapshot to ForgeGit, then push GitHub when configured.", self._commit_push_green, False),
         ))
         self._command_category_list(parent, "GitHub", (
             ("Push GitHub", "Push the current branch to every GitHub-classified remote without force.", lambda: self._start_builtin_source("push-github"), False),
             ("Configure Remote", "Add or replace the GitHub remote URL for this working tree.", lambda: self._configure_source_remote("github"), False),
             ("Open GitHub", "Open the active project's GitHub repository in the default web browser.", self._open_active_github, False),
         ))
-        self._command_category_list(parent, "Local Forgejo", (
-            ("Push Forgejo", "Push the current branch to every local Forgejo remote without force.", lambda: self._start_builtin_source("push-forgejo"), False),
-            ("Sync Both", "Push the same current commit to local Forgejo and GitHub remotes.", lambda: self._start_builtin_source("sync-both"), False),
-            ("Configure Remote", "Add or replace the local Forgejo remote URL.", lambda: self._configure_source_remote("forgejo"), False),
-            ("Open Forgejo", "Open Forge's Forgejo administration surface.", lambda: self._show_app_tab("Forgejo"), False),
+        self._command_category_list(parent, "ForgeGit", (
+            ("Ensure ForgeGit", "Create or adopt this project's local ForgeGit bare repository without modifying working-tree files.", lambda: self._start_forgegit("ensure"), True),
+            ("Snapshot Current Commit", "Preserve the current committed branch in ForgeGit.", lambda: self._start_forgegit("push"), False),
+            ("Sync Primary", "Push the same current commit to ForgeGit and GitHub.", lambda: self._start_builtin_source("sync-primary", [self.contract.project_id]), False),
+            ("ForgeGit History", "Show history stored in the project's ForgeGit repository.", lambda: self._start_forgegit("history"), False),
+        ))
+        self._command_category_list(parent, "Forgejo Compatibility (Optional)", (
+            ("Push Forgejo", "Push the current branch to configured Forgejo remotes without force.", lambda: self._start_builtin_source("push-forgejo"), False),
+            ("Configure Remote", "Add or replace the optional Forgejo remote URL.", lambda: self._configure_source_remote("forgejo"), False),
+            ("Open Compatibility Tools", "Open the Source Control workspace where Forgejo compatibility tools are grouped.", lambda: self._show_app_tab("Source Control"), False),
         ))
         self._command_category_list(parent, "Branches / History", (
             ("History", "Graph recent commits across local and remote references.", lambda: self._start_builtin_source("history"), False),
             ("Branches", "List local/remote branches and tracking relationships.", lambda: self._start_builtin_source("branches"), False),
-            ("Remotes", "List fetch/push URLs and verify GitHub/Forgejo classification.", lambda: self._start_builtin_source("remotes"), False),
+            ("Remotes", "List fetch/push URLs and verify GitHub/ForgeGit/optional Forgejo classification.", lambda: self._start_builtin_source("remotes"), False),
             ("Pull FF Only", "Update from the configured upstream without merge commits.", lambda: self._start_builtin_source("pull-ff"), False),
         ))
 
@@ -2164,6 +2874,7 @@ class ForgeGui:
     # ------------------------------------------------------------------
 
     def _show_app_tab(self, name: str) -> None:
+        self._current_app_tab = name
         for key, frame in self._app_frames.items():
             frame.pack_forget()
             btn = self._app_tab_buttons.get(key)
@@ -2172,25 +2883,32 @@ class ForgeGui:
         self._app_frames[name].pack(fill="both", expand=True)
         self._app_tab_buttons[name].configure(bg=PANEL_2, fg=CYAN)
 
-        if name == "Forgejo":
-            self._refresh_forgejo_status_async()
+        if name == "Source Control":
+            self._refresh_source_workspace_async()
         elif name == "Vault":
             self._refresh_location_labels()
+            if not getattr(self, "_vault_initialized", False):
+                self._vault_drive_offset = 0
+                self._vault_refresh_tree()
+                self._vault_initialized = True
         elif name == "IDE":
             self._ide_refresh_files()
         elif name == "Cortex":
             self._refresh_cortex_status()
 
     def _show_page(self, page: str) -> None:
+        requested = page
+        actual = "ForgePY Self" if page == "Dashboard" and self._is_forgepy_self_project() else page
         for name, frame in self._page_frames.items():
             frame.pack_forget()
             btn = self._nav_buttons.get(name)
             if btn:
                 btn.configure(bg=PANEL, fg=TEXT)
-        self._page_frames[page].pack(fill="both", expand=True)
-        if page in self._nav_buttons:
-            self._nav_buttons[page].configure(bg=PANEL_2, fg=CYAN)
-        if page == "Source Control":
+        self._page_frames[actual].pack(fill="both", expand=True)
+        nav_key = "Dashboard" if actual == "ForgePY Self" else requested
+        if nav_key in self._nav_buttons:
+            self._nav_buttons[nav_key].configure(bg=PANEL_2, fg=CYAN)
+        if actual == "Source Control":
             self._refresh_source_status_async()
 
     def _bind_project_backend(self) -> None:
@@ -2236,7 +2954,7 @@ class ForgeGui:
             moved = int(activation_hygiene.get("moved", 0) or 0)
             self._append_log(f"[PASS] Project activation hygiene: {moved} loose operational artifact(s) moved.\n", "pass")
         if self.backend_error:
-            self._append_log(f"Vault provider: {self.backend_error}\n", "warn")
+            self._append_log(f"Project provider: {self.backend_error}\n", "warn")
             self._render_adapter_unavailable()
         else:
             self._refresh_status_async()
@@ -2248,20 +2966,21 @@ class ForgeGui:
         if not hasattr(self, "active_project_label"):
             return
         if self.backend is None:
-            adapter = "Vault scan could not bind operations"
+            adapter = "ForgePY scan could not bind operations"
         elif self.backend.provider_mode == "auto-contract":
-            adapter = "Vault auto-adapter ready"
+            adapter = "ForgePY auto-adapter ready"
         else:
-            adapter = "Vault native provider ready"
+            adapter = "Project-native provider ready"
         self.active_project_label.configure(
             text=f"Active: {self.contract.name}  •  {self.contract.kind}  •  {compact_path(self.root_path, 88)}  •  {adapter}"
         )
-        self.window.title(f"Forge — {self.contract.name}")
+        self.window.title(f"ForgePY — {self.contract.name}")
 
     # ------------------------------------------------------------------
     # Registry
     # ------------------------------------------------------------------
     def _refresh_projects(self, *, full_rescan: bool = False, refresh_health: bool = False) -> None:
+        perf_started = time.perf_counter()
         if not hasattr(self, "projects_tree"):
             return
         self._project_entries_by_id.clear()
@@ -2292,22 +3011,25 @@ class ForgeGui:
             if not entry.root.is_dir():
                 tag, adapter_text, health_text = "missing", "Missing root", "FAIL"
             else:
-                try:
-                    contract = ProjectContract.load(entry.root)
-                    backend = BackendClient(entry.root, contract)
-                    adapter_text = "Auto-bound" if backend.provider_mode == "auto-contract" else "Ready"
-                    cached_health = self._project_health_cache.get(entry.registry_id)
-                    health_text = cached_health.level if cached_health is not None else "Checking"
-                    if cached_health is not None and cached_health.level == "FAIL":
-                        tag = "missing"
-                    elif cached_health is not None and cached_health.level == "WARN":
-                        tag = "warn"
-                except SurfaceError:
-                    tag, adapter_text, health_text = "adapter", "Scan incomplete", "WARN"
-                except Exception:
-                    tag, adapter_text, health_text = "missing", "Invalid", "FAIL"
-            catalog = vault_latest_summary(entry.root) if entry.root.is_dir() else None
-            catalog_text = f"{catalog.get('files', 0)} files" if catalog else "Not scanned"
+                cached_health = self._project_health_cache.get(entry.registry_id)
+                health_text = cached_health.level if cached_health is not None else "Cached"
+                if cached_health is not None and cached_health.level == "FAIL":
+                    tag = "missing"
+                elif cached_health is not None and cached_health.level == "WARN":
+                    tag = "warn"
+                # Cache-first rendering keeps project switching instant. Deep contract/provider
+                # inspection belongs to explicit Rescan or the selected project only.
+                adapter_text = "Registered"
+                if full_rescan:
+                    try:
+                        contract = ProjectContract.load(entry.root)
+                        backend = BackendClient(entry.root, contract)
+                        adapter_text = "Auto-bound" if backend.provider_mode == "auto-contract" else "Ready"
+                    except SurfaceError:
+                        tag, adapter_text, health_text = "adapter", "Scan incomplete", "WARN"
+                    except Exception:
+                        tag, adapter_text, health_text = "missing", "Invalid", "FAIL"
+            catalog_text = "Indexed" if entry.root.is_dir() else "Unavailable"
             last = entry.last_opened_utc.replace("T", " ")[:19] if entry.last_opened_utc else "—"
             self.projects_tree.insert(
                 "",
@@ -2348,6 +3070,8 @@ class ForgeGui:
         if not sel:
             return None
         return self._project_entries_by_id.get(sel[0])
+
+        forge_perf_record("projects.refresh", (time.perf_counter() - perf_started) * 1000.0, {"fullRescan": bool(full_rescan)})
 
     def _project_selection_changed(self, _event: Any = None) -> None:
         entry = self._selected_project()
@@ -2449,7 +3173,7 @@ class ForgeGui:
         except Exception as exc:
             self._popup(
                 "Register Project",
-                f"Forge could not scan/register this folder.\n\n{exc}",
+                f"ForgePY could not scan/register this folder.\n\n{exc}",
                 kind="error",
             )
             return
@@ -2550,6 +3274,13 @@ class ForgeGui:
                     pass
             widget.configure(state="normal")
             self._insert_semantic_log(widget, text)
+            max_lines = int((load_settings().get("ui") or {}).get("consoleMaxLines") or 30000)
+            try:
+                line_count = int(widget.index("end-1c").split(".", 1)[0])
+                if line_count > max_lines + 1000:
+                    widget.delete("1.0", f"{line_count - max_lines}.0")
+            except Exception:
+                pass
             if should_scroll:
                 widget.see("end")
             widget.configure(state="disabled")
@@ -2734,7 +3465,7 @@ class ForgeGui:
             f"Git        : {git_text}",
             f"Sync       : {sync}",
             f"GitHub     : {'Configured' if source_control.get('githubConfigured') else 'Needs normalization'}",
-            f"Forgejo    : {'Configured' if source_control.get('forgejoConfigured') else 'Needs normalization'}",
+            f"ForgeGit   : {'Configured' if (source_control.get('forgeGitConfigured') or source_control.get('internalGitConfigured')) else 'Needs setup'}",
             f"GREEN      : {green_text}",
             f"Updates    : {upd_text}",
             f"Hygiene    : {'Clean' if hygiene.get('clean', True) else 'Needs attention'}",
@@ -2768,7 +3499,7 @@ class ForgeGui:
     def _start_builtin_argv(self, argv: Sequence[str], *, label: str, cwd: Path | None = None, stay_on_tab: bool = False) -> None:
         """Run a Vault-owned command through the same embedded console/job lifecycle as project providers."""
         if self._busy or (self._active_proc and self._active_proc.poll() is None):
-            self._popup("Forge", "Another Forge job is already running.", kind="warning")
+            self._popup("ForgePY", "Another ForgePY job is already running.", kind="warning")
             return
         if not stay_on_tab:
             self._show_app_tab("Project Workspace")
@@ -2789,17 +3520,23 @@ class ForgeGui:
         def work() -> None:
             try:
                 flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
+                child_env = os.environ.copy()
+                child_env.setdefault("PYTHONUTF8", "1")
+                child_env.setdefault("PYTHONIOENCODING", "utf-8")
                 proc = subprocess.Popen(
                     list(argv), cwd=str(cwd or self.root_path), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, encoding="utf-8", errors="replace", creationflags=flags,
+                    text=True, encoding="utf-8", errors="replace", creationflags=flags, env=child_env,
                 )
                 self._active_proc = proc
                 assert proc.stdout is not None
                 batch: list[str] = []
                 batch_bytes = 0
+                ui_cfg = load_settings().get("ui") or {}
+                batch_lines = int(ui_cfg.get("consoleBatchLines") or 64)
+                batch_limit_bytes = int(ui_cfg.get("consoleBatchBytes") or 32768)
                 for line in proc.stdout:
                     batch.append(line); batch_bytes += len(line)
-                    if len(batch) >= 32 or batch_bytes >= 8192:
+                    if len(batch) >= batch_lines or batch_bytes >= batch_limit_bytes:
                         self._event_q.put(("log", "".join(batch))); batch.clear(); batch_bytes = 0
                 if batch:
                     self._event_q.put(("log", "".join(batch)))
@@ -2828,9 +3565,9 @@ class ForgeGui:
         return ""
 
     def _start_builtin_source(self, action: str, extra: Sequence[str] = ()) -> None:
-        script = Path(__file__).resolve().parent / "ForgeSourceControl.py"
+        script = Path(__file__).resolve().parent / "ForgePYSourceControl.py"
         argv = [sys.executable, str(script), action, "--root", str(self.root_path), *[str(x) for x in extra]]
-        self._start_builtin_argv(argv, label=f"source-{action}", cwd=self.root_path)
+        self._start_builtin_argv(argv, label=f"source-{action}", cwd=self.root_path, stay_on_tab=getattr(self, "_current_app_tab", "") == "Source Control")
 
     def _start_builtin_forgejo(self, action: str, extra: Sequence[str] = ()) -> None:
         script = Path(__file__).resolve().parent / "VaultForgejo.py"
@@ -2842,7 +3579,7 @@ class ForgeGui:
         if kind not in {"github", "forgejo"}:
             return
         try:
-            state = vault_source_status(self.root_path)
+            state = forgepy_source_status(self.root_path)
         except Exception:
             state = {"remotes": []}
         existing = [x for x in (state.get("remotes") or []) if str(x.get("kind") or "") == kind and str(x.get("direction") or "") == "fetch"]
@@ -2863,7 +3600,7 @@ class ForgeGui:
 
     def _start_command(self, command: str, extra: Sequence[str] = (), *, label: str | None = None) -> None:
         if self.backend is None:
-            self._popup("Forge", "Forge could not bind an executable operation provider for this project.", kind="warning")
+            self._popup("ForgePY", "ForgePY could not bind an executable operation provider for this project.", kind="warning")
             return
         if not self.backend.supports(command):
             self._popup(
@@ -2873,7 +3610,7 @@ class ForgeGui:
             )
             return
         if self._busy or (self._active_proc and self._active_proc.poll() is None):
-            self._popup("Forge", "Another Forge job is already running.", kind="warning")
+            self._popup("ForgePY", "Another ForgePY job is already running.", kind="warning")
             return
         self._show_app_tab("Project Workspace")
         # The embedded project console is the authoritative visible execution surface.
@@ -2903,9 +3640,12 @@ class ForgeGui:
                 assert proc.stdout is not None
                 batch: list[str] = []
                 batch_bytes = 0
+                ui_cfg = load_settings().get("ui") or {}
+                batch_lines = int(ui_cfg.get("consoleBatchLines") or 64)
+                batch_limit_bytes = int(ui_cfg.get("consoleBatchBytes") or 32768)
                 for line in proc.stdout:
                     batch.append(line); batch_bytes += len(line)
-                    if len(batch) >= 32 or batch_bytes >= 8192:
+                    if len(batch) >= batch_lines or batch_bytes >= batch_limit_bytes:
                         self._event_q.put(("log", "".join(batch))); batch.clear(); batch_bytes = 0
                 if batch:
                     self._event_q.put(("log", "".join(batch)))
@@ -2951,11 +3691,61 @@ class ForgeGui:
                     self._refresh_status_async()
                     if str(command).startswith("forgejo-"):
                         self._refresh_forgejo_status_async()
-                    if str(command).startswith("source-"):
+                    if str(command).startswith("source-") or str(command).startswith("forgegit-"):
                         self._refresh_projects()
                         self._refresh_source_status_async()
+                        self._refresh_source_workspace_async()
                     if rc == 0:
                         self._offer_restart_if_updated()
+                elif kind == "universal-project-apply-done":
+                    label, target, run_full_after, result = payload
+                    self._busy = False
+                    self._active_proc = None
+                    self.stop_btn.configure(state="disabled"); self.stop_btn.pack_forget()
+                    applied = int((result or {}).get("applied",0) or 0)
+                    self.operation_label.configure(text=f"Last: {label} PASS", fg=GREEN)
+                    self.console_job_label.configure(text=f"Last: {label} PASS", fg=GREEN)
+                    self.footer.configure(text=f"[Last:{label}] [PASS]", fg=GREEN)
+                    self._append_log(f"=== END {label}: PASS ({applied} update(s) applied) ===\n","pass")
+                    self._refresh_status_async()
+                    if run_full_after:
+                        self.window.after(150, lambda: self._start_command("full", label="post-update-full"))
+                elif kind == "universal-project-apply-error":
+                    label, target, detail = payload
+                    self._busy = False
+                    self._active_proc = None
+                    self.stop_btn.configure(state="disabled"); self.stop_btn.pack_forget()
+                    self.operation_label.configure(text=f"Last: {label} FAIL", fg=RED)
+                    self.console_job_label.configure(text=f"Last: {label} FAIL", fg=RED)
+                    self.footer.configure(text=f"[Last:{label}] [FAIL]", fg=RED)
+                    self._append_log(f"[FAIL] Universal patch apply: {detail}\n","fail")
+                    self._popup("ForgePY Patch Apply Failed",str(detail),kind="error")
+                    self._refresh_status_async()
+                elif kind == "forgepy-self-apply-done":
+                    label, result = payload
+                    self._busy = False
+                    self._active_proc = None
+                    self.stop_btn.configure(state="disabled")
+                    self.stop_btn.pack_forget()
+                    applied = int((result or {}).get("applied", 0) or 0)
+                    self.operation_label.configure(text=f"Last: {label} PASS", fg=GREEN)
+                    self.console_job_label.configure(text=f"Last: {label} PASS", fg=GREEN)
+                    self.footer.configure(text=f"[Last:{label}] [PASS]", fg=GREEN)
+                    self._append_log(f"=== END {label}: PASS ({applied} ForgePY update(s) applied) ===\n", "pass")
+                    self._refresh_status_async()
+                    self._offer_restart_if_updated()
+                elif kind == "forgepy-self-apply-error":
+                    label, detail = payload
+                    self._busy = False
+                    self._active_proc = None
+                    self.stop_btn.configure(state="disabled")
+                    self.stop_btn.pack_forget()
+                    self.operation_label.configure(text=f"Last: {label} FAIL", fg=RED)
+                    self.console_job_label.configure(text=f"Last: {label} FAIL", fg=RED)
+                    self.footer.configure(text=f"[Last:{label}] [FAIL]", fg=RED)
+                    self._append_log(f"[FAIL] ForgePY self-update: {detail}\n", "fail")
+                    self._popup("ForgePY Self Update Failed", str(detail), kind="error")
+                    self._refresh_status_async()
                 elif kind == "command-error":
                     command, detail = payload
                     self._active_proc = None
@@ -3044,30 +3834,32 @@ class ForgeGui:
                     reviews = result.get("reviews") or []
                     errors = result.get("errors") or []
                     queued = [item for item in ingested if str(item.get("state") or "").upper() == "QUEUED"]
-                    available = [item for item in ingested if str(item.get("state") or "").upper() == "AVAILABLE"]
-                    review_items = [item for item in ingested if str(item.get("state") or "").upper() == "REVIEW"]
+                    available = [item for item in ingested if str(item.get("state") or "").upper() in {"CANDIDATE", "AVAILABLE"}]
+                    review_items = [item for item in ingested if str(item.get("state") or "").upper() in {"REVIEW", "LINEAGE"}]
                     for item in queued:
                         self._append_log(f"[PASS] Vault root-drop queued {item.get('patch_id')} for {item.get('target_project')}\n", "pass")
                     if available:
-                        self._append_log(f"[INFO] Vault Downloads cataloged {len(available)} available patch(es); none were queued for application.\n", "info")
-                        compatible = []
-                        try:
-                            compatible = vault_available_for_project(self.root_path, compatible_only=True)
-                        except Exception:
-                            compatible = []
-                        new_items = [item for item in compatible if str(item.get("intake_id") or "") not in self._seen_available_download_ids]
+                        self._append_log(f"[INFO] ForgePY Downloads cataloged {len(available)} compatible candidate patch(es); none were queued by discovery.\n", "info")
+                        # Candidate routing is global, not tied to whichever project happens
+                        # to be active. One notification is emitted per newly discovered
+                        # applicable transport; ordinary minimize-to-tray notices remain deduped.
+                        new_items = [item for item in available if str(item.get("intake_id") or "") not in self._seen_available_download_ids]
                         for item in new_items:
                             self._seen_available_download_ids.add(str(item.get("intake_id") or ""))
                         if new_items:
-                            names = ", ".join(str(item.get("patch_id") or item.get("source_name") or "update") for item in new_items[:3])
-                            self._append_log(f"[READY] {len(new_items)} compatible downloaded update(s) available for {self.contract.name}: {names}. Use Updates > Approve Download….\n", "pass")
-                            if self._tray is not None and bool((load_settings().get("ui") or {}).get("showTrayNotifications", True)):
-                                try:
-                                    self._tray.notify("Forge update available", f"{self.contract.name}: {len(new_items)} compatible downloaded update(s) ready for approval.")
-                                except Exception:
-                                    pass
+                            grouped: dict[str, list[dict[str, Any]]] = {}
+                            for item in new_items:
+                                grouped.setdefault(str(item.get("target_project") or "unassigned"), []).append(item)
+                            for project_name, rows in grouped.items():
+                                names = ", ".join(str(item.get("source_name") or item.get("patch_id") or "update") for item in rows[:3])
+                                self._append_log(f"[READY] {project_name}: {len(rows)} compatible downloaded update(s): {names}. Open Patch Review / project Updates to approve.\n", "pass")
+                                if self._tray is not None and bool((load_settings().get("ui") or {}).get("showTrayNotifications", True)):
+                                    try:
+                                        self._tray.notify("ForgePY update available", f"{project_name}: {len(rows)} compatible patch(es) ready for approval.")
+                                    except Exception:
+                                        pass
                     if reviews or review_items:
-                        self._append_log(f"[INFO] Vault intake moved {len(reviews) + len(review_items)} non-executable/rejected transport(s) to Artifact Central review.\n", "info")
+                        self._append_log(f"[INFO] Vault intake moved {len(reviews) + len(review_items)} non-executable transport(s) to Patch Lineage/review.\n", "info")
                     for item in artifacts:
                         self._append_log(f"[PASS] Artifact Central archived {item.get('source_name') or item.get('artifactPath')} -> {item.get('project_id') or item.get('projectId')} / {item.get('category')}\n", "pass")
                     if errors:
@@ -3084,56 +3876,72 @@ class ForgeGui:
                     skipped = result.get("skipped") or []
                     errors = result.get("errors") or []
                     queued = [item for item in ingested if str(item.get("state") or "").upper() == "QUEUED"]
-                    available = [item for item in ingested if str(item.get("state") or "").upper() == "AVAILABLE"]
-                    review_items = [item for item in ingested if str(item.get("state") or "").upper() == "REVIEW"]
+                    available = [item for item in ingested if str(item.get("state") or "").upper() in {"CANDIDATE", "AVAILABLE"}]
+                    review_items = [item for item in ingested if str(item.get("state") or "").upper() in {"REVIEW", "LINEAGE"}]
                     for item in queued:
                         self._append_log(f"[PASS] Vault root-drop queued {item.get('patch_id')} for {item.get('target_project')}\n", "pass")
                     if available:
-                        self._append_log(f"[INFO] Vault Downloads cataloged {len(available)} available patch(es); explicit root-drop/approval is required before application.\n", "info")
+                        self._append_log(f"[INFO] Vault Downloads cataloged {len(available)} candidate patch(es); explicit approval is required before application.\n", "info")
                     if reviews or review_items:
-                        self._append_log(f"[INFO] Vault moved {len(reviews) + len(review_items)} transport(s) to Artifact Central review; they are non-executable.\n", "info")
+                        self._append_log(f"[INFO] Vault moved {len(reviews) + len(review_items)} transport(s) to Patch Lineage/review; they are non-executable.\n", "info")
                     for item in artifacts:
                         self._append_log(f"[PASS] Artifact Central archived {item.get('source_name') or item.get('artifactPath')} -> {item.get('project_id') or item.get('projectId')} / {item.get('category')}\n", "pass")
                     for item in errors:
                         self._append_log(f"[WARN] Trusted-root intake rejected {item.get('path')}: {item.get('error')}\n", "warn")
-                    self._append_log(f"[INFO] Vault intake complete: {len(queued)} queued root patch(es), {len(available)} available download(s), {len(reviews) + len(review_items)} review item(s), {len(artifacts)} artifact(s) archived, {len(skipped)} waiting/skipped, {len(errors)} trusted-root error(s).\n", "info")
+                    self._append_log(f"[INFO] Vault intake complete: {len(queued)} queued root patch(es), {len(available)} download candidate(s), {len(reviews) + len(review_items)} review item(s), {len(artifacts)} artifact(s) archived, {len(skipped)} waiting/skipped, {len(errors)} trusted-root error(s).\n", "info")
                     self._refresh_projects()
                     self._refresh_status_async()
-                    self._popup("Vault Intake", f"Queued root patches: {len(queued)}\nAvailable downloads: {len(available)}\nReview: {len(reviews) + len(review_items)}\nWaiting/skipped: {len(skipped)}\nBlocking root errors: {len(errors)}", kind="success" if not errors else "warning")
+                    self._popup("Vault Intake", f"Queued root patches: {len(queued)}\nDownload candidates: {len(available)}\nReview: {len(reviews) + len(review_items)}\nWaiting/skipped: {len(skipped)}\nBlocking root errors: {len(errors)}", kind="success" if not errors else "warning")
                 elif kind == "forge-intake-error":
                     self._append_log(f"[FAIL] Vault intake failed: {payload}\n", "fail")
                     self._popup("Vault Intake", str(payload), kind="error")
                 elif kind == "downloads-check-done":
                     self._download_approval_busy = False
                     result = payload or {}
-                    available = [item for item in (result.get("ingested") or []) if str(item.get("state") or "").upper() == "AVAILABLE"]
+                    available = [item for item in (result.get("ingested") or []) if str(item.get("state") or "").upper() in {"CANDIDATE", "AVAILABLE"}]
                     waiting = [item for item in (result.get("skipped") or []) if "stabil" in str(item.get("reason") or "").casefold()]
                     compatible = []
                     try:
                         compatible = vault_available_for_project(self.root_path, compatible_only=True)
                     except Exception:
                         compatible = []
-                    self._append_log(f"[INFO] Downloads check complete: {len(available)} newly cataloged, {len(compatible)} compatible available for {self.contract.name}, {len(waiting)} still stabilizing.\n", "info")
+                    self._append_log(f"[INFO] Downloads check complete: {len(available)} newly cataloged, {len(compatible)} compatible candidate(s) for {self.contract.name}, {len(waiting)} still stabilizing.\n", "info")
                     if compatible:
-                        self._popup("Downloaded Update Available", f"{len(compatible)} compatible downloaded update(s) are ready for {self.contract.name}.\n\nUse Approve Download… or Apply Updates to authorize one.", kind="success")
+                        self._popup("Downloaded Patch Candidate", f"{len(compatible)} compatible downloaded descendant candidate(s) are ready for {self.contract.name}.\n\nUse Approve Download… or Apply Updates to authorize one.", kind="success")
                     elif waiting:
                         self._popup("Downloads Still Stabilizing", "Forge sees a candidate file that is still changing or too new. Wait a few seconds and use Check Downloads again. It will not be executed while incomplete.", kind="info")
                     else:
-                        self._popup("Downloads Checked", f"No compatible downloaded update is currently available for {self.contract.name}.", kind="info")
+                        self._popup("Downloads Checked", f"No compatible downloaded descendant candidate is currently available for {self.contract.name}.", kind="info")
                     self._refresh_status_async()
                 elif kind == "downloads-check-error":
                     self._download_approval_busy = False
                     self._append_log(f"[WARN] Downloads check failed: {payload}\n", "warn")
                     self._popup("Downloads Check Failed", str(payload), kind="error")
+                elif kind == "manual-patch-approved":
+                    self._download_approval_busy = False
+                    approved = payload or {}
+                    self._append_log(f"[PASS] Manually selected patch {approved.get('patch_id')} approved for {self.contract.name}; applying validated queue now.\n", "pass")
+                    self._refresh_status_async()
+                    if self._is_forgepy_self_project():
+                        self._start_forgepy_self_apply("apply-patch")
+                    else:
+                        self._start_command("patch-apply", ["--yes"], label="apply-patch")
+                elif kind == "manual-patch-error":
+                    self._download_approval_busy = False
+                    self._append_log(f"[FAIL] Manual patch selection failed: {payload}\n", "fail")
+                    self._popup("Apply Patch Failed", str(payload), kind="error")
                 elif kind == "download-approved":
                     self._download_approval_busy = False
                     approved, apply_after = payload
                     self._append_log(f"[PASS] Approved downloaded patch {approved.get('patch_id')} for {self.contract.name}; approval receipt: {approved.get('approvalReceipt')}\n", "pass")
                     self._refresh_status_async()
                     if apply_after:
-                        self._start_command("patch-apply", ["--yes"], label="apply-updates")
+                        if self._is_forgepy_self_project():
+                            self._start_forgepy_self_apply("apply-updates")
+                        else:
+                            self._start_command("patch-apply", ["--yes"], label="apply-updates")
                     else:
-                        self._popup("Update Queued", f"{approved.get('patch_id')} is now explicitly queued for {self.contract.name}.\n\nUse Apply Validated Queue when ready.", kind="success")
+                        self._popup("Update Queued", f"{approved.get('patch_id')} is now explicitly approved and queued for {self.contract.name}.\n\nUse Apply Validated Queue when ready.", kind="success")
                 elif kind == "download-approval-error":
                     self._download_approval_busy = False
                     self._append_log(f"[FAIL] Download approval failed: {payload}\n", "fail")
@@ -3244,11 +4052,11 @@ class ForgeGui:
                     self.vault_scan_status.configure(text="Vault home migration PASS", fg=GREEN)
                     self._refresh_location_labels()
                     self._append_log(f"[PASS] Vault home migrated to {result.get('target')} · {result.get('files', 0)} files verified.\n", "pass")
-                    self._popup("Forge Home Migrated", f"Vault now uses:\n{result.get('target')}\n\nOld data was retained for rollback.\nReceipt: {result.get('receipt')}", kind="success")
+                    self._popup("ForgePY Home Migrated", f"Vault now uses:\n{result.get('target')}\n\nOld data was retained for rollback.\nReceipt: {result.get('receipt')}", kind="success")
                 elif kind == "vault-storage-error":
                     self.vault_scan_status.configure(text="Vault home migration failed", fg=RED)
                     self._append_log(f"[FAIL] Vault home migration: {payload}\n", "fail")
-                    self._popup("Forge Home Migration Failed", str(payload), kind="error")
+                    self._popup("ForgePY Home Migration Failed", str(payload), kind="error")
                 elif kind == "project-migration-progress":
                     info = payload or {}
                     phase = str(info.get("phase") or "copying")
@@ -3277,13 +4085,16 @@ class ForgeGui:
                     self._popup("Project Migration Failed", str(payload), kind="error")
                 elif kind == "drive-scan-progress":
                     info = payload or {}
-                    self.vault_scan_status.configure(text=f"Drive scan · {int(info.get('directories') or 0)} dirs · {int(info.get('projects') or 0)} projects", fg=CYAN)
+                    phase = str(info.get("phase") or "inventory")
+                    self.vault_scan_status.configure(text=f"Vault catalog · {phase} · {int(info.get('directories') or 0)} dirs · {int(info.get('files') or 0)} files · {int(info.get('projects') or 0)} projects", fg=CYAN)
                 elif kind == "drive-scan-done":
                     self._drive_scan_busy = False
                     result = payload or {}
-                    self.vault_scan_status.configure(text=f"Drive scan PASS · {result.get('projects', 0)} projects", fg=GREEN)
-                    self._append_log(f"[PASS] Drive project index: {result.get('projects', 0)} projects across {result.get('directories', 0)} directories.\n", "pass")
-                    self._popup("Drive Scan Complete", f"Projects discovered: {result.get('projects', 0)}\nDirectories inspected: {result.get('directories', 0)}\nDatabase: {result.get('database')}", kind="success")
+                    self.vault_scan_status.configure(text=f"Catalog PASS · {result.get('entries', 0)} items · {result.get('projects', 0)} projects · {result.get('components', 0)} components", fg=GREEN)
+                    self._append_log(f"[PASS] Vault drive catalog: {result.get('entries', 0)} items classified across {result.get('directories', 0)} directories; {result.get('projects', 0)} project authorities, {result.get('components', 0)} components, {result.get('unknown', 0)} unclassified.\n", "pass")
+                    self._vault_browser_mode = "drive"
+                    self._vault_refresh_tree()
+                    # Successful whole-drive scans are routine status/activity events, not blocking popups.
                 elif kind == "drive-scan-error":
                     self._drive_scan_busy = False
                     self.vault_scan_status.configure(text="Drive scan failed", fg=RED)
@@ -3297,15 +4108,57 @@ class ForgeGui:
                         else:
                             remotes = info.get("remotes") or []
                             gh = sorted({str(x.get("name")) for x in remotes if x.get("kind") == "github"})
+                            internal = sorted({str(x.get("name")) for x in remotes if x.get("kind") == "forgegit"})
                             fj = sorted({str(x.get("name")) for x in remotes if x.get("kind") == "forgejo"})
                             dirty = int(info.get("staged") or 0) + int(info.get("unstaged") or 0) + int(info.get("untracked") or 0)
                             sync = "upstream unknown" if info.get("ahead") is None else f"{info.get('ahead')} ahead / {info.get('behind')} behind"
                             self.source_status_label.configure(
                                 text=(f"Branch {info.get('branch') or '<detached>'} @ {info.get('headShort') or '<no commit>'}  ·  "
                                       f"{'clean' if not dirty else str(dirty) + ' changed'}  ·  {sync}\n"
-                                      f"GitHub: {', '.join(gh) if gh else 'not configured'}  ·  Forgejo: {', '.join(fj) if fj else 'not configured'}"),
+                                      f"GitHub: {', '.join(gh) if gh else 'not configured'}  ·  ForgeGit: {', '.join(internal) if internal else 'not configured'}"
+                                      + (f"  ·  Forgejo(opt): {', '.join(fj)}" if fj else "")),
                                 fg=GREEN if not dirty else YELLOW,
                             )
+                elif kind == "source-workspace-status":
+                    self._source_workspace_refresh_running = False
+                    source, forgegit, repo_rows, branch_rows, tags = payload
+                    self._source_repo_records = list(repo_rows or [])
+                    self._source_branches = list(branch_rows or [])
+                    self._source_tags = list(tags or [])
+                    if hasattr(self, "source_workspace_status_label"):
+                        dirty = int(source.get("staged") or 0) + int(source.get("unstaged") or 0) + int(source.get("untracked") or 0)
+                        gh = "configured" if source.get("githubConfigured") else "not configured"
+                        fg_state = "ready" if forgegit.get("repositoryReady") and forgegit.get("remoteConfigured") else ("repository ready / remote missing" if forgegit.get("repositoryReady") else "not initialized")
+                        self.source_workspace_status_label.configure(
+                            text=(f"{self.contract.name}  ·  {source.get('branch') or '<no branch>'} @ {source.get('headShort') or '<no commit>'}  ·  "
+                                  f"{'clean' if not dirty else str(dirty) + ' changed'}\n"
+                                  f"ForgeGit: {fg_state}  ·  GitHub: {gh}\n{forgegit.get('repository') or ''}"),
+                            fg=GREEN if not dirty and forgegit.get("remoteConfigured") else YELLOW,
+                        )
+                    if hasattr(self, "source_branch_tree"):
+                        self.source_branch_tree.delete(*self.source_branch_tree.get_children())
+                        local_root = self.source_branch_tree.insert("", "end", iid="source:branches", text="Local Branches", values=("", ""), open=True)
+                        remote_root = self.source_branch_tree.insert("", "end", iid="source:remotes", text="Remote Branches", values=("", ""), open=False)
+                        tag_root = self.source_branch_tree.insert("", "end", iid="source:tags", text="Tags / Restore Points", values=("", ""), open=False)
+                        for index, row in enumerate(self._source_branches):
+                            name = str(row.get("name") or "")
+                            if not name:
+                                continue
+                            is_remote = bool(row.get("remote")) or name.startswith("remotes/")
+                            label = ("* " if row.get("current") else "") + name
+                            self.source_branch_tree.insert(remote_root if is_remote else local_root, "end", iid=f"source:branch:{index}", text=label, values=(row.get("head") or "", row.get("upstream") or ""))
+                        for index, row in enumerate(self._source_tags):
+                            name = str(row.get("name") or "")
+                            if name:
+                                self.source_branch_tree.insert(tag_root, "end", iid=f"source:tag:{index}", text=name, values=(row.get("head") or "", "tag"))
+                    self._source_render_repo_tree()
+                    self._source_workspace_loaded = True
+                elif kind == "source-detail":
+                    self._source_set_detail(str(payload or ""))
+                elif kind == "source-workspace-error":
+                    self._source_workspace_refresh_running = False
+                    if hasattr(self, "source_workspace_status_label"):
+                        self.source_workspace_status_label.configure(text=f"Source-control status unavailable: {payload}", fg=RED)
                 elif kind == "source-status-error":
                     if hasattr(self, "source_status_label"):
                         self.source_status_label.configure(text=f"Source status unavailable: {payload}", fg=RED)
@@ -3341,9 +4194,9 @@ class ForgeGui:
         if not tray_supported():
             return
         try:
-            self._tray = ForgeTray(lambda key: self._event_q.put(("tray-command", key)), tooltip=f"Forge — {self.contract.name}")
+            self._tray = ForgeTray(lambda key: self._event_q.put(("tray-command", key)), tooltip=f"ForgePY — {self.contract.name}")
             if self._tray.start():
-                self._tray.set_status(f"Forge — {self.contract.name}")
+                self._tray.set_status(f"ForgePY — {self.contract.name}")
                 self._append_log("[PASS] Windows system-tray service ready.\n", "pass")
             else:
                 self._tray = None
@@ -3369,8 +4222,11 @@ class ForgeGui:
         try:
             self.window.withdraw()
             cfg = load_settings().get("ui") or {}
-            if bool(cfg.get("showTrayNotifications", True)):
-                self._tray.notify("Forge", "Forge is still running in the system tray.")
+            # The informational minimize notice is intentionally once per process.
+            # Update-available notifications remain independent and may still fire.
+            if bool(cfg.get("showTrayNotifications", True)) and not self._tray_minimize_notice_sent:
+                self._tray_minimize_notice_sent = True
+                self._tray.notify("ForgePY", "ForgePY is still running in the system tray.")
         except Exception:
             pass
 
@@ -3396,7 +4252,7 @@ class ForgeGui:
         elif key == "apply-updates": self._show_from_tray(); self._apply_updates()
         elif key == "scan-intake": self._vault_scan_intake()
         elif key == "source-control": self._show_from_tray(); self._show_app_tab("Project Workspace"); self._show_page("Source Control")
-        elif key == "forgejo": self._show_from_tray(); self._show_app_tab("Forgejo")
+        elif key == "forgejo": self._show_from_tray(); self._show_app_tab("Source Control")
         elif key == "ide": self._show_from_tray(); self._show_app_tab("IDE")
         elif key == "cortex": self._show_from_tray(); self._show_app_tab("Cortex")
         elif key == "settings": self._show_from_tray(); self._show_app_tab("Settings")
@@ -3456,7 +4312,7 @@ class ForgeGui:
         title = str(data.get("title") or "").strip()
         detail = patch_id + (f" — {title}" if title and title != patch_id else "")
         if not self._popup(
-            "Forge Restart Required",
+            "ForgePY Restart Required",
             f"{detail} was applied successfully.\n\nRestart Forge now to load the updated application code?",
             kind="success",
             confirm=True,
@@ -3485,7 +4341,7 @@ class ForgeGui:
             self.window.after(120, self.window.destroy)
         except Exception as exc:
             self._append_log(f"[WARN] Forge update is applied but automatic restart failed: {exc}\n", "warn")
-            self._popup("Forge Restart", f"The update is applied, but automatic restart failed.\n\n{exc}\n\nClose and reopen Forge manually.", kind="warning")
+            self._popup("ForgePY Restart", f"The update is applied, but automatic restart failed.\n\n{exc}\n\nClose and reopen ForgePY manually.", kind="warning")
 
     def _latest_applied_patch_identity(self) -> tuple[str, str] | None:
         """Return the newest successfully applied patch identity for commit-message carry-forward."""
@@ -3686,6 +4542,289 @@ class ForgeGui:
         self.window.wait_window(dialog)
         return result[0]
 
+    def _registry_root_for_patch_target(self, target: str) -> Path | None:
+        wanted = str(target or "").strip().casefold()
+        if not wanted:
+            return None
+        def forms(value: str) -> set[str]:
+            raw = str(value or "").strip().casefold()
+            out = {raw, re.sub(r"[^a-z0-9]+", "", raw)}
+            stem = re.sub(r"(?:[-_. ](?:main|master|standalone|project|repo|repository|source|src))+$", "", raw).strip("-_. ")
+            out.update({stem, re.sub(r"[^a-z0-9]+", "", stem)})
+            return {x for x in out if x}
+        wanted_forms = forms(wanted)
+        exact: list[Path] = []
+        fuzzy: list[Path] = []
+        for entry in self.registry.entries():
+            aliases = {entry.project_id.casefold(), entry.name.casefold(), entry.root.name.casefold()}
+            if wanted in aliases:
+                exact.append(entry.root.resolve()); continue
+            alias_forms: set[str] = set()
+            for value in aliases:
+                alias_forms.update(forms(value))
+            if wanted_forms & alias_forms:
+                fuzzy.append(entry.root.resolve())
+        exact = list(dict.fromkeys(exact))
+        if len(exact) == 1:
+            return exact[0]
+        fuzzy = list(dict.fromkeys(fuzzy))
+        return fuzzy[0] if not exact and len(fuzzy) == 1 else None
+
+    def _open_artifact_central_browser(self) -> None:
+        """Browse ForgePY evidence/artifacts by project and category."""
+        tk = self.tk
+        root = artifact_central_root()
+        dialog = tk.Toplevel(self.window); dialog.withdraw(); dialog.configure(bg=BG); dialog.overrideredirect(True); dialog.transient(self.window)
+        shell = tk.Frame(dialog,bg=PANEL,highlightthickness=1,highlightbackground=CYAN); shell.pack(fill="both",expand=True)
+        tk.Label(shell,text="Artifact Central",bg=PANEL,fg=TEXT,font=("Segoe UI Semibold",13),anchor="w").pack(fill="x",padx=16,pady=(14,4))
+        tk.Label(shell,text="Durable per-project logs, reports, patch evidence, builds, packages and recovery artifacts.",bg=PANEL,fg=MUTED,font=("Segoe UI",9),anchor="w").pack(fill="x",padx=16,pady=(0,8))
+        top=tk.Frame(shell,bg=PANEL); top.pack(fill="x",padx=16,pady=(0,8))
+        query=tk.StringVar()
+        entry=tk.Entry(top,textvariable=query,bg="#090c10",fg=TEXT,insertbackground=TEXT,relief="flat",font=("Segoe UI",9)); entry.pack(side="left",fill="x",expand=True,ipady=5)
+        frame=tk.Frame(shell,bg=PANEL); frame.pack(fill="both",expand=True,padx=16,pady=(0,8))
+        tree=self.ttk.Treeview(frame,columns=("project","category","size","modified"),show="tree headings",selectmode="browse")
+        tree.heading("#0",text="Artifact"); tree.column("#0",width=330,anchor="w")
+        for key,title,width in (("project","Project",150),("category","Category",125),("size","Size",85),("modified","Modified",150)):
+            tree.heading(key,text=title); tree.column(key,width=width,anchor="w")
+        scroll=tk.Scrollbar(frame,command=tree.yview,bg=PANEL); tree.configure(yscrollcommand=scroll.set); tree.pack(side="left",fill="both",expand=True); scroll.pack(side="right",fill="y")
+        path_map: dict[str,Path] = {}
+        browser_q: queue.Queue[tuple[str, Any]] = queue.Queue()
+        page_size = 500
+        browser_offset = {"value": 0}
+        browser_busy = {"value": False}
+
+        def rows(needle: str, offset: int):
+            out=[]
+            projects=root / "projects"
+            if not projects.is_dir(): return out
+            skipped = 0
+            for project_dir in sorted((p for p in projects.iterdir() if p.is_dir()),key=lambda x:x.name.casefold()):
+                for path in project_dir.rglob("*"):
+                    if not path.is_file(): continue
+                    try: rel=path.relative_to(project_dir); category=rel.parts[0] if rel.parts else "other"; stat=path.stat()
+                    except OSError: continue
+                    hay=f"{project_dir.name} {category} {path.name} {path}".casefold()
+                    if needle and needle not in hay: continue
+                    if skipped < offset:
+                        skipped += 1; continue
+                    out.append((project_dir.name,category,path,stat.st_size,stat.st_mtime))
+                    if len(out)>=page_size: return out
+            return out
+
+        def poll_browser():
+            try:
+                while True:
+                    kind,payload=browser_q.get_nowait()
+                    browser_busy["value"]=False
+                    if kind=="rows":
+                        data,append,offset=payload
+                        if not append:
+                            for iid in tree.get_children(): tree.delete(iid)
+                            path_map.clear()
+                        start_index=len(path_map)
+                        for index,(project,category,path,size,mtime) in enumerate(data):
+                            iid=f"artifact:{offset+index}:{start_index}"; path_map[iid]=path
+                            tree.insert("","end",iid=iid,text=path.name,values=(project,category,self._human_bytes(int(size)),datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")))
+                        if not data and not append:
+                            tree.insert("","end",text="No matching artifacts",values=("","", "", ""))
+                    elif kind=="error":
+                        self._append_log(f"[WARN] Artifact Central browse failed: {payload}\n","warn")
+            except queue.Empty:
+                pass
+            if dialog.winfo_exists(): dialog.after(100,poll_browser)
+
+        def refresh(_e=None, *, append: bool=False):
+            if browser_busy["value"]: return
+            if not append:
+                browser_offset["value"]=0
+                for iid in tree.get_children(): tree.delete(iid)
+                tree.insert("","end",iid="artifact:loading",text="Loading…",values=("","","",""))
+            needle=query.get().strip().casefold()
+            offset=browser_offset["value"]
+            browser_busy["value"]=True
+            def worker():
+                try: browser_q.put(("rows",(rows(needle,offset),append,offset)))
+                except Exception as exc: browser_q.put(("error",str(exc)))
+            threading.Thread(target=worker,daemon=True,name="ForgePYArtifactBrowse").start()
+
+        def load_more():
+            if browser_busy["value"]: return
+            browser_offset["value"] += page_size
+            refresh(append=True)
+
+        entry.bind("<Return>",refresh)
+        self._button(top,"Search",refresh,compact=True).pack(side="left",padx=(6,0))
+        self._button(top,"Load More",load_more,compact=True).pack(side="left",padx=(6,0))
+        self._button(top,"Open Root",lambda:open_path(root),compact=True).pack(side="left",padx=(6,0))
+        actions=tk.Frame(shell,bg=PANEL); actions.pack(fill="x",padx=16,pady=(0,14))
+        def selected():
+            sel=tree.selection(); return path_map.get(sel[0]) if sel else None
+        def open_sel():
+            path=selected()
+            if path: open_path(path)
+        def reveal_sel():
+            path=selected()
+            if path: reveal_file(path)
+        self._button(actions,"Open",open_sel,primary=True,compact=True).pack(side="left",padx=(0,5))
+        self._button(actions,"Reveal",reveal_sel,compact=True).pack(side="left",padx=5)
+        self._button(actions,"Patch Review",self._open_patch_review,compact=True).pack(side="left",padx=5)
+        self._button(actions,"Close",dialog.destroy,compact=True).pack(side="right")
+        tree.bind("<Double-1>",lambda _e:open_sel())
+        poll_browser(); refresh(); self._center_modal(dialog, 1080, 650); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); entry.focus_force()
+
+    def _open_patch_review(self) -> None:
+        """Actionable global patch-review surface instead of a raw folder view."""
+        tk = self.tk
+        dialog = tk.Toplevel(self.window)
+        dialog.withdraw()
+        dialog.configure(bg=BG)
+        dialog.overrideredirect(True)
+        dialog.transient(self.window)
+        shell = tk.Frame(dialog, bg=PANEL, highlightthickness=1, highlightbackground=CYAN)
+        shell.pack(fill="both", expand=True)
+        header = tk.Frame(shell, bg=PANEL)
+        header.pack(fill="x", padx=16, pady=(13, 5))
+        tk.Label(header, text="Patch Review / Routing", bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 13)).pack(side="left")
+        tk.Label(shell, text="Fresh Downloads stay actionable here. Nothing executes until you explicitly queue/apply it.", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w").pack(fill="x", padx=16, pady=(0, 8))
+
+        tree_frame = tk.Frame(shell, bg=PANEL)
+        tree_frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        tree = self.ttk.Treeview(tree_frame, columns=("project","state","reason","received"), show="tree headings", selectmode="extended")
+        tree.heading("#0", text="Package")
+        tree.column("#0", width=245, anchor="w")
+        for key,title,width in (("project","Project",120),("state","State",80),("reason","Reason",320),("received","Received",145)):
+            tree.heading(key,text=title); tree.column(key,width=width,anchor="w")
+        scroll = tk.Scrollbar(tree_frame, command=tree.yview, bg=PANEL)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        item_map: dict[str, dict[str, Any]] = {}
+
+        detail = tk.Text(shell, bg="#07090b", fg=TEXT, bd=0, relief="flat", font=("Consolas", 8), height=7, wrap="word")
+        detail.pack(fill="x", padx=16, pady=(0, 8))
+        detail.configure(state="disabled")
+
+        def selected_item() -> dict[str, Any] | None:
+            sel = tree.selection()
+            return item_map.get(sel[0]) if sel else None
+
+        def render_detail(_event: Any = None) -> None:
+            item = selected_item()
+            lines = []
+            if item:
+                manifest = item.get("manifest") if isinstance(item.get("manifest"), dict) else {}
+                source_name = str(item.get("source_name") or "")
+                fname = vault_parse_patch_filename(source_name)
+                lines = [
+                    f"Package : {source_name}",
+                    f"Patch ID: {item.get('patch_id') or ''}",
+                    f"Project : {item.get('target_project') or 'unassigned'}",
+                    f"State   : {item.get('state') or ''}",
+                    f"Reason  : {item.get('error') or '<none>'}",
+                    f"Stored  : {item.get('vault_path') or ''}",
+                ]
+                if fname:
+                    lines.append(f"Filename: project={fname.get('project')} date={fname.get('date')} version={fname.get('version')}")
+                if manifest:
+                    lines.append(f"Manifest: schema={manifest.get('schema') or ''} target={manifest.get('target') or {}}")
+            detail.configure(state="normal"); detail.delete("1.0","end"); detail.insert("1.0","\n".join(lines)); detail.configure(state="disabled")
+
+        def refresh() -> None:
+            for iid in tree.get_children(): tree.delete(iid)
+            item_map.clear()
+            rows = vault_review_items()
+            for idx,item in enumerate(rows):
+                iid=f"review-{idx}"
+                item_map[iid]=item
+                reason=str(item.get("error") or item.get("classification") or "")
+                tree.insert("", "end", iid=iid, text=str(item.get("source_name") or item.get("patch_id") or "patch"), values=(str(item.get("target_project") or "unassigned"), str(item.get("state") or ""), reason[:110], str(item.get("received_utc") or "")[:19].replace("T"," ")))
+            if rows:
+                first=tree.get_children()[0]; tree.selection_set(first); tree.focus(first); render_detail()
+            else:
+                detail.configure(state="normal"); detail.delete("1.0","end"); detail.insert("1.0","No actionable patch review items."); detail.configure(state="disabled")
+
+        def queue_selected(apply_now: bool = False) -> None:
+            item=selected_item()
+            if not item: return
+            target=str(item.get("target_project") or "")
+            root=self._registry_root_for_patch_target(target)
+            if root is None:
+                self._popup("Patch Review", f"No registered project matches '{target}'. Register the project first or archive this transport to lineage.", kind="warning")
+                return
+            try:
+                approved=vault_reevaluate_review_item(str(item.get("intake_id") or ""), root)
+            except Exception as exc:
+                self._popup("Patch Review", f"The package is still not compatible with {root.name}.\n\n{exc}", kind="warning")
+                refresh(); return
+            self._append_log(f"[PASS] Review approved {approved.get('patch_id')} for {target}; explicit queue authority recorded.\n", "pass")
+            if apply_now:
+                dialog.destroy()
+                if root.resolve() != self.root_path.resolve():
+                    self._activate_project(root)
+                if (root / "app" / "ForgePYVersion.py").is_file():
+                    self.window.after(120, lambda: self._start_forgepy_self_apply("review-apply"))
+                else:
+                    self.window.after(120, lambda: self._start_universal_project_apply(root, "review-apply", run_full_after=True))
+                return
+            refresh()
+
+        def route_selected() -> None:
+            selected = [item_map.get(iid) for iid in tree.selection()]
+            selected = [item for item in selected if item]
+            if not selected:
+                return
+            project_ids = [entry.project_id for entry in self.registry.entries()]
+            initial = str(selected[0].get("target_project") or (project_ids[0] if project_ids else ""))
+            target = self._ask_text("Route Patch", "Registered project ID / alias:", initial=initial)
+            if not target or not target.strip():
+                return
+            changed = 0
+            for item in selected:
+                try:
+                    vault_retarget_review_item(str(item.get("intake_id") or ""), target.strip())
+                    changed += 1
+                except Exception as exc:
+                    self._append_log(f"[WARN] Could not route {item.get('source_name')}: {exc}\n", "warn")
+            self._append_log(f"[PASS] Routed {changed} review item(s) to {target.strip()}; approval is still required.\n", "pass")
+            refresh()
+
+        def archive_selected() -> None:
+            items=[item_map.get(iid) for iid in tree.selection()]; items=[x for x in items if x]
+            if not items: return
+            if not self._popup("Archive to Patch Lineage", f"Move {len(items)} selected review item(s) into historical Patch Lineage?", kind="warning", confirm=True):
+                return
+            for item in items:
+                try: vault_archive_review_item(str(item.get("intake_id") or ""))
+                except Exception as exc: self._append_log(f"[WARN] Archive failed for {item.get('source_name')}: {exc}\n", "warn")
+            refresh()
+
+        def ignore_selected() -> None:
+            items=[item_map.get(iid) for iid in tree.selection()]; items=[x for x in items if x]
+            if not items: return
+            for item in items:
+                try: vault_ignore_review_item(str(item.get("intake_id") or ""))
+                except Exception as exc: self._append_log(f"[WARN] Ignore failed for {item.get('source_name')}: {exc}\n", "warn")
+            refresh()
+
+        def reveal_selected() -> None:
+            item=selected_item()
+            if item:
+                path=Path(str(item.get("vault_path") or ""))
+                if path.exists(): reveal_file(path)
+
+        tree.bind("<<TreeviewSelect>>", render_detail)
+        actions=tk.Frame(shell,bg=PANEL); actions.pack(fill="x",padx=16,pady=(0,14))
+        self._button(actions,"Queue",lambda:queue_selected(False),primary=True,compact=True).pack(side="left",padx=(0,5))
+        self._button(actions,"Queue + Apply",lambda:queue_selected(True),compact=True).pack(side="left",padx=5)
+        self._button(actions,"Route…",route_selected,compact=True).pack(side="left",padx=5)
+        self._button(actions,"Archive Lineage",archive_selected,compact=True).pack(side="left",padx=5)
+        self._button(actions,"Ignore",ignore_selected,compact=True).pack(side="left",padx=5)
+        self._button(actions,"Reveal",reveal_selected,compact=True).pack(side="left",padx=5)
+        self._button(actions,"Refresh",refresh,compact=True).pack(side="left",padx=5)
+        self._button(actions,"Close",dialog.destroy,compact=True).pack(side="right")
+        refresh()
+        self._center_modal(dialog, 1040, 630); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); tree.focus_force()
+
     def _check_downloads_now(self) -> None:
         """Run a user-requested Downloads scan without turning Downloads into execution authority."""
         if self._download_approval_busy:
@@ -3758,7 +4897,7 @@ class ForgeGui:
         if not items:
             self._popup(
                 "Downloaded Updates",
-                "No compatible cataloged download is currently available for this project.\n\nUse Check Downloads after the browser/download has finished, or place an incoming.patch file in this project root.",
+                "No compatible descendant candidate is currently cataloged for this project.\n\nUse Apply Patch… to select a descriptive patch directly, Check Downloads for browser downloads, or use the legacy incoming.patch root transport.",
                 kind="info",
             )
             return
@@ -3773,7 +4912,7 @@ class ForgeGui:
             f"Project: {chosen.get('target_project')}\n"
             f"Created: {created}\n"
             f"Current build: {identity.get('projectBuild') or '<not declared>'}\n\n"
-            "Approve this cataloged Downloads package for the active project? Forge will re-check its hash and build/source binding before queueing it."
+            "Approve this cataloged Downloads descendant candidate for the active project? Forge will re-check its hash and build/source binding before authorizing it for the executable queue."
         )
         if not self._popup("Approve Downloaded Update", message, kind="warning", confirm=True):
             return
@@ -3787,20 +4926,144 @@ class ForgeGui:
                 self._event_q.put(("download-approval-error", str(exc)))
         threading.Thread(target=work, daemon=True, name="ForgeDownloadApproval").start()
 
+    def _apply_patch_file(self) -> None:
+        """Select, validate and immediately apply one descriptive Forge patch."""
+        if self._download_approval_busy:
+            return
+        selected = self.filedialog.askopenfilename(
+            parent=self.window,
+            title=f"Apply Patch — {self.contract.name}",
+            filetypes=(
+                ("Forge patch packages", "*.patch *.zip"),
+                ("Patch files", "*.patch"),
+                ("ZIP patch packages", "*.zip"),
+                ("All files", "*.*"),
+            ),
+        )
+        if not selected:
+            return
+        source = Path(selected).expanduser().resolve()
+        message = (
+            f"Patch: {source.name}\n"
+            f"Project: {self.contract.name}\n\n"
+            "ForgePY will verify the archive, hash, project identity, package date, and "
+            "current build/source preconditions before queueing it. The selected file "
+            "does not need to be renamed to incoming.patch and the original file is retained.\n\n"
+            "Apply this patch now?"
+        )
+        if not self._popup("Apply Patch", message, kind="warning", confirm=True):
+            return
+        self._download_approval_busy = True
+        self._append_log(f"[INFO] Validating manually selected patch: {source}\n", "info")
+
+        def work() -> None:
+            try:
+                approved = vault_approve_manual_patch_for_project(self.root_path, source)
+                self._event_q.put(("manual-patch-approved", approved))
+            except Exception as exc:
+                self._event_q.put(("manual-patch-error", str(exc)))
+
+        threading.Thread(target=work, daemon=True, name="ForgeManualPatchApply").start()
+
     def _commit_green(self) -> None:
         message = self._ask_commit_message(push=False)
         if message:
-            self._start_command("commit-green", ["--message", message], label="commit-green")
+            self._start_builtin_source("commit-green", [self.contract.project_id, message])
 
     def _commit_push_green(self) -> None:
         message = self._ask_commit_message(push=True)
         if message and self._popup(
             "Commit + Push GREEN",
-            "Commit the current certified GREEN source and push it to the configured remote?",
+            "Commit the current certified GREEN source once, snapshot it to ForgeGit, and push GitHub when configured?",
             kind="warning",
             confirm=True,
         ):
-            self._start_command("commit-push-green", ["--message", message], label="commit-push-green")
+            self._start_builtin_source("commit-push-green", [self.contract.project_id, message])
+
+    def _is_forgepy_self_project(self) -> bool:
+        aliases = {str(self.contract.project_id or "").casefold(), str(self.contract.name or "").casefold(), self.root_path.name.casefold()}
+        return bool((self.root_path / "app" / "ForgePYVersion.py").is_file() and ({"forgepy", "forge-py", "forge"} & aliases))
+
+    def _start_universal_project_apply(self, root: Path, label: str = "apply-updates", *, run_full_after: bool = False) -> None:
+        """Apply an explicitly approved universal patch directly through ForgePY.
+
+        Projects keep ownership of their build/test/gate commands, but canonical Forge
+        patch execution is ForgePY authority. This makes Review/Apply work consistently
+        even when a project PCC has no bespoke patch.apply command.
+        """
+        if self._busy:
+            self._popup("ForgePY", "Another ForgePY job is already running.", kind="warning")
+            return
+        target = root.expanduser().resolve()
+        self._busy = True
+        self._active_command = label
+        self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
+        self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
+        self.footer.configure(text=f"[Job:Running] [{label}]", fg=CYAN)
+        self.refresh_btn.configure(state="disabled")
+        self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {label} ===\n", "info")
+        self._append_log("[PatchEngine] ForgePY universal transactional patch lane active.\n", "info")
+
+        def work() -> None:
+            try:
+                staged = vault_stage_for_project(target, compatibility_inbox=False)
+                rows = list(staged.get("items") or [])
+                if not rows:
+                    raise RuntimeError("No explicitly approved universal update is currently queued for this project.")
+                receipts=[]
+                for row in rows:
+                    source=Path(str(row.get("source") or ""))
+                    if not source.is_file():
+                        raise RuntimeError(f"Approved patch transport is missing: {source}")
+                    if not vault_can_apply_transport(source):
+                        raise RuntimeError(f"Approved transport is not a canonical universal patch: {source.name}")
+                    receipts.append(vault_apply_transport(source,target))
+                vault_reconcile_project(target)
+                self._event_q.put(("universal-project-apply-done",(label,target,run_full_after,{"applied":len(receipts),"receipts":receipts})))
+            except Exception as exc:
+                self._event_q.put(("universal-project-apply-error",(label,target,str(exc))))
+        threading.Thread(target=work,daemon=True,name="ForgePYUniversalPatchApply").start()
+
+    def _start_forgepy_self_apply(self, label: str = "apply-updates") -> None:
+        """Apply ForgePY's own approved canonical queue without calling project CLI.
+
+        ForgePY self-maintenance is application authority, not a project-provided
+        `patch-apply` command.  This avoids routing a self-update back through the
+        generic project adapter and keeps the transactional patch engine authoritative.
+        """
+        if self._busy:
+            self._popup("ForgePY", "Another ForgePY job is already running.", kind="warning")
+            return
+        self._busy = True
+        self._active_command = label
+        self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
+        self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
+        self.footer.configure(text=f"[Job:Running] [{label}]", fg=CYAN)
+        self.refresh_btn.configure(state="disabled")
+        self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {label} ===\n", "info")
+        self._append_log("[SelfUpdate] ForgePY transactional self-update lane active; no external project operation is required.\n", "info")
+
+        def work() -> None:
+            try:
+                staged = vault_stage_for_project(self.root_path, compatibility_inbox=False)
+                rows = list(staged.get("items") or [])
+                if not rows:
+                    raise RuntimeError("No explicitly approved ForgePY update is currently queued.")
+                receipts = []
+                for row in rows:
+                    source = Path(str(row.get("source") or ""))
+                    if not source.is_file():
+                        raise RuntimeError(f"Approved ForgePY transport is missing: {source}")
+                    if not vault_can_apply_transport(source):
+                        raise RuntimeError(f"Approved ForgePY transport is not a canonical universal patch: {source.name}")
+                    receipt = vault_apply_transport(source, self.root_path)
+                    receipts.append(receipt)
+                vault_reconcile_project(self.root_path)
+                self._event_q.put(("forgepy-self-apply-done", (label, {"applied": len(receipts), "receipts": receipts})))
+            except Exception as exc:
+                self._event_q.put(("forgepy-self-apply-error", (label, str(exc))))
+
+        threading.Thread(target=work, daemon=True, name="ForgePYSelfUpdate").start()
 
     def _apply_updates(self) -> None:
         pending, _invalid = vault_update_counts_for_project(self.contract.project_id, self.contract.name, self.root_path.name)
@@ -3814,12 +5077,15 @@ class ForgeGui:
                 return
             self._popup(
                 "Apply Validated Updates",
-                "No update is currently queued for this project. Forge did not apply anything.\n\nUse Check Downloads to catalog a completed package, Approve Download… to authorize a cataloged package, or place one reserved incoming.patch file in the project root.",
+                "No update is currently queued for this project. Forge did not apply anything.\n\nUse Apply Patch… to select a descriptive package directly, Check Downloads / Approve Download… for browser downloads, or use the legacy incoming.patch root transport.",
                 kind="info",
             )
             return
         if self._popup("Apply Validated Updates", "Apply the currently validated Forge update queue? Invalid updates remain fail-closed.", kind="warning", confirm=True):
-            self._start_command("patch-apply", ["--yes"], label="apply-updates")
+            if self._is_forgepy_self_project():
+                self._start_forgepy_self_apply("apply-updates")
+            else:
+                self._start_universal_project_apply(self.root_path, "apply-updates", run_full_after=True)
 
     def _open_latest_debug(self) -> None:
         path = latest_debug_bundle(self.root_path)
@@ -3848,7 +5114,7 @@ class ForgeGui:
                 argv.append("--cli")
             subprocess.Popen(argv, cwd=str(self.root_path), creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
             return
-        self._popup("Forge", "No interactive project launcher was discovered for the selected project.")
+        self._popup("ForgePY", "No interactive project launcher was discovered for the selected project.")
 
     def _on_close(self) -> None:
         ui = load_settings().get("ui") or {}
@@ -3873,7 +5139,7 @@ class ForgeGui:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Universal Forge GUI")
+    p = argparse.ArgumentParser(description="Universal ForgePY GUI")
     p.add_argument("--root")
     p.add_argument("--self-test", action="store_true")
     return p

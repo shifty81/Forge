@@ -75,7 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     height = int(settings.get("windowHeight", 920) or 920)
     try:
         webview.create_window(
-            f"Forge IDE — {root.name}",
+            f"ForgePY IDE — {root.name}",
             f"http://127.0.0.1:{port}/index.html",
             js_api=api,
             width=width,

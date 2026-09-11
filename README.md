@@ -1,106 +1,49 @@
-# Forge
+# ForgePY
 
-Current certified development build: **0.4.8-F60R8**. — Universal Project Control Center
+**Current certified development build:** `0.4.45-F60R45` (`FORGEPY-F60R45`)
 
-**Product authority:** Forge is the standalone universal Project Control Center and Cortex operations brain. **Vault is a first-class Forge workspace/tab** for catalog, Artifact Central, patch intake, baselines, recovery and storage intelligence. Legacy `Vault.*` launchers/modules remain compatibility aliases during migration.
+ForgePY is the standalone, local-first universal project operations application. It discovers a project's own CLI/PCC authority and provides the common GUI for build, run, quality gates, logs, updates, GitHub + ForgeGit source control, Artifact Central, Vault storage, diagnostics, and project tooling. Projects remain independently buildable without ForgePY.
 
-Forge is project-neutral. A registered project keeps its own project-local PCC, command registry and build scripts as the highest authority. Forge discovers and invokes those capabilities, then uses universal build-marker adapters only when a stronger project-owned operation does not exist.
+## Canonical root
 
-## Update intake
+The installation root is now intentionally ForgePY-centered:
 
-Downloads is a catalog/review surface, not execution authority. Forge detects compatible downloaded patch packages, archives them under the project's Artifact Central area, and exposes **Updates > Approve Download…** for explicit approval. `Apply Updates` can offer a compatible downloaded package when no update is already queued.
+- `ForgePY.vbs` — preferred no-console GUI launcher.
+- `ForgePY.cmd` — diagnostic/console-visible launcher.
+- `ForgePYConsole.cmd` — emergency console surface.
+- `VerifyForgePY.cmd` — self-test + quick quality gate.
+- `PublishForgePYRepository.cmd/.ps1` — repository publishing helpers.
+- `FORGEPY_PACKAGE_MANIFEST.json` — release package authority.
+- `project.control.json` — ForgePY's own project contract.
 
-For a deliberate root-drop workflow, use the normalized single reserved transport name **`incoming.patch`**. It is a ZIP-compatible Forge patch container with a top-level `PATCH_MANIFEST.json`; Forge verifies its hash, package date, project identity, and declared build/source preconditions before transactional application. Legacy root patch ZIPs remain supported during migration.
+`Forge.cmd`, `Forge.vbs`, `ForgeConsole.cmd`, and `VerifyForge.cmd` remain tiny compatibility aliases so existing shortcuts and F60-era updates do not break. Older `ProjectControlCenter.*` and `Vault.*` launchers are no longer canonical root surfaces and live under `compat/legacy-launchers/`.
 
-## F60R5 project onboarding and universal tooling
+## Product boundaries
 
-Projects can be registered from an existing local folder or cloned directly from GitHub into the configured Projects Root (normally `D:\Projects`). Forge records the detected GitHub remote in the project registry/passport and provides Open GitHub plus normal non-force source-control operations. The Project Workspace Source Control and Tooling pages are vertically scrollable so all categories remain reachable on smaller windows.
-
-Tooling includes a capability matrix and **Build All Registered** operation. Build All runs sequentially and delegates each project to its strongest discovered authority: declared `project.control.json`, a project-native machine provider, a command-registry PCC such as Havenwild's `HavenwildTools.ps1 -Command ...`, an explicit PowerShell action provider, then finally conservative Rust/.NET/Gradle/Node/CMake/Python fallbacks.
-
-On Windows, background health/status probes never allocate consoles. Git probing uses no-window execution, active health refreshes are serialized, and project output is normalized to UTF-8 so Unicode diagnostics cannot terminate the adapter.
-
-## Vault workspace and Artifact Central
-
-Vault remains the Forge workspace responsible for durable catalog/index data, patch intake, Artifact Central, baselines, recovery and storage migration. Cross-volume C:/D: transfers are copied to a temporary destination-volume file, SHA-256 verified, atomically promoted on that volume, then the source is removed.
-
-## F41-F60 workflow shell
-
-Vault 0.4 keeps the Python/Tk control and recovery surface and adds a collapsible workspace rail, collapsible 0-100 health gauge, native Windows tray lifecycle, structured Settings/Services, per-project Artifact Central, stricter build-bound patch intake, global tooling inventory, Cortex workspace integration and an optional Vault-themed Monaco IDE in its own pop-out window. The native editor remains available when optional web components are absent.
-
-Modern Vault patches use `vault.patch.v2`: package-time evidence and target build/source preconditions are verified before staging. Legacy global downloads are retained for review rather than silently applied.
-
-## Windows launchers
-
-- `Vault.vbs` — preferred GUI launcher without a bootstrap console.
-- `Vault.cmd` — visible diagnostic launcher.
-- `VaultConsole.cmd --root <project>` — emergency console fallback.
-- `VerifyVault.cmd` — source-package verification/self-test.
-- Legacy `ProjectControlCenter.*` and `Forge.*` launchers remain compatibility aliases and launch Vault.
-
-## F21-F40 milestone
-
-F21-F40 makes Vault portable and removes global Downloads intake from project-gate authority. It adds a D:-first storage/project model, whole-drive project indexing, a dedicated Forgejo administration surface, expanded GitHub + Forgejo source control, portable project registry rebinding, and categorized command surfaces in the middle workspace column. See `docs/F21_F40_PORTABILITY_FORGEJO_SOURCE_CONTROL.md`.
-
-## F11-F20 milestone
-
-This milestone renames the application authority to Vault and upgrades the universal spine in the areas needed for real project use:
-
-1. Vault is the primary application identity and storage authority; legacy Forge/PCC environment variables remain readable during migration.
-2. Project discovery now recognizes nested project utilities such as `tools/control/StardewModdingKitTools.ps1`, including declared PowerShell `ValidateSet` actions and explicit `$Action` switch values.
-3. Stardew toolkit roots are recognized as `stardew-toolkit`; SMAPI manifests and content packs are recognized separately.
-4. .NET projects receive inferred `dotnet build`, Release build and quality-gate commands when no stronger project utility is available.
-5. Vault Library scans now persist project discovery/tool-command capability data in addition to source/assets, duplicates, large files, invalid JSON, hashes and environment/toolchain inventory.
-6. The GUI displays discovered source/tool-command counts and Build/Gate/Run capability in project details.
-7. Intake watches both configured Downloads locations and project/application roots. Manifest-bearing ZIP transports are hash-verified into Vault before the loose source copy is removed.
-8. A universal transactional patch engine is now the fallback when a project does not expose a stronger native patch authority. It validates paths, payload hashes/bytes, optional preimages, makes recovery copies, atomically writes files and rolls back on failure.
-9. Root-drop and Downloads patches enter the same queue and are staged before Build/Quick/Fast/Full or explicit Apply Updates.
-10. Vault can patch its own source. A successful Vault-targeted patch writes a restart-required marker; the GUI offers to restart so the new code becomes active.
-
-## Stardew behavior
-
-A project such as `C:\Users\Shifty\Desktop\SDMODDING` with `tools\control\StardewModdingKitTools.ps1` is no longer treated as scan-only. Vault discovers that utility and its explicitly declared actions and maps recognized actions such as Build, Full-Gate and Run-Game into the normal Vault operation surface. Unrecognized declared actions remain available in Advanced Commands. If an older utility is purely menu-driven with no declared action parameter, Vault still exposes the utility itself rather than pretending it has a build command that cannot be justified.
-
-## Self-update behavior
-
-The first move from the old `ProjectControlCenter-Standalone 0.10.2` into Vault requires a one-time bootstrap overwrite because 0.10.2 does not contain the universal transactional updater. After that bootstrap, normal Vault patch ZIPs can be dropped either into the Vault application root or the configured Downloads intake path.
-
-For a Vault-targeted update:
-
-1. Intake copies/hashes the transport into the durable Vault Library queue.
-2. `Apply Updates`, Build or Full Gate stages it into `updates/inbox`.
-3. `VaultPatchEngine` validates preimages and applies it transactionally.
-4. The exact transport is retained in the applied archive with receipts/recovery evidence.
-5. Vault reports that a restart is required and can relaunch itself.
+**ForgePY** is the application. **Vault** is ForgePY's storage/artifact/patch-lineage workspace. **Project Control Center / PCC** describes the project-owned control contract/spine that ForgePY can discover and invoke; PCC is not the product name. **Forgejo** is an optional compatibility/source-hosting integration, while Git/GitHub and ForgeGit remain source-control responsibilities.
 
 
-## Default storage
+## Branding
 
-Vault prefers `D:\Vault` on Windows when D: exists and otherwise uses the user's local application data directory. The durable Library is stored below that root. Overrides:
+The canonical application artwork is `assets/branding/ForgePY.png`; `assets/branding/ForgePY.ico` is the Windows multi-resolution icon derived from that exact approved artwork. ForgePY applies the icon to the desktop window and native system-tray surface.
 
-- `VAULT_DATA_ROOT`
-- `VAULT_PROJECT_REGISTRY`
-- `VAULT_STORAGE_ROOT`
-- `VAULT_INTAKE_PATHS` (semicolon-separated on Windows)
-- `VAULT_FORGEJO_HOSTS`
+## Source control authority
 
-Legacy `FORGE_*` and `PCC_VAULT_ROOT` variables are accepted only for migration compatibility.
+GitHub is the standard external source authority and **ForgeGit** is the standard local source authority. ForgeGit uses ordinary bare Git repositories under the configured ForgePY home and binds them through the canonical `forgegit` remote (legacy `forgepy-internal` remotes are adopted). It does not create commits from dirty working files; project-owned certified GREEN commit workflows remain authoritative. Forgejo is retained only as optional compatibility/source-hosting infrastructure.
 
-## Verification
+## Update model
 
-```text
-VerifyVault.cmd
-```
+ForgePY can register itself as a project and update through the same validated patch intake pipeline used for other projects. The canonical Downloads filename is `ProjectName__YYYYMMDD__Version.patch`. The package manifest remains authoritative; the filename is routing metadata only. Downloads discovery is non-executable until explicit approval. ForgePY self-updates use a dedicated transactional self-update lane, while ordinary projects continue through the universal project/PCC workflow. The legacy literal `incoming.patch` path remains compatibility-only.
 
-or:
+## Development
 
-```text
-python tools/VaultGate.py full
-```
+Run `VerifyForgePY.cmd` for the quick gate or `python tools/ForgePYGate.py full` for the complete self-hosted gate. Historical PCC/Vault bootstrap material is retained under `docs/history/` and `reference/` for provenance only.
 
-### Portable D: storage
 
-Vault can relocate its durable home to `D:\Vault`, set `D:\Projects` as the portable project root, scan `D:\` for nested/composite projects, and migrate the active project through a hash-verified staged copy while retaining the original as rollback evidence.
-## Source authority bootstrap
+## Vault drive catalog
 
-Forge can onboard a project from GitHub or attach GitHub authority to an existing local source tree. `Initialize / Adopt Git` is safe for an unborn `.git` directory: if the declared remote already has `main` history, Forge adopts that history as the local parent with a mixed reset while preserving current working-tree files. The current tree can then be reviewed, Full-Gated, committed through `Commit GREEN`, and pushed normally. GitHub repository hints may be declared in `project.control.json` and are also retained in the Forge project registry/passport.
+Vault Drive Catalog indexes the entire configured Vault drive rather than treating every detected marker as an equal project. It records files, directories, classifications, project/component ownership, patch transports, archives, generated/cache content, unassigned content, and conservative project-family/lineage hints. Drive cataloging is non-destructive; any later relocation/cleanup workflow must be explicit and governed.
+
+## Patch Review / Routing
+
+Fresh patch candidates and compatibility-review items across all registered projects are exposed in one decision surface. Operators can queue, queue-and-apply, archive to lineage, ignore, or reveal a package. Old/superseded evidence belongs in Patch Lineage; newly downloaded current packages must remain actionable rather than disappearing into historical storage.

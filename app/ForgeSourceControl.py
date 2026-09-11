@@ -6,13 +6,14 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Sequence
 
 from ForgeProjectSource import declared_project_github, normalize_github_repo
-from VaultSettings import load_settings
+from ForgePYSettings import load_settings
 
-FORGE_SOURCE_VERSION = "FORGE-SOURCE-0.4.7"
+FORGE_SOURCE_VERSION = "FORGEPY-SOURCE-0.4.44"
 
 
 def _git_exe() -> str:
@@ -52,6 +53,24 @@ def _remote_kind(name: str, url: str) -> str:
     low_name = name.casefold(); low = url.casefold()
     if "github.com" in low:
         return "github"
+    sc = load_settings().get("sourceControl") or {}
+    forgegit_names = {
+        str(sc.get("defaultForgeGitRemote") or "forgegit").strip().casefold(),
+        str(sc.get("defaultInternalGitRemote") or "forgepy-internal").strip().casefold(),
+        "forgegit", "forgepy-internal",
+    }
+    if low_name in forgegit_names:
+        return "forgegit"
+    roots = [str(sc.get("forgeGitRoot") or "").strip(), str(sc.get("internalGitRoot") or "").strip()]
+    for raw_root in roots:
+        if not raw_root:
+            continue
+        try:
+            remote_path = Path(url).expanduser().resolve()
+            if remote_path.is_relative_to(Path(raw_root).expanduser().resolve()):
+                return "forgegit"
+        except Exception:
+            pass
     hosts = {x.strip().casefold() for x in str(os.environ.get("VAULT_FORGEJO_HOSTS") or "").split(";") if x.strip()}
     if "forgejo" in low_name or "forgejo" in low:
         return "forgejo"
@@ -100,6 +119,8 @@ def _default_remote_name(kind: str) -> str:
     sc = load_settings().get("sourceControl") or {}
     if kind == "github":
         return str(sc.get("defaultGitHubRemote") or "origin").strip() or "origin"
+    if kind in {"forgegit", "internal"}:
+        return str(sc.get("defaultForgeGitRemote") or sc.get("defaultInternalGitRemote") or "forgegit").strip() or "forgegit"
     return str(sc.get("defaultForgejoRemote") or "forgejo").strip() or "forgejo"
 
 
@@ -114,7 +135,7 @@ def status(root: Path) -> dict[str, Any]:
         "schema": "forge.source.status.v2", "version": FORGE_SOURCE_VERSION,
         "gitReady": ready, "hasHead": False, "branch": "", "head": "", "headShort": "", "clean": False,
         "staged": 0, "unstaged": 0, "untracked": 0, "ahead": None, "behind": None,
-        "upstream": "", "remotes": [], "githubConfigured": False, "forgejoConfigured": False,
+        "upstream": "", "remotes": [], "githubConfigured": False, "forgeGitConfigured": False, "internalGitConfigured": False, "forgejoConfigured": False,
         "githubDeclared": False, "githubDeclaredUrl": "",
     }
     declared = declared_project_github(root)
@@ -149,6 +170,8 @@ def status(root: Path) -> dict[str, Any]:
                     out["ahead"], out["behind"] = int(parts[0]), int(parts[1])
     remotes = _remote_rows(root); out["remotes"] = remotes
     out["githubConfigured"] = any(x["kind"] == "github" for x in remotes)
+    out["forgeGitConfigured"] = any(x["kind"] == "forgegit" for x in remotes)
+    out["internalGitConfigured"] = out["forgeGitConfigured"]  # compatibility key
     out["forgejoConfigured"] = any(x["kind"] == "forgejo" for x in remotes)
     return out
 
@@ -254,9 +277,302 @@ def _review(root: Path, *, full: bool = False) -> subprocess.CompletedProcess[st
     return _completed("\n".join(x for x in output if x) + "\n", 0)
 
 
+def repository_tree(root: Path, limit: int = 5000) -> list[dict[str, Any]]:
+    """Return a compact IDE-style repository tree model with Git state per path."""
+    root = root.expanduser().resolve()
+    if not (root / ".git").exists():
+        return []
+    status_cp = _run(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", timeout=30)
+    statuses: dict[str, str] = {}
+    raw = status_cp.stdout or ""
+    records = raw.split("\x00")
+    i = 0
+    while i < len(records):
+        rec = records[i]
+        i += 1
+        if not rec or len(rec) < 3:
+            continue
+        code = rec[:2]
+        path = rec[3:]
+        if code[0] in {"R", "C"} and i < len(records) and records[i]:
+            path = records[i]
+            i += 1
+        statuses[path.replace("\\", "/")] = code
+    cp = _run(root, "ls-files", "-co", "--exclude-standard", "-z", timeout=60)
+    if cp.returncode != 0:
+        return []
+    paths = [x for x in (cp.stdout or "").split("\x00") if x]
+    rows: list[dict[str, Any]] = []
+    for rel in paths[:max(1, int(limit))]:
+        rel = rel.replace("\\", "/")
+        rows.append({
+            "path": rel,
+            "name": Path(rel).name,
+            "parent": Path(rel).parent.as_posix() if Path(rel).parent.as_posix() != "." else "",
+            "status": statuses.get(rel, "  "),
+            "changed": rel in statuses,
+        })
+    return rows
+
+
+def branch_graph(root: Path, limit: int = 120) -> str:
+    root = root.expanduser().resolve()
+    if not _has_head(root):
+        return "Repository has no commits yet.\n"
+    fmt = "%C(auto)%h%Creset %d %s %C(dim white)(%cr)%Creset"
+    cp = _run(root, "log", "--graph", "--decorate", "--all", f"--max-count={max(1, int(limit))}", f"--pretty=format:{fmt}", timeout=60)
+    return cp.stdout if cp.returncode == 0 else cp.stdout
+
+
+def list_tags(root: Path) -> list[dict[str, str]]:
+    cp = _run(root, "for-each-ref", "--sort=-creatordate", "--format=%(refname:short)|%(objectname:short)|%(creatordate:iso8601-strict)|%(subject)", "refs/tags", timeout=30)
+    rows: list[dict[str, str]] = []
+    if cp.returncode != 0:
+        return rows
+    for line in cp.stdout.splitlines():
+        parts = line.split("|", 3)
+        if len(parts) == 4:
+            rows.append(dict(zip(("name","head","created","subject"), parts)))
+    return rows
+
+
+
+
+def authority_matrix(root: Path, project_id: str = "") -> dict[str, Any]:
+    """Compare the current commit across Working Tree, ForgeGit and GitHub."""
+    root = root.expanduser().resolve()
+    branch = _branch(root, "main")
+    head_cp = _run(root, "rev-parse", "HEAD", timeout=15) if _has_head(root) else _completed("")
+    head = head_cp.stdout.strip() if head_cp.returncode == 0 else ""
+    result: dict[str, Any] = {"branch": branch, "workingHead": head, "forgeGitHead": "", "github": [], "allPrimaryMatch": False}
+    try:
+        from ForgeGit import repository_path
+        repo = repository_path(project_id or _project_id(root))
+        if (repo / "HEAD").is_file():
+            cp = subprocess.run([shutil.which("git") or "git", "--git-dir", str(repo), "rev-parse", f"refs/heads/{branch}"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", check=False, creationflags=_quiet_flags(), startupinfo=_quiet_startupinfo())
+            if cp.returncode == 0:
+                result["forgeGitHead"] = cp.stdout.strip()
+    except Exception:
+        pass
+    for name in remote_names(root, "github"):
+        cp = _run(root, "ls-remote", name, f"refs/heads/{branch}", timeout=60)
+        remote_head = ""
+        if cp.returncode == 0 and cp.stdout.strip():
+            remote_head = cp.stdout.split()[0].strip()
+        result["github"].append({"remote": name, "head": remote_head, "matchesWorking": bool(head and remote_head == head)})
+    github_match = all(bool(row.get("matchesWorking")) for row in result["github"]) if result["github"] else False
+    result["allPrimaryMatch"] = bool(head and result["forgeGitHead"] == head and (github_match or not result["github"]))
+    return result
+
+
+def repair_authority(root: Path, project_id: str, github_hint: str = "") -> subprocess.CompletedProcess[str]:
+    """Recover source metadata after folder replacement without replacing source files."""
+    init = initialize_repository(root, "main", github_hint)
+    output = ["=== WORKING GIT / GITHUB ===\n" + init.stdout]
+    if init.returncode != 0:
+        return _completed("".join(output), init.returncode)
+    try:
+        from ForgeGit import ensure
+        fg = ensure(root, project_id or _project_id(root))
+        output.append("=== FORGEGIT ===\n" + fg.stdout)
+        rc = fg.returncode
+    except Exception as exc:
+        output.append(f"[WARN] Working source authority recovered, but ForgeGit bind failed: {exc}\n")
+        rc = 1
+    return _completed("".join(output), rc)
+
+def _project_id(root: Path, fallback: str = "") -> str:
+    path = root / "project.control.json"
+    if path.is_file():
+        try:
+            import json
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            value = str(((data.get("project") or {}) if isinstance(data, dict) else {}).get("id") or "").strip()
+            if value:
+                return value
+        except Exception:
+            pass
+    return fallback or root.name.casefold().replace(" ", "-")
+
+
+def commit_green(root: Path, project_id: str, message: str) -> subprocess.CompletedProcess[str]:
+    """Universal GREEN-protected commit usable by every registered Git project."""
+    from ForgeGreen import green_status
+    root = root.expanduser().resolve()
+    if not (root / ".git").exists():
+        return _completed("[FAIL] Git repository is not initialized.\n", 2)
+    marker, matches, marker_path, _ = green_status(root)
+    if not marker:
+        return _completed(f"[FAIL] No certified GREEN gate exists for this source.\n[INFO] GREEN marker: {marker_path}\n", 2)
+    if not matches:
+        return _completed("[FAIL] Source has changed since the last GREEN Full Gate. Run Full Gate / Certify GREEN before committing.\n", 2)
+    add = _run(root, "add", "-A", timeout=120)
+    if add.returncode != 0:
+        return add
+    changed = _run(root, "diff", "--cached", "--quiet", timeout=30)
+    if changed.returncode == 0:
+        head = _run(root, "rev-parse", "--short", "HEAD", timeout=15)
+        return _completed(f"[PASS] No source changes to commit; certified GREEN source is already committed at {head.stdout.strip() or '<no head>'}.\n", 0)
+    msg = str(message or "").strip() or "Certified GREEN"
+    cp = _run(root, "commit", "-m", msg, timeout=300)
+    if cp.returncode == 0:
+        cp.stdout = "[PASS] Committed certified GREEN source.\n" + cp.stdout
+        try:
+            from ForgeSourceReceipts import write_receipt
+            receipt = write_receipt(project_id, "commit-green", {
+                "head": _run(root, "rev-parse", "HEAD", timeout=15).stdout.strip(),
+                "branch": _branch(root, "main"),
+                "message": msg,
+            })
+            cp.stdout += f"[PASS] Source-control receipt: {receipt}\n"
+        except Exception as exc:
+            cp.stdout += f"[WARN] Commit succeeded but source receipt could not be written: {exc}\n"
+    return cp
+
+
+def commit_push_green(root: Path, project_id: str, message: str) -> subprocess.CompletedProcess[str]:
+    """Commit one GREEN state, snapshot it to ForgeGit, then push GitHub when configured."""
+    commit = commit_green(root, project_id, message)
+    if commit.returncode != 0:
+        return commit
+    output = [commit.stdout]
+    rc = 0
+    from ForgeGit import push_snapshot
+    fg = push_snapshot(root, project_id)
+    output.append("=== FORGEGIT ===\n" + fg.stdout)
+    if fg.returncode != 0:
+        rc = fg.returncode
+    names = remote_names(root, "github")
+    if not names:
+        output.append("[WARN] GitHub is not configured; GREEN commit is preserved locally and in ForgeGit.\n")
+    else:
+        branch = _branch(root, "main")
+        for name in names:
+            cp = _run(root, "push", name, f"HEAD:{branch}", timeout=300)
+            output.append(f"=== GITHUB remote {name} ===\n{cp.stdout}")
+            if cp.returncode != 0:
+                rc = cp.returncode
+    try:
+        from ForgeSourceReceipts import write_receipt
+        receipt = write_receipt(project_id, "commit-push-green", {
+            "head": _run(root, "rev-parse", "HEAD", timeout=15).stdout.strip(),
+            "branch": _branch(root, "main"),
+            "forgeGitReturnCode": int(fg.returncode),
+            "githubConfigured": bool(names),
+            "result": "PASS" if rc == 0 else "WARN",
+        })
+        output.append(f"[PASS] Source-control receipt: {receipt}\n")
+    except Exception as exc:
+        output.append(f"[WARN] Source-control receipt could not be written: {exc}\n")
+    return _completed("".join(output), rc)
+
+
+def _stage_paths(root: Path, paths: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    if not paths:
+        return _completed("[FAIL] No paths selected.\n", 2)
+    return _run(root, "add", "--", *paths, timeout=120)
+
+
+def _unstage_paths(root: Path, paths: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    if not paths:
+        return _completed("[FAIL] No paths selected.\n", 2)
+    if _has_head(root):
+        return _run(root, "restore", "--staged", "--", *paths, timeout=120)
+    return _run(root, "rm", "--cached", "--ignore-unmatch", "--", *paths, timeout=120)
+
+
+def _discard_paths(root: Path, paths: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    if not paths:
+        return _completed("[FAIL] No paths selected.\n", 2)
+    # Never delete untracked files from a generic discard action. Tracked changes only.
+    tracked: list[str] = []
+    skipped: list[str] = []
+    for rel in paths:
+        cp = _run(root, "ls-files", "--error-unmatch", "--", rel, timeout=15)
+        (tracked if cp.returncode == 0 else skipped).append(rel)
+    output: list[str] = []
+    rc = 0
+    if tracked:
+        cp = _run(root, "restore", "--worktree", "--staged", "--", *tracked, timeout=120)
+        output.append(cp.stdout)
+        rc = cp.returncode
+    if skipped:
+        output.append("[WARN] Untracked paths were not deleted by Discard: " + ", ".join(skipped) + "\n")
+    return _completed("".join(output) or "[PASS] Selected tracked changes discarded.\n", rc)
+
+
 def command(root: Path, action: str, *extra: str) -> subprocess.CompletedProcess[str]:
     root = root.expanduser().resolve()
     action = action.casefold()
+    if action == "commit-green":
+        project_id = extra[0] if extra else _project_id(root)
+        message = extra[1] if len(extra) > 1 else "Certified GREEN"
+        return commit_green(root, project_id, message)
+    if action == "commit-push-green":
+        project_id = extra[0] if extra else _project_id(root)
+        message = extra[1] if len(extra) > 1 else "Certified GREEN"
+        return commit_push_green(root, project_id, message)
+    if action == "tree-json":
+        import json
+        limit = int(extra[0]) if extra and str(extra[0]).isdigit() else 5000
+        return _completed(json.dumps(repository_tree(root, limit), indent=2) + "\n")
+    if action == "graph":
+        limit = int(extra[0]) if extra and str(extra[0]).isdigit() else 120
+        return _completed(branch_graph(root, limit))
+    if action == "stage":
+        return _stage_paths(root, extra)
+    if action == "unstage":
+        return _unstage_paths(root, extra)
+    if action == "discard":
+        return _discard_paths(root, extra)
+    if action == "diff-file":
+        if not extra: return _completed("[FAIL] diff-file requires a path.\n", 2)
+        return _run(root, "diff", "--", extra[0], timeout=60)
+    if action == "create-branch":
+        from ForgeGit import create_branch
+        if not extra: return _completed("[FAIL] create-branch requires a name.\n", 2)
+        return create_branch(root, extra[0], extra[1] if len(extra) > 1 else "HEAD", switch=True)
+    if action == "switch-branch":
+        from ForgeGit import switch_branch
+        if not extra: return _completed("[FAIL] switch-branch requires a name.\n", 2)
+        return switch_branch(root, extra[0])
+    if action == "rename-branch":
+        from ForgeGit import rename_branch
+        if len(extra) < 2: return _completed("[FAIL] rename-branch requires OLD NEW.\n", 2)
+        return rename_branch(root, extra[0], extra[1])
+    if action == "delete-branch":
+        from ForgeGit import delete_branch
+        if not extra: return _completed("[FAIL] delete-branch requires a name.\n", 2)
+        return delete_branch(root, extra[0], force="--force" in extra[1:])
+    if action == "merge-branch":
+        from ForgeGit import merge_branch
+        if not extra: return _completed("[FAIL] merge-branch requires a name.\n", 2)
+        return merge_branch(root, extra[0])
+    if action == "recovery-branch":
+        from ForgeGit import create_recovery_branch
+        return create_recovery_branch(root, extra[0] if extra else "")
+    if action == "tags-json":
+        import json
+        return _completed(json.dumps(list_tags(root), indent=2) + "\n")
+    if action == "authority-json":
+        import json
+        project_id = extra[0] if extra else _project_id(root)
+        return _completed(json.dumps(authority_matrix(root, project_id), indent=2, sort_keys=True) + "\n")
+    if action == "repair-authority":
+        project_id = extra[0] if extra else _project_id(root)
+        github_hint = extra[1] if len(extra) > 1 else ""
+        return repair_authority(root, project_id, github_hint)
+    if action == "delete-tag":
+        if not extra: return _completed("[FAIL] delete-tag requires a tag name.\n", 2)
+        return _run(root, "tag", "-d", extra[0], timeout=60)
+    if action == "branch-from-tag":
+        if len(extra) < 2: return _completed("[FAIL] branch-from-tag requires TAG BRANCH.\n", 2)
+        from ForgeGit import create_branch
+        return create_branch(root, extra[1], extra[0], switch=True)
+    if action == "create-tag":
+        if not extra: return _completed("[FAIL] create-tag requires a tag name.\n", 2)
+        name = extra[0]; message = extra[1] if len(extra) > 1 else f"ForgePY tag {name}"
+        return _run(root, "tag", "-a", name, "-m", message, timeout=60)
     if action == "status":
         return _run(root, "status", "--short", "--branch")
     if action == "review":
@@ -277,6 +593,10 @@ def command(root: Path, action: str, *extra: str) -> subprocess.CompletedProcess
         return _run(root, "pull", "--ff-only", timeout=300)
     if action == "push":
         return push_current(root)
+    if action in {"push-internal", "push-forgegit"}:
+        from ForgeGit import push_snapshot
+        project_id = extra[0] if extra else root.name
+        return push_snapshot(root, project_id)
     if action in {"push-github", "push-forgejo"}:
         kind = action.split("-", 1)[1]
         names = remote_names(root, kind)
@@ -295,6 +615,38 @@ def command(root: Path, action: str, *extra: str) -> subprocess.CompletedProcess
             cp = _run(root, *argv, timeout=300)
             output.append(f"=== {kind.upper()} remote {name} ===\n{cp.stdout}")
             if cp.returncode != 0: rc = cp.returncode
+        return _completed("".join(output), rc)
+    if action == "sync-primary":
+        if not _has_head(root):
+            return _completed("[FAIL] No commit exists yet. Run Full Gate, then Commit + Push GREEN.\n", 2)
+        from ForgeGit import push_snapshot
+        project_id = extra[0] if extra else root.name
+        output = []
+        rc = 0
+        internal = push_snapshot(root, project_id)
+        output.append("=== FORGEGIT ===\n" + internal.stdout)
+        if internal.returncode != 0: rc = internal.returncode
+        names = remote_names(root, "github")
+        if not names:
+            output.append("[WARN] No GitHub remote configured; GitHub push skipped.\n")
+        else:
+            branch = _branch(root, "main")
+            for name in names:
+                cp = _run(root, "push", name, f"HEAD:{branch}", timeout=300)
+                output.append(f"=== GITHUB remote {name} ===\n{cp.stdout}")
+                if cp.returncode != 0: rc = cp.returncode
+        try:
+            from ForgeSourceReceipts import write_receipt
+            receipt = write_receipt(project_id, "sync-primary", {
+                "head": _run(root, "rev-parse", "HEAD", timeout=15).stdout.strip(),
+                "branch": _branch(root, "main"),
+                "forgeGitReturnCode": int(internal.returncode),
+                "githubRemotes": list(names),
+                "returnCode": int(rc),
+            })
+            output.append(f"[PASS] Source-control receipt: {receipt}\n")
+        except Exception as exc:
+            output.append(f"[WARN] Sync succeeded but receipt could not be written: {exc}\n")
         return _completed("".join(output), rc)
     if action == "sync-both":
         if not _has_head(root):
@@ -349,8 +701,13 @@ def push_current(root: Path) -> subprocess.CompletedProcess[str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Forge universal Git/GitHub/Forgejo authority")
-    ap.add_argument("action", choices=("status-json", "status", "review", "diff", "history", "branches", "remotes", "fetch-all", "pull-ff", "push", "push-github", "push-forgejo", "sync-both", "init", "set-remote"))
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    ap = argparse.ArgumentParser(description="ForgePY Git / ForgeGit / GitHub authority")
+    ap.add_argument("action", choices=("status-json", "status", "review", "diff", "history", "branches", "remotes", "fetch-all", "pull-ff", "push", "push-github", "push-internal", "push-forgegit", "push-forgejo", "sync-primary", "sync-both", "init", "set-remote", "commit-green", "commit-push-green", "tree-json", "graph", "stage", "unstage", "discard", "diff-file", "create-branch", "switch-branch", "rename-branch", "delete-branch", "merge-branch", "recovery-branch", "tags-json", "create-tag", "delete-tag", "branch-from-tag", "authority-json", "repair-authority"))
     ap.add_argument("--root", required=True)
     ap.add_argument("extra", nargs="*")
     ns = ap.parse_args(argv)

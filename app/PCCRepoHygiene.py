@@ -21,6 +21,7 @@ DEBUG_RE = re.compile(r"(?i)(latest[_ -]?debug[_ -]?bundle|debug[_ -]?bundle)")
 PATCH_NAME_RE = re.compile(r"(?i)(root[-_ ]?patch|rootpatch|incremental[-_ ]?patch|patch[-_ ]?update)")
 NON_PATCH_RE = re.compile(r"(?i)(debugbundle|debug[-_ ]?bundle|source[-_ ]?(?:rollup|bundle)|rollup|backup|audit[-_ ]?package)")
 SIDECAR_SUFFIXES = (".sha256", ".sha256.txt")
+INCOMING_PATCH_NAME = "incoming.patch"
 
 LOCAL_EXCLUDE_BEGIN = "# BEGIN UNIVERSAL PCC LOCAL OPERATIONAL EXCLUDES"
 LOCAL_EXCLUDE_END = "# END UNIVERSAL PCC LOCAL OPERATIONAL EXCLUDES"
@@ -212,8 +213,13 @@ def classify_root(root: Path) -> dict[str, Any]:
                 patch_id = _zip_patch_id(path)
                 if patch_id and patch_id.casefold() in applied_ids:
                     consumed_patches.append(path.name)
-                else:
+                elif path.name.casefold() == INCOMING_PATCH_NAME:
                     pending_patches.append(path.name)
+                else:
+                    # Arbitrary historical patch-named files are not executable queue
+                    # authority. VaultIntake will classify them into Patch Lineage on
+                    # the next explicit intake/gate pass.
+                    other_zip.append(path.name)
                 continue
             if DEBUG_RE.search(path.name):
                 debug_residue.append(path.name)

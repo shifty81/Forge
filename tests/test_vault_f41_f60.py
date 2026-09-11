@@ -74,10 +74,10 @@ class VaultF41F60Tests(unittest.TestCase):
                 result = scan_downloads(force_stable=True, remove_source=True)
                 rows = list_items(project="demo")
             self.assertEqual(result["errors"], [], result)
-            self.assertEqual(rows[0]["state"], "REVIEW", rows)
+            self.assertEqual(rows[0]["state"], "LINEAGE", rows)
             self.assertFalse(patch.exists())
             self.assertTrue(Path(rows[0]["vault_path"]).is_file())
-            self.assertIn("review", Path(rows[0]["vault_path"]).parts)
+            self.assertIn("lineage", Path(rows[0]["vault_path"]).parts)
 
     def test_modern_download_patch_is_available_not_queued(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -90,9 +90,9 @@ class VaultF41F60Tests(unittest.TestCase):
                 result=scan_downloads(force_stable=True,remove_source=True)
                 rows=list_items(project="Demo")
             self.assertEqual(result["errors"],[],result)
-            self.assertEqual(rows[0]["state"],"AVAILABLE",rows)
+            self.assertEqual(rows[0]["state"],"CANDIDATE",rows)
             self.assertFalse(patch.exists())
-            self.assertIn("available",Path(rows[0]["vault_path"]).parts)
+            self.assertIn("candidates",Path(rows[0]["vault_path"]).parts)
 
     def test_rejected_download_transport_moves_to_inert_review(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -108,7 +108,7 @@ class VaultF41F60Tests(unittest.TestCase):
             self.assertEqual(result["reviews"][0]["state"],"REVIEW")
             self.assertTrue(Path(result["reviews"][0]["vault_path"]).is_file())
 
-    def test_legacy_project_root_drop_remains_deliberate_compatibility_path(self) -> None:
+    def test_legacy_project_root_drop_is_lineage_not_queue(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base=Path(td); project=base/"Demo"; project.mkdir(); downloads=base/"Downloads"; downloads.mkdir(); settings=base/"settings.json"
             patch=project/"Demo_Legacy_Patch.zip"
@@ -117,7 +117,7 @@ class VaultF41F60Tests(unittest.TestCase):
                 save_settings({"vaultHome":str(base/"Vault"),"security":{"legacyPatchPolicy":"review"}})
                 result=scan_intake(extra_roots=(project,),force_stable=True,remove_source=True)
             self.assertEqual(result["errors"],[],result)
-            self.assertEqual(result["ingested"][0]["state"],"QUEUED",result)
+            self.assertEqual(result["ingested"][0]["state"],"LINEAGE",result)
 
     def test_trusted_project_root_never_archives_normal_source_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -8,7 +8,7 @@ from typing import Any
 from PCCAutoAdapter import status_payload
 from PCCSurfaceCommon import BackendClient, ProjectContract, SurfaceError
 
-FORGE_HEALTH_VERSION = "FORGE-HEALTH-0.4.7"
+FORGE_HEALTH_VERSION = "FORGEPY-HEALTH-0.4.17"
 VAULT_HEALTH_VERSION = FORGE_HEALTH_VERSION
 
 
@@ -51,9 +51,9 @@ def evaluate_project(root: Path, contract: ProjectContract | None = None) -> Pro
         backend = BackendClient(root, contract)
         provider = backend.provider_label
     except SurfaceError as exc:
-        _push(failures, f"Forge provider unavailable: {exc}")
+        _push(failures, f"ForgePY provider unavailable: {exc}")
     except Exception as exc:
-        _push(failures, f"Forge provider invalid: {exc}")
+        _push(failures, f"ForgePY provider invalid: {exc}")
 
     try:
         status = status_payload(root)
@@ -98,14 +98,13 @@ def evaluate_project(root: Path, contract: ProjectContract | None = None) -> Pro
     if missing_tools:
         _push(failures, "required toolchain missing: " + ", ".join(sorted(missing_tools)))
 
-    # GitHub and Cortex-owned/local Forgejo are mandatory Vault source-control surfaces.
-    # During migration their absence is a normalization warning rather than a blocker for
-    # local build/recovery operations.
+    # GitHub and ForgeGit are the primary source-control authorities.
+    # Forgejo remains optional compatibility/source-hosting infrastructure.
     if git.get("gitReady"):
         if not source_control.get("githubConfigured"):
             _push(warnings, "GitHub remote not configured")
-        if not source_control.get("forgejoConfigured"):
-            _push(warnings, "Forgejo remote not configured")
+        if not (source_control.get("forgeGitConfigured") or source_control.get("internalGitConfigured")):
+            _push(warnings, "ForgeGit not configured")
 
     components: dict[str, dict[str, Any]] = {}
     def component(name: str, weight: int, state: str, detail: str = "") -> None:

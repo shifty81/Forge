@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-SETTINGS_VERSION = "FORGE-SETTINGS-0.4.8"
+SETTINGS_VERSION = "FORGEPY-SETTINGS-0.4.44"
 APP_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -23,23 +23,35 @@ def _windows_d_drive() -> Path | None:
 def _local_settings_path() -> Path:
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        preferred = base / "Forge" / "bootstrap.settings.json"
-        legacy = base / "Vault" / "bootstrap.settings.json"
-        return legacy if legacy.is_file() and not preferred.is_file() else preferred
+        preferred = base / "ForgePY" / "bootstrap.settings.json"
+        forge_legacy = base / "Forge" / "bootstrap.settings.json"
+        vault_legacy = base / "Vault" / "bootstrap.settings.json"
+        if preferred.is_file(): return preferred
+        if forge_legacy.is_file(): return forge_legacy
+        if vault_legacy.is_file(): return vault_legacy
+        return preferred
     base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    preferred = base / "forge" / "bootstrap.settings.json"
-    legacy = base / "vault" / "bootstrap.settings.json"
-    return legacy if legacy.is_file() and not preferred.is_file() else preferred
+    preferred = base / "forgepy" / "bootstrap.settings.json"
+    forge_legacy = base / "forge" / "bootstrap.settings.json"
+    vault_legacy = base / "vault" / "bootstrap.settings.json"
+    if preferred.is_file(): return preferred
+    if forge_legacy.is_file(): return forge_legacy
+    if vault_legacy.is_file(): return vault_legacy
+    return preferred
 
 
 def portable_settings_path() -> Path:
-    preferred = APP_ROOT / "forge.settings.json"
-    legacy = APP_ROOT / "vault.settings.json"
-    return legacy if legacy.is_file() and not preferred.is_file() else preferred
+    preferred = APP_ROOT / "forgepy.settings.json"
+    forge_legacy = APP_ROOT / "forge.settings.json"
+    vault_legacy = APP_ROOT / "vault.settings.json"
+    if preferred.is_file(): return preferred
+    if forge_legacy.is_file(): return forge_legacy
+    if vault_legacy.is_file(): return vault_legacy
+    return preferred
 
 
 def settings_path() -> Path:
-    override = str(os.environ.get("FORGE_SETTINGS_PATH") or os.environ.get("VAULT_SETTINGS_PATH") or "").strip()
+    override = str(os.environ.get("FORGEPY_SETTINGS_PATH") or os.environ.get("FORGE_SETTINGS_PATH") or os.environ.get("VAULT_SETTINGS_PATH") or "").strip()
     if override:
         return Path(override).expanduser()
     portable = portable_settings_path()
@@ -51,31 +63,54 @@ def settings_path() -> Path:
 def defaults() -> dict[str, Any]:
     d = _windows_d_drive()
     if d is not None:
-        preferred = d / "Forge"
-        legacy = d / "Vault"
-        # Existing Vault data remains authoritative until the user explicitly migrates it.
-        # Fresh installations use D:\Forge.
-        home = legacy if legacy.exists() and not preferred.exists() else preferred
+        preferred = d / "ForgePY"
+        forge_legacy = d / "Forge"
+        vault_legacy = d / "Vault"
+        # Existing Forge/Vault data remains authoritative until the user explicitly migrates it.
+        if preferred.exists():
+            home = preferred
+        elif forge_legacy.exists():
+            home = forge_legacy
+        elif vault_legacy.exists():
+            home = vault_legacy
+        else:
+            home = preferred
         projects = d / "Projects"
         scans = [str(d)]
     elif os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        preferred = base / "Forge"
-        legacy = base / "Vault"
-        home = legacy if legacy.exists() and not preferred.exists() else preferred
+        preferred = base / "ForgePY"
+        forge_legacy = base / "Forge"
+        vault_legacy = base / "Vault"
+        if preferred.exists():
+            home = preferred
+        elif forge_legacy.exists():
+            home = forge_legacy
+        elif vault_legacy.exists():
+            home = vault_legacy
+        else:
+            home = preferred
         projects = Path.home() / "Projects"
         scans = [str(projects)]
     else:
         base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-        preferred = base / "forge"
-        legacy = base / "vault"
-        home = legacy if legacy.exists() and not preferred.exists() else preferred
+        preferred = base / "forgepy"
+        forge_legacy = base / "forge"
+        vault_legacy = base / "vault"
+        if preferred.exists():
+            home = preferred
+        elif forge_legacy.exists():
+            home = forge_legacy
+        elif vault_legacy.exists():
+            home = vault_legacy
+        else:
+            home = preferred
         projects = Path.home() / "Projects"
         scans = [str(projects)]
 
     artifact_root = home / "ArtifactCentral"
     return {
-        "schema": "vault.settings.v1",
+        "schema": "forgepy.settings.v1",
         "version": SETTINGS_VERSION,
         "vaultHome": str(home),
         "projectsRoot": str(projects),
@@ -90,6 +125,11 @@ def defaults() -> dict[str, Any]:
             "leftRailCollapsed": False,
             "healthRailCollapsed": False,
             "healthRefreshSeconds": 30,
+            "consoleMaxLines": 30000,
+            "consoleBatchLines": 64,
+            "consoleBatchBytes": 32768,
+            "sourceRefreshDebounceMs": 350,
+            "performanceTelemetry": True,
         },
         "services": {
             "intakeWatcher": True,
@@ -123,8 +163,20 @@ def defaults() -> dict[str, Any]:
             "gitBinary": "",
             "githubCliBinary": "",
             "defaultGitHubRemote": "origin",
+            "forgeGitEnabled": True,
+            "forgeGitRoot": str(home / "ForgeGit"),
+            "defaultForgeGitRemote": "forgegit",
+            # Compatibility keys are retained so older ForgePY installations and
+            # persisted settings can be read without losing existing local history.
+            "internalGitEnabled": True,
+            "internalGitRoot": str(home / "InternalGit"),
+            "defaultInternalGitRemote": "forgepy-internal",
             "defaultForgejoRemote": "forgejo",
             "fetchOnStatus": False,
+            "autoSnapshotGreenToForgeGit": True,
+            "autoPushGreenToGitHub": True,
+            "branchGraphLimit": 120,
+            "repoTreeLimit": 5000,
         },
         "ide": {
             "enabled": True,
@@ -189,7 +241,28 @@ def load_settings() -> dict[str, Any]:
     if not isinstance(raw, dict):
         return base
     merged = _merge(base, raw)
+    # Legacy Forge/Vault settings remain readable, but the in-memory authority is
+    # always normalized to the current ForgePY schema/version. This prevents an
+    # old saved schema marker from leaking back into newly written settings.
+    merged["schema"] = "forgepy.settings.v1"
+    merged["version"] = SETTINGS_VERSION
     merged["portable"] = path == portable_settings_path()
+    # Internal Git -> ForgeGit settings migration.  We preserve the legacy root
+    # when it already exists so historical bare repositories are adopted rather
+    # than silently abandoned.  New installs use the canonical ForgeGit keys.
+    sc = dict(merged.get("sourceControl") or {})
+    raw_sc = raw.get("sourceControl") if isinstance(raw.get("sourceControl"), dict) else {}
+    if "forgeGitEnabled" not in raw_sc and "internalGitEnabled" in raw_sc:
+        sc["forgeGitEnabled"] = bool(raw_sc.get("internalGitEnabled"))
+    if "forgeGitRoot" not in raw_sc and raw_sc.get("internalGitRoot"):
+        # An explicitly configured legacy path is authority even before its bare
+        # repository folder exists; ensure() may be the operation that creates it.
+        sc["forgeGitRoot"] = str(Path(str(raw_sc.get("internalGitRoot"))).expanduser())
+    if "defaultForgeGitRemote" not in raw_sc and raw_sc.get("defaultInternalGitRemote"):
+        # Keep the old remote usable, but ForgeGit will also add its canonical
+        # `forgegit` remote when it next ensures the repository.
+        sc.setdefault("legacyInternalGitRemote", str(raw_sc.get("defaultInternalGitRemote")))
+    merged["sourceControl"] = sc
     return merged
 
 
@@ -218,7 +291,7 @@ def save_settings(data: dict[str, Any], *, portable: bool | None = None) -> Path
     elif portable is False:
         target = _local_settings_path()
     payload = _merge(defaults(), data)
-    payload["schema"] = "vault.settings.v1"
+    payload["schema"] = "forgepy.settings.v1"
     payload["version"] = SETTINGS_VERSION
     payload["portable"] = target == portable_settings_path()
     return _atomic_write(target, payload)

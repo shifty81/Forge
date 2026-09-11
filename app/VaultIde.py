@@ -49,7 +49,7 @@ def prepare_runtime() -> Path:
 
 
 def install_host() -> subprocess.CompletedProcess[str]:
-    """Install Vault's separate Monaco-window host.
+    """Install ForgePY's separate Monaco-window host.
 
     pywebview is BSD-3-Clause and uses WebView2 on modern Windows systems. Keeping
     it in a separate process prevents a WebView crash from taking down the Tk
@@ -156,7 +156,7 @@ def launch_monaco(root: Path, *, initial_file: str = "") -> subprocess.Popen[str
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Forge IDE support")
+    p = argparse.ArgumentParser(description="ForgePY IDE support")
     sp = p.add_subparsers(dest="cmd", required=True)
     sp.add_parser("install-monaco")
     sp.add_parser("install-host")

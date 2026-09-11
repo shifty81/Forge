@@ -1,14 +1,14 @@
 {
-  "schema": "project.control.v1",
+  "schema": "forge.project.v1",
   "project": {
-    "id": "forge-project-control-center",
-    "name": "Forge",
+    "id": "forgepy",
+    "name": "ForgePY",
     "kind": "python-application",
-    "version": "0.4.8-F60R8",
-    "build": "FORGE-F60R8"
+    "version": "0.4.45-F60R45",
+    "build": "FORGEPY-F60R45"
   },
   "root_control_center": {
-    "launcher": "Forge.cmd"
+    "launcher": "ForgePY.cmd"
   },
   "quality_gates": [
     {
@@ -17,7 +17,7 @@
     },
     {
       "key": "gate.fast",
-      "label": "Quick Forge Gate"
+      "label": "Quick ForgePY Gate"
     }
   ],
   "commands": [
@@ -28,19 +28,19 @@
       "risk": "write",
       "program": "python",
       "args": [
-        "tools/ForgeGate.py",
+        "tools/ForgePYGate.py",
         "full"
       ],
       "mutates": true
     },
     {
       "key": "gate.fast",
-      "label": "Quick Forge Gate",
+      "label": "Quick ForgePY Gate",
       "category": "gate",
       "risk": "read",
       "program": "python",
       "args": [
-        "tools/ForgeGate.py",
+        "tools/ForgePYGate.py",
         "quick"
       ]
     },
@@ -51,31 +51,31 @@
       "risk": "write",
       "program": "python",
       "args": [
-        "tools/ForgeGate.py",
+        "tools/ForgePYGate.py",
         "build"
       ],
       "mutates": true
     },
     {
       "key": "run.gui",
-      "label": "Run Forge GUI",
+      "label": "Run ForgePY GUI",
       "category": "run",
       "risk": "read",
       "program": "python",
       "args": [
-        "app/ForgeStandalone.py",
+        "app/ForgePYStandalone.py",
         "--root",
         "{root}"
       ]
     },
     {
       "key": "project.self-test",
-      "label": "Forge Self Test",
+      "label": "ForgePY Self Test",
       "category": "diagnostics",
       "risk": "read",
       "program": "python",
       "args": [
-        "app/ForgeStandalone.py",
+        "app/ForgePYStandalone.py",
         "--self-test"
       ]
     }
@@ -88,6 +88,22 @@
       "webUrl": "https://github.com/shifty81/Forge"
     },
     "defaultGitHubRemote": "origin",
-    "defaultForgejoRemote": "forgejo"
+    "defaultForgejoRemote": "forgejo",
+    "forgejo": {
+      "role": "optional-compatibility"
+    },
+    "forgeGit": {
+      "enabled": true,
+      "remote": "forgegit",
+      "role": "primary-local-authority"
+    }
+  },
+  "updates": {
+    "incoming": "incoming.patch",
+    "patchSchema": "forge.patch.v1",
+    "downloadsAutoQueue": false,
+    "approvalRequiredForDownloads": true,
+    "artifactAuthority": "forgepy",
+    "lineageAuthority": "artifact-central"
   }
 }

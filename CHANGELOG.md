@@ -1,3 +1,112 @@
+# Changelog
+
+## 0.4.45-F60R45 — Source Control rail layout correction
+
+- Moves Actions to the far-left Source Control rail.
+- Keeps Repository as the expanding center pane.
+- Moves Branches / Tags to the far-right rail.
+- Makes the Actions rail independently vertically scrollable with a persistent scrollbar.
+- Preserves branch/tag controls and repository diff behavior.
+
+## 0.4.44-F60R44 — ForgeGit visual source control + GUI performance + universal update operations
+
+- **F71:** Workspace `Commit GREEN` and `Commit + Push GREEN` are universal ForgePY source-control actions for every Git-backed project.
+- **F72:** normalized the local source authority to **ForgeGit** while preserving legacy InternalGit repositories/remotes/settings as compatibility input.
+- **F73:** added straightforward branch create/switch/merge/rename/delete workflows and recovery branches.
+- **F74:** added an IDE-style visual repository folder tree with Git status, filter, stage/unstage/diff/discard operations.
+- **F75:** added branch graph plus local/remote/tag browsing and tag-backed restore branches.
+- **F76:** added safe file-level source operations; generic discard never deletes untracked files.
+- **F77:** expanded named restore points/tags and branch-from-tag workflows.
+- **F78:** ForgeGit now supports integrity verification, verified recovery bundle export, explicit maintenance and branch recovery.
+- **F79:** added Working Tree / ForgeGit / GitHub authority comparison and clearer primary-source synchronization.
+- **F80:** source-control commit/sync operations write durable Artifact Central receipts.
+- **F81:** project list refresh is cache-first; expensive provider/catalog work is no longer required for ordinary UI refresh.
+- **F82:** Source Control and Vault heavy data are loaded on demand instead of eagerly blocking startup.
+- **F83:** live console rendering is bounded and subprocess output is batched.
+- **F84:** Vault drive/unclassified views are paginated instead of attempting thousands of Treeview rows at once.
+- **F85:** drive-catalog classification counts and offset queries support scalable browsing.
+- **F86:** Patch Review supports multi-select routing/archive/ignore and universal ForgePY apply instead of requiring a project-owned patch command.
+- **F87:** Artifact Central browsing/search now runs off the Tk UI thread with paged results.
+- **F88:** embedded Python/subprocess lanes force UTF-8-safe redirected output, preventing Windows CP1252 diff crashes.
+- **F89:** added `Repair / Rebind Source` for folder replacement/recovery and preserved canonical ForgePY self-version context.
+- **F90:** completed compatibility/gap audit, fixed ForgeGit health false-warning logic, and added performance telemetry/reporting.
+
+## 0.4.24-F60R24 — Windows-safe transactional patch preimages
+
+- Treats CRLF/LF-only differences as equivalent for known UTF-8 text source/config files.
+- Keeps binary preimage verification byte-for-byte strict.
+- Treats a file already equal to the target payload as already satisfied rather than failing.
+- Makes ForgePY self-update recovery idempotent after emergency repair or partial pre-application.
+- Records `already-satisfied` versus `applied` status in patch receipts.
+- Never rolls back files the transaction did not modify.
+
+## 0.4.23-F60R23 — Vault catalog schema migration startup hotfix
+
+- Fixes the F60R22 startup crash `sqlite3.OperationalError: no such column: family_hint` when opening an existing F60R17/F60R12 drive catalog.
+- Migrates additive SQLite columns before creating indexes that reference them.
+- Preserves existing catalog rows; the Vault index remains derived/non-authoritative data.
+- Adds a regression test that opens and migrates the exact F60R17 `projects` table shape.
+- Adds a defensive additive migration lane for intermediate `entries` schemas.
+
+# ForgePY Changelog
+
+## 0.4.22-F60R22 — F66–F70 stability / intake / Vault catalog rollup
+
+- **F66 — ForgePY self-host/process containment:** ForgePY now uses a dedicated transactional self-update lane instead of routing its own approved update through a project `patch-apply` operation. Embedded operations use Windows no-window process creation so output stays in the ForgePY Project Console. Minimize-to-tray informational notification is emitted only once per process; genuine update notifications remain independent.
+- **F67 — Downloads routing / canonical patch naming:** established `ProjectName__YYYYMMDD__Version.patch` as the standard Downloads transport name. The manifest remains authoritative. Added conservative project-identity matching (including unique family forms such as `Cortex` vs `Cortex-main`) and package-created-time staleness classification.
+- **F68 — Actionable global Patch Review:** current candidates and review items across projects share one decision surface with Queue, Queue + Apply, Archive Lineage, Ignore, Reveal and Refresh actions. Fresh base mismatches remain reviewable; genuinely old/superseded packages become historical lineage.
+- **F69 — Artifact Central browser:** added an in-application searchable Artifact Central browser instead of exposing only a filesystem folder.
+- **F70 — Whole-drive Vault catalog v2:** replaced project-only drive discovery with a SQLite-backed catalog of files/directories, project authorities, nested components, classifications, ownership, patch transports, archives, generated/cache data, unknowns and conservative lineage-family hints. Registration excludes ordinary nested components. Successful drive scans are non-blocking and the Vault UI adds Lineage and Unclassified review surfaces. No arbitrary drive content is moved automatically.
+- Added regression coverage for self-update authority, hidden embedded consoles, tray notification dedupe, canonical filename parsing, actionable review, and whole-drive ownership/catalog behavior.
+
+## 0.4.17-F60R17 — F61–F65 ForgePY authority / source-control / right-rail rollup
+
+- **F61 — Canonical icon authority:** added the user-selected ForgePY artwork under `assets/branding/ForgePY.png` plus a multi-resolution Windows `ForgePY.ico`; the main Tk window and native Windows tray now use the canonical project icon.
+- **F62 — ForgePY module authority:** added canonical `ForgePY*` facades for settings, paths, intake, patching, health, source control, tray and brand identity; active product code now prefers those names while historical Vault/Forge/PCC implementation modules remain compatibility providers.
+- **F63 — Internal Git foundation:** added `ForgePYInternalGit.py` with deterministic per-project bare repositories, `forgepy-internal` remote binding, status, ensure, push-snapshot and history operations. GitHub + ForgePY Internal Git are now the primary source-control authorities; Forgejo is optional compatibility hosting.
+- **F64 — Source Control workspace:** replaced the top-level Forgejo workspace with Source Control. The workspace exposes Internal Git setup/snapshot/history, GitHub push/sync/configuration, working-tree review and optional Forgejo compatibility controls.
+- **F65 — Right-rail project operations:** expanded the existing health rail with compact Patch Intake controls (`Select .patch…`, `Check Downloads`) and project-context status showing version/build, branch, GitHub/Internal Git readiness and root.
+- Fresh ForgePY data roots now prefer `ForgePY` naming while still adopting existing `Forge`/`Vault` homes for migration safety.
+- Added `docs/NEXT_20_PASSES_F61_F80.md`, `docs/INTERNAL_GIT.md`, and `docs/FORGEPY_MODULE_AUTHORITY.md`.
+
+## 0.4.12-F60R12 — ForgePY root and product identity normalization
+
+- Renamed the distributable top-level folder from `ProjectControlCenter-Standalone` to `ForgePY`.
+- Added canonical `ForgePY.vbs`, `ForgePY.cmd`, `ForgePYConsole.cmd`, and `VerifyForgePY.cmd` root surfaces.
+- Added `ForgePYVersion.py` and `ForgePYStandalone.py` canonical Python authorities while retaining F60-era import/shortcut compatibility.
+- Moved PCC/Vault legacy launchers out of the root into `compat/legacy-launchers/`.
+- Moved historical update/source ZIPs to `archive/releases/` and legacy standalone docs to `docs/history/`.
+- Renamed package release authority to `FORGEPY_PACKAGE_MANIFEST.json` and project identity to `forgepy`.
+- Normalized visible application branding to ForgePY while preserving Vault as a subsystem/workspace and PCC as the project-owned control contract.
+- Added preferred `FORGEPY_*` environment aliases where path/intake authority is resolved, without breaking existing `FORGE_*` / `VAULT_*` settings.
+
+## 0.4.11-F60R11 — Manual Patch Selection / Descriptive Transport Recovery
+
+- Added **Updates → Apply Patch…** as an explicit user-authorized file picker for descriptively named `.patch` and `.zip` packages.
+- Manual selection verifies archive safety, SHA-256, project identity, package-date evidence, and current build/source preconditions before anything becomes executable.
+- A manually selected patch may be promoted from existing Candidate/Lineage evidence without copying it into the project root or renaming it to `incoming.patch`.
+- The original selected transport is retained; Forge applies from its immutable Artifact Central/Vault copy.
+- Successful manual approval immediately runs the validated patch queue, then normal Full Gate certification can proceed.
+- `incoming.patch` remains a compatibility root transport, but descriptive project patches no longer depend on that transitional filename.
+
+## 0.4.10-F60R10 — Explicit Manual Intake Authority
+
+- Separated explicit operator file selection from passive root/Downloads discovery.
+- Preserved F60R9's fail-closed rule: passive descriptively named root patches remain Patch Lineage and never auto-queue.
+- Added a reusable manual-approval path that re-validates live project/build authority before queue promotion.
+
+# 0.4.9-F60R9 — Queue Authority + Patch Lineage Normalization
+
+- Downloads/global watchers never create executable queue state.
+- Added non-executable `CANDIDATE` and `LINEAGE` patch states.
+- Only explicit approval or exact project-root `incoming.patch` may create `QUEUED`.
+- `incoming.patch` is checked against project identity, package date evidence, build/version/Git/GREEN preconditions, and hash before queueing.
+- Arbitrary historical `*Patch*.zip` root files are moved to project Patch Lineage instead of being treated as pending updates.
+- Pre-F60R9 QUEUED/STAGED rows without durable approval evidence are automatically demoted to Patch Lineage.
+- Canonical Forge patches apply directly from Artifact Central; `updates/inbox` is now legacy-project compatibility only.
+- Generic project health no longer counts raw root ZIPs or legacy `updates/inbox` files as pending updates.
+- Added `forge.project.v1` contract validation and explicit update-policy declaration.
+
 ## 0.4.8-F60R8 — Downloads approval / incoming.patch
 
 - Downloads remains catalog-only but now surfaces compatible update notifications and an explicit **Approve Download…** workflow.

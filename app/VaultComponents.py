@@ -42,7 +42,7 @@ def _binary(*names: str) -> str:
 def inventory() -> dict[str, Any]:
     rg = _binary("rg", "rg.exe")
     rows = [
-        Component("monaco", "Monaco Editor", "Forge IDE editing surface", "MIT", "local-web", runtime_ready(), recommended=True),
+        Component("monaco", "Monaco Editor", "ForgePY IDE editing surface", "MIT", "local-web", runtime_ready(), recommended=True),
         Component("pywebview", "pywebview", "Separate Monaco desktop window / WebView2 host", "BSD-3-Clause", "python", host_ready(), recommended=True),
         Component("watchfiles", "watchfiles", "Native high-performance filesystem watching", "MIT", "python", _module("watchfiles"), recommended=True),
         Component("tree-sitter", "Tree-sitter", "Incremental source parsing/indexing", "MIT", "python", _module("tree_sitter"), recommended=True),

@@ -1,4 +1,4 @@
 @echo off
-setlocal
-call "%~dp0Forge.cmd" --console %*
+rem Legacy compatibility alias; ForgePYConsole.cmd is authoritative.
+call "%~dp0ForgePYConsole.cmd" %*
 exit /b %ERRORLEVEL%

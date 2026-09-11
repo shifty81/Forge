@@ -56,7 +56,7 @@ def build_identity(root: Path) -> dict[str, Any]:
 
     # Forge's own source has a direct version/build authority. VaultVersion is a
     # compatibility fallback for installations created before the Forge rename.
-    for version_name in ("ForgeVersion.py", "VaultVersion.py"):
+    for version_name in ("ForgePYVersion.py", "ForgeVersion.py", "VaultVersion.py"):
         version_file = root / "app" / version_name
         if not version_file.is_file():
             continue

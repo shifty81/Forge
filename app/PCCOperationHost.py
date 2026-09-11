@@ -11,10 +11,10 @@ from typing import Sequence
 from PCCProjectDiscovery import discover_project_contract_data
 from PCCRepoHygiene import prepare
 from VaultIntake import reconcile_project, scan_roots, scan_downloads, stage_for_project
-from VaultPatchEngine import apply_inbox
+from VaultPatchEngine import apply_inbox, apply_transport, can_apply_transport
 from ForgeGreen import certify_green
 
-VERSION = "FORGE-OPERATION-HOST-0.8"
+VERSION = "FORGE-OPERATION-HOST-0.9"
 
 CLEAN_OPERATIONS = {
     "full", "quick", "fast", "build", "build-release", "patch-apply", "self-test",
@@ -48,6 +48,8 @@ def _run(argv: Sequence[str], root: Path) -> int:
     env["PCC_OPERATION_HOST_ACTIVE"] = "1"
     env["VAULT_OPERATION_HOST_ACTIVE"] = "1"
     env["FORGE_OPERATION_HOST_ACTIVE"] = "1"  # F01-F10 compatibility
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     proc = subprocess.Popen(list(argv), cwd=str(root), stdin=subprocess.DEVNULL, env=env)
     return int(proc.wait())
 
@@ -83,7 +85,13 @@ def _ingest_root_drop(root: Path) -> int:
         print(f"[FAIL] Forge active-root intake preflight failed: {exc}", flush=True)
         return 1
     for item in result.get("ingested", []):
-        print(f"[PASS] Forge root-drop queued {item.get('patch_id')}.", flush=True)
+        state = str(item.get("state") or "").upper()
+        if state == "QUEUED":
+            print(f"[PASS] Forge incoming.patch explicitly approved and queued {item.get('patch_id')}.", flush=True)
+        elif state == "LINEAGE":
+            print(f"[INFO] Forge archived non-canonical root transport {item.get('patch_id')} to Patch Lineage; it was not queued.", flush=True)
+        else:
+            print(f"[INFO] Forge root intake cataloged {item.get('patch_id')} as {state or 'NONEXECUTABLE'}.", flush=True)
     for item in result.get("skipped", []):
         reason = str(item.get("reason") or "skipped")
         if "already queued/applied" not in reason:
@@ -100,68 +108,84 @@ def _poll_downloads_nonblocking() -> None:
     except Exception as exc:
         print(f"[WARN] Forge Downloads intake scan unavailable: {exc}", flush=True)
         return
-    queued = len(result.get("ingested") or [])
+    cataloged = len(result.get("ingested") or [])
     rejected = len(result.get("errors") or [])
-    if queued:
-        print(f"[PASS] Forge Downloads intake queued {queued} patch transport(s).", flush=True)
+    if cataloged:
+        print(f"[INFO] Forge Downloads intake cataloged {cataloged} patch transport(s); none were queued by discovery.", flush=True)
     if rejected:
         print(f"[WARN] Forge Downloads intake has {rejected} rejected/review transport(s); active project gate continues.", flush=True)
 
 
-def _universal_apply(root: Path) -> tuple[int, int]:
-    try:
-        result = apply_inbox(root)
-    except Exception as exc:
-        print(f"[FAIL] Forge universal patch engine failed and rolled back: {exc}", flush=True)
-        return 1, 0
-    applied = int(result.get("applied", 0) or 0)
-    skipped = int(result.get("skipped", 0) or 0)
-    if applied:
-        print(f"[PASS] Forge universal patch engine applied {applied} patch(es) transactionally.", flush=True)
-    return 0, skipped
+def _universal_apply_staged(root: Path, staged: dict[str, object]) -> tuple[int, int]:
+    """Apply verified canonical transports directly from Artifact Central.
 
+    This keeps normal Forge updates out of project updates/inbox.  The compatibility
+    inbox is used only when a legacy project-native patch authority is required.
+    """
+    applied = 0
+    skipped = 0
+    for row in list(staged.get("items") or []):
+        source = Path(str(row.get("source") or ""))
+        if not source.is_file() or not can_apply_transport(source):
+            skipped += 1
+            continue
+        try:
+            receipt = apply_transport(source, root)
+            print(f"[PASS] Forge universal patch engine applied {receipt.get('patchId') or source.name} transactionally from Artifact Central.", flush=True)
+            applied += 1
+        except Exception as exc:
+            print(f"[FAIL] Forge universal patch engine failed and rolled back: {exc}", flush=True)
+            return 1, skipped
+    return 0, skipped
 
 def _apply_staged_updates(root: Path, operation: str, child: Sequence[str]) -> int:
     try:
-        staged = stage_for_project(root)
+        staged = stage_for_project(root, compatibility_inbox=False)
     except Exception as exc:
-        print(f"[FAIL] Forge could not stage queued patch(es): {exc}", flush=True)
+        print(f"[FAIL] Forge could not validate approved patch queue: {exc}", flush=True)
         return 1
     count = int(staged.get("staged", 0) or 0)
     if count == 0:
         return 0
-    print(f"[INFO] Forge staged {count} queued patch(es) for the next {operation} operation.", flush=True)
+    print(f"[INFO] Forge validated {count} explicitly approved patch(es) for the next {operation} operation.", flush=True)
 
-    # Prefer an established project-native authority when one exists. That preserves stronger
-    # project semantics during migration. Otherwise the universal transaction engine handles
-    # standard Vault patch transports, which is what enables arbitrary newly-registered projects.
-    if _project_has_patch_authority(root):
+    # Canonical Forge/Vault patch schemas apply directly from Artifact Central.
+    # Only non-universal legacy transports are bridged into a project-native inbox.
+    rc, skipped = _universal_apply_staged(root, staged)
+    if rc != 0:
+        return rc
+    # Reconcile canonical transports before any legacy compatibility staging so
+    # a project-native inbox can never see and re-apply a package Forge already applied.
+    try:
+        reconcile_project(root)
+    except Exception as exc:
+        print(f"[WARN] Canonical patch applied, but early lineage reconciliation needs attention: {exc}", flush=True)
+    if skipped:
+        if not _project_has_patch_authority(root):
+            print(f"[FAIL] {skipped} approved transport(s) require a project-specific patch authority.", flush=True)
+            return 1
         try:
+            compat = stage_for_project(root, compatibility_inbox=True)
             apply_child = _provider_variant(child, operation, "patch-apply")
         except Exception as exc:
-            print(f"[FAIL] Could not invoke project patch authority: {exc}", flush=True)
+            print(f"[FAIL] Could not prepare project compatibility patch authority: {exc}", flush=True)
+            return 1
+        if int(compat.get("staged", 0) or 0) <= 0:
+            print("[FAIL] No compatibility transports were staged for the project-native patch authority.", flush=True)
             return 1
         rc = _run(apply_child, root)
         if rc != 0:
-            print(f"[FAIL] Project patch authority rejected/failed queued patch(es), exit={rc}.", flush=True)
+            print(f"[FAIL] Project patch authority rejected/failed approved patch(es), exit={rc}.", flush=True)
             return rc
-    else:
-        rc, skipped = _universal_apply(root)
-        if rc != 0:
-            return rc
-        if skipped:
-            print(f"[FAIL] {skipped} staged patch(es) require a project-specific patch authority or a Vault patch manifest.", flush=True)
-            return 1
 
     try:
         reconciled = reconcile_project(root)
         promoted = int(reconciled.get("reconciled", 0) or 0)
         if promoted:
-            print(f"[PASS] Forge reconciled {promoted} applied patch(es) into the durable Library archive.", flush=True)
+            print(f"[PASS] Forge reconciled {promoted} applied patch(es) into durable Patch Lineage.", flush=True)
     except Exception as exc:
-        print(f"[WARN] Patch applied, but Forge reconciliation needs attention: {exc}", flush=True)
+        print(f"[WARN] Patch applied, but Forge lineage reconciliation needs attention: {exc}", flush=True)
     return 0
-
 
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Forge universal operation host")
@@ -193,22 +217,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     rc = 1
     try:
         if operation == "patch-apply":
-            try:
-                staged = stage_for_project(root)
-                count = int(staged.get("staged", 0) or 0)
-                if count:
-                    print(f"[INFO] Forge staged {count} queued patch(es) for explicit apply.", flush=True)
-            except Exception as exc:
-                print(f"[FAIL] Forge could not stage queued patch(es): {exc}", flush=True)
-                return 1
-
-            if _project_has_patch_authority(root):
-                rc = _run(child, root)
-            else:
-                rc, skipped = _universal_apply(root)
-                if rc == 0 and skipped:
-                    print(f"[FAIL] {skipped} patch(es) cannot be handled by the universal patch engine.", flush=True)
-                    rc = 1
+            rc = _apply_staged_updates(root, operation, child)
         else:
             if operation in PATCH_APPLY_OPERATIONS:
                 patch_rc = _apply_staged_updates(root, operation, child)

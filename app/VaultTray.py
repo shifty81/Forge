@@ -5,8 +5,11 @@ import ctypes
 import os
 import queue
 import threading
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Callable, Sequence
+
+from ForgePYBrand import ICON_ICO
 
 
 @dataclass(frozen=True)
@@ -18,7 +21,7 @@ class TrayCommand:
 
 
 DEFAULT_MENU: tuple[TrayCommand, ...] = (
-    TrayCommand("open", "Open Forge"),
+    TrayCommand("open", "Open ForgePY"),
     TrayCommand("projects", "Projects"),
     TrayCommand("workspace", "Project Workspace"),
     TrayCommand("health", "Health"),
@@ -28,15 +31,15 @@ DEFAULT_MENU: tuple[TrayCommand, ...] = (
     TrayCommand("scan-intake", "Scan Intake"),
     TrayCommand("sep-2", "", separator=True),
     TrayCommand("source-control", "Source Control"),
-    TrayCommand("forgejo", "Forgejo"),
-    TrayCommand("ide", "Forge IDE"),
+    TrayCommand("forgejo", "Source Control"),
+    TrayCommand("ide", "ForgePY IDE"),
     TrayCommand("cortex", "Cortex"),
     TrayCommand("sep-3", "", separator=True),
     TrayCommand("settings", "Settings"),
-    TrayCommand("open-home", "Open Forge Home"),
+    TrayCommand("open-home", "Open ForgePY Home"),
     TrayCommand("open-artifacts", "Open Artifact Central"),
     TrayCommand("sep-4", "", separator=True),
-    TrayCommand("exit", "Exit Forge"),
+    TrayCommand("exit", "Exit ForgePY"),
 )
 
 
@@ -56,7 +59,7 @@ class ForgeTray:
         self,
         dispatch: Callable[[str], None],
         *,
-        tooltip: str = "Forge",
+        tooltip: str = "ForgePY",
         menu: Sequence[TrayCommand] = DEFAULT_MENU,
     ) -> None:
         self.dispatch = dispatch
@@ -67,7 +70,7 @@ class ForgeTray:
         self._stop = threading.Event()
         self._hwnd = 0
         self._nid = None
-        self._status_text = "Forge"
+        self._status_text = "ForgePY"
 
     @property
     def running(self) -> bool:
@@ -93,7 +96,7 @@ class ForgeTray:
             thread.join(timeout=1.5)
 
     def set_status(self, text: str) -> None:
-        self._status_text = str(text or "Forge")[:127]
+        self._status_text = str(text or "ForgePY")[:127]
         if not supported() or not self._hwnd or self._nid is None:
             return
         try:
@@ -139,6 +142,8 @@ class ForgeTray:
         user32.RegisterClassW.restype = wintypes.ATOM
         user32.LoadIconW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR]
         user32.LoadIconW.restype = wintypes.HICON
+        user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+        user32.LoadImageW.restype = wintypes.HANDLE
         user32.CreatePopupMenu.argtypes = []
         user32.CreatePopupMenu.restype = wintypes.HMENU
         user32.TrackPopupMenu.argtypes = [
@@ -182,6 +187,9 @@ class ForgeTray:
         TPM_RIGHTBUTTON = 0x0002
         TPM_RETURNCMD = 0x0100
         IDI_APPLICATION = 32512
+        IMAGE_ICON = 1
+        LR_LOADFROMFILE = 0x0010
+        LR_DEFAULTSIZE = 0x0040
         taskbar_created = user32.RegisterWindowMessageW("TaskbarCreated")
 
         class WNDCLASS(ctypes.Structure):
@@ -283,18 +291,26 @@ class ForgeTray:
                 return 0
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
-        class_name = f"ForgeTrayWindow_{os.getpid()}"
+        class_name = f"ForgePYTrayWindow_{os.getpid()}"
         hinstance = kernel32.GetModuleHandleW(None)
+        app_icon = 0
+        try:
+            if Path(ICON_ICO).is_file():
+                app_icon = int(user32.LoadImageW(None, str(ICON_ICO), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE) or 0)
+        except Exception:
+            app_icon = 0
+        if not app_icon:
+            app_icon = int(user32.LoadIconW(None, ctypes.cast(ctypes.c_void_p(IDI_APPLICATION), wintypes.LPCWSTR)) or 0)
         wc = WNDCLASS()
         wc.lpfnWndProc = ctypes.cast(wndproc, ctypes.c_void_p).value
         wc.hInstance = hinstance
         wc.lpszClassName = class_name
-        wc.hIcon = user32.LoadIconW(None, ctypes.cast(ctypes.c_void_p(IDI_APPLICATION), wintypes.LPCWSTR))
+        wc.hIcon = app_icon
         atom = user32.RegisterClassW(ctypes.byref(wc))
         if not atom:
             self._ready.set()
             return
-        hwnd = user32.CreateWindowExW(0, class_name, "Forge Tray", 0, 0, 0, 0, 0, 0, 0, hinstance, None)
+        hwnd = user32.CreateWindowExW(0, class_name, "ForgePY Tray", 0, 0, 0, 0, 0, 0, 0, hinstance, None)
         if not hwnd:
             self._ready.set()
             return
@@ -305,7 +321,7 @@ class ForgeTray:
         nid.uID = 1
         nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
         nid.uCallbackMessage = WM_TRAY
-        nid.hIcon = user32.LoadIconW(None, ctypes.cast(ctypes.c_void_p(IDI_APPLICATION), wintypes.LPCWSTR))
+        nid.hIcon = app_icon
         nid.szTip = self.tooltip
         self._nid = nid
         shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid))

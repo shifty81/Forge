@@ -70,8 +70,8 @@ def make_patch(path: Path, *, patch_id: str = "DEMO-R8-001", project: str = "Dem
 class ForgeF60R8Tests(unittest.TestCase):
     def test_version_authority(self) -> None:
         from ForgeVersion import VERSION, BUILD
-        self.assertEqual(VERSION, "0.4.8-F60R8")
-        self.assertEqual(BUILD, "FORGE-F60R8")
+        self.assertEqual(VERSION, "0.4.45-F60R45")
+        self.assertEqual(BUILD, "FORGEPY-F60R45")
 
     def test_download_is_cataloged_then_explicitly_approved(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -83,7 +83,7 @@ class ForgeF60R8Tests(unittest.TestCase):
             make_patch(patch)
             with env(FORGE_VAULT_ROOT=str(vault), FORGE_INTAKE_PATHS=str(downloads)):
                 result = scan_downloads(force_stable=True, remove_source=True)
-                self.assertEqual(result["ingested"][0]["state"], "AVAILABLE", result)
+                self.assertEqual(result["ingested"][0]["state"], "CANDIDATE", result)
                 self.assertEqual(counts_for_project("demo", "Demo"), (0, 0))
                 available = available_for_project(project)
                 self.assertEqual(len(available), 1, available)
@@ -109,9 +109,10 @@ class ForgeF60R8Tests(unittest.TestCase):
                 self.assertFalse(incoming.exists())
                 staged = stage_for_project(project)
                 self.assertEqual(staged["staged"], 1, staged)
-                self.assertTrue((project / "updates" / "inbox" / "incoming.zip").is_file())
-                applied = apply_inbox(project)
-                self.assertEqual(applied["applied"], 1, applied)
+                self.assertFalse((project / "updates" / "inbox").exists())
+                from VaultPatchEngine import apply_transport
+                receipt = apply_transport(Path(staged["items"][0]["source"]), project)
+                self.assertEqual(receipt["status"], "applied", receipt)
                 self.assertEqual((project / "HELLO.txt").read_text(encoding="utf-8"), "hello-r8\n")
 
     def test_manual_root_drop_of_already_cataloged_download_counts_as_approval(self) -> None:
@@ -125,7 +126,7 @@ class ForgeF60R8Tests(unittest.TestCase):
             original_bytes = source.read_bytes()
             with env(FORGE_VAULT_ROOT=str(vault), FORGE_INTAKE_PATHS=str(downloads)):
                 first = scan_downloads(force_stable=True, remove_source=True)
-                self.assertEqual(first["ingested"][0]["state"], "AVAILABLE", first)
+                self.assertEqual(first["ingested"][0]["state"], "CANDIDATE", first)
                 root_drop = project / "incoming.patch"
                 root_drop.write_bytes(original_bytes)
                 second = scan_roots((project,), force_stable=True, remove_source=True, trusted_roots=(project,))
@@ -150,7 +151,7 @@ class ForgeF60R8Tests(unittest.TestCase):
         self.assertIn('"Check Downloads"', text)
         self.assertIn('vault_approve_available_for_project', text)
         self.assertIn('while not self._intake_stop.is_set()', text)
-        self.assertIn('Forge update available', text)
+        self.assertIn('ForgePY update available', text)
 
 
 if __name__ == "__main__":

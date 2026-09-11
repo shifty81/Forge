@@ -1,5 +1,4 @@
-"""Single visible Forge application version authority."""
+"""Compatibility shim. ForgePYVersion is authoritative."""
+from ForgePYVersion import VERSION, BUILD, PRODUCT
 
-VERSION = "0.4.8-F60R8"
-BUILD = "FORGE-F60R8"
-PRODUCT = "Forge"
+__all__ = ["VERSION", "BUILD", "PRODUCT"]

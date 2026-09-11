@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from PCCProjectDiscovery import discover_project_contract_data, discovery_summary
-from VaultPaths import legacy_registry_paths, registry_path, projects_root
+from ForgePYPaths import legacy_registry_paths, registry_path, projects_root
 
 SURFACE_VERSION = "VAULT-SURFACE-0.7"
 
@@ -128,10 +128,10 @@ class ProjectRegistry:
 
     @staticmethod
     def default_path() -> Path:
-        # FORGE_PROJECT_REGISTRY is canonical; retain PCC_PROJECT_REGISTRY as a
+        # FORGEPY_PROJECT_REGISTRY is canonical; retain older overrides as a
         # compatibility override for existing project launchers during migration.
         legacy_override = str(os.environ.get("PCC_PROJECT_REGISTRY") or "").strip()
-        primary_override = str(os.environ.get("VAULT_PROJECT_REGISTRY") or os.environ.get("FORGE_PROJECT_REGISTRY") or "").strip()
+        primary_override = str(os.environ.get("FORGEPY_PROJECT_REGISTRY") or os.environ.get("FORGE_PROJECT_REGISTRY") or os.environ.get("VAULT_PROJECT_REGISTRY") or "").strip()
         if legacy_override and not primary_override:
             return Path(legacy_override).expanduser().resolve()
         return registry_path()
@@ -473,15 +473,15 @@ class BackendClient:
 
     @staticmethod
     def _embedded_creationflags(*, process_group: bool = False) -> int:
-        """Create one hidden console host that descendants inherit.
+        """Run project operations without allocating a second visible console window.
 
-        This deliberately does *not* use CREATE_NO_WINDOW.  A no-console parent can cause
-        native grandchildren to allocate their own console.  Instead, Windows creates one
-        hidden console for the provider and every normal descendant inherits it.
+        ForgePY's embedded Project Console is the sole operator-facing console surface.
+        stdout/stderr remain piped back into the GUI, while Windows console allocation is
+        suppressed for the operation host and its normal descendants.
         """
         if os.name != "nt":
             return 0
-        flags = int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
+        flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if process_group:
             flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         return flags
@@ -506,6 +506,8 @@ class BackendClient:
         env = os.environ.copy()
         env.pop("CORTEX_PCC_EMBEDDED_NO_CONSOLE", None)
         env["PCC_EMBEDDED_HIDDEN_CONSOLE"] = "1"
+        env.setdefault("PYTHONUTF8", "1")
+        env.setdefault("PYTHONIOENCODING", "utf-8")
         control_dir = str(Path(__file__).resolve().parent)
         current = str(env.get("PYTHONPATH") or "").strip()
         parts = [part for part in current.split(os.pathsep) if part] if current else []

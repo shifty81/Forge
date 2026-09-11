@@ -15,6 +15,7 @@ APP = ROOT / "app"
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 from ForgeGreen import certify_green
+from ForgeContracts import validate_project_contract
 
 
 def emit(kind: str, text: str) -> None:
@@ -35,14 +36,14 @@ def python_syntax() -> bool:
 
 def self_test() -> bool:
     cp = subprocess.run(
-        [sys.executable, str(APP / "ForgeStandalone.py"), "--self-test"],
+        [sys.executable, str(APP / "ForgePYStandalone.py"), "--self-test"],
         cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
     )
     print(cp.stdout, end="")
     if cp.returncode != 0:
-        emit("FAIL", f"Forge standalone self-test exited {cp.returncode}")
+        emit("FAIL", f"ForgePY standalone self-test exited {cp.returncode}")
         return False
-    emit("PASS", "Forge standalone self-test")
+    emit("PASS", "ForgePY standalone self-test")
     return True
 
 
@@ -55,9 +56,9 @@ def unit_tests() -> bool:
     )
     print(cp.stdout, end="")
     if cp.returncode != 0:
-        emit("FAIL", f"Forge unit tests exited {cp.returncode}")
+        emit("FAIL", f"ForgePY unit tests exited {cp.returncode}")
         return False
-    emit("PASS", "Forge unit tests")
+    emit("PASS", "ForgePY unit tests")
     return True
 
 
@@ -65,21 +66,22 @@ def contract_check() -> bool:
     path = ROOT / "project.control.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
+        validate_project_contract(data)
         project = data.get("project") or {}
-        if str(project.get("id") or "") != "forge-project-control-center":
-            raise ValueError("unexpected Forge project id")
+        if str(project.get("id") or "") != "forgepy":
+            raise ValueError("unexpected ForgePY project id")
         commands = [x for x in data.get("commands", []) if isinstance(x, dict)]
         if not any(x.get("key") == "gate.full" for x in commands):
             raise ValueError("gate.full command missing")
     except Exception as exc:
-        emit("FAIL", f"Forge project contract: {exc}")
+        emit("FAIL", f"ForgePY project contract: {exc}")
         return False
-    emit("PASS", "Forge project contract")
+    emit("PASS", "ForgePY project contract")
     return True
 
 
 def manifest_check() -> bool:
-    path = ROOT / "FORGE_PACKAGE_MANIFEST.json"
+    path = ROOT / "FORGEPY_PACKAGE_MANIFEST.json"
     if not path.is_file():
         emit("WARN", "Package manifest not generated yet; run tools/BuildForgeManifest.py before release packaging")
         return True
@@ -105,20 +107,20 @@ def full() -> int:
     checks = [contract_check, python_syntax, self_test, unit_tests, manifest_check]
     for check in checks:
         if not check():
-            emit("FAIL", "FORGE FULL QUALITY GATE FAILED")
+            emit("FAIL", "FORGEPY FULL QUALITY GATE FAILED")
             return 1
     try:
         green = certify_green(ROOT, gate="full")
-        emit("PASS", f"Forge GREEN authority: {green.get('sourceFileCount', 0)} governed file(s)")
+        emit("PASS", f"ForgePY GREEN authority: {green.get('sourceFileCount', 0)} governed file(s)")
     except Exception as exc:
-        emit("FAIL", f"Forge GREEN authority write failed: {exc}")
+        emit("FAIL", f"ForgePY GREEN authority write failed: {exc}")
         return 1
-    emit("PASS", "FORGE FULL QUALITY GATE GREEN")
+    emit("PASS", "FORGEPY FULL QUALITY GATE GREEN")
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Forge self-hosted quality gate")
+    ap = argparse.ArgumentParser(description="ForgePY self-hosted quality gate")
     ap.add_argument("action", choices=("full", "quick", "build", "self-test"))
     ns = ap.parse_args(argv)
     if ns.action == "self-test":

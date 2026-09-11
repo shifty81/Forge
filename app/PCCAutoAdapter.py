@@ -14,7 +14,7 @@ from typing import Any, Iterable, Sequence
 
 from PCCProjectDiscovery import discover_project_contract_data
 from PCCRepoHygiene import prepare as repo_hygiene_prepare
-from ForgeSourceControl import status as vault_source_status, push_current as forge_push_current
+from ForgePYSourceControl import status as forgepy_source_status, push_current as forge_push_current
 from ForgeGreen import green_status as forge_green_status
 
 AUTO_ADAPTER_VERSION = "FORGE-AUTO-ADAPTER-0.4.7"
@@ -168,28 +168,21 @@ def _green_marker(root: Path, data: dict[str, Any], git: dict[str, Any]) -> tupl
 
 
 def _count_updates(root: Path, data: dict[str, Any] | None = None) -> tuple[int, int]:
-    candidates: list[Path] = []
-    inbox = root / "updates" / "inbox"
-    if inbox.is_dir():
-        candidates.extend(inbox.glob("*.zip"))
-    for path in root.glob("*.zip"):
-        low = path.name.casefold()
-        if "patch" in low and not any(x in low for x in ("debug", "bundle", "backup", "handoff", "rollup")):
-            candidates.append(path)
-    unique = {os.path.normcase(str(path.resolve())) for path in candidates if path.is_file()}
-    pending, invalid = len(unique), 0
+    """Count only Forge-authorized executable update state.
+
+    Raw ZIPs, legacy updates/inbox contents, Downloads discoveries, CANDIDATE rows,
+    and Patch Lineage are not pending updates. Project-native PCCs may report their
+    own compatibility queues through their provider; Forge's generic adapter does not
+    infer execution intent from filesystem presence.
+    """
     try:
         from VaultIntake import counts_for_project
         project = (data or {}).get("project") or {}
-        forge_pending, forge_invalid = counts_for_project(
+        return counts_for_project(
             str(project.get("id") or ""), str(project.get("name") or ""), root.name
         )
-        pending += forge_pending
-        invalid += forge_invalid
     except Exception:
-        pass
-    return pending, invalid
-
+        return 0, 0
 
 def _toolchain(root: Path) -> tuple[dict[str, bool], str]:
     tools: dict[str, bool] = {}
@@ -253,9 +246,9 @@ def status_payload(root: Path) -> dict[str, Any]:
     tools, toolchain = _toolchain(root)
     discovery = data.get("_pccDiscovery") or {}
     try:
-        source_control = vault_source_status(root)
+        source_control = forgepy_source_status(root)
     except Exception as exc:
-        source_control = {"gitReady": git.get("gitReady", False), "githubConfigured": False, "forgejoConfigured": False, "remotes": [], "error": str(exc)}
+        source_control = {"gitReady": git.get("gitReady", False), "githubConfigured": False, "forgeGitConfigured": False, "internalGitConfigured": False, "forgejoConfigured": False, "remotes": [], "error": str(exc)}
     return {
         "schema": "forge.auto_status.v2",
         "adapter": {"version": AUTO_ADAPTER_VERSION, "source": discovery.get("source"), "provider": discovery.get("provider")},

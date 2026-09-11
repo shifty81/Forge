@@ -11,8 +11,8 @@ if str(APP) not in sys.path: sys.path.insert(0,str(APP))
 class ForgeF60R7Tests(unittest.TestCase):
     def test_version_authority(self):
         from ForgeVersion import VERSION, BUILD
-        self.assertEqual(VERSION,'0.4.8-F60R8')
-        self.assertEqual(BUILD,'FORGE-F60R8')
+        self.assertEqual(VERSION, "0.4.45-F60R45")
+        self.assertEqual(BUILD, "FORGEPY-F60R45")
 
     def test_green_git_probes_are_no_window_and_cached(self):
         text=(APP/'ForgeGreen.py').read_text(encoding='utf-8')
