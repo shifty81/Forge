@@ -70,8 +70,8 @@ def make_patch(path: Path, *, patch_id: str = "DEMO-R8-001", project: str = "Dem
 class ForgeF60R8Tests(unittest.TestCase):
     def test_version_authority(self) -> None:
         from ForgeVersion import VERSION, BUILD
-        self.assertEqual(VERSION, "0.4.377-F60R377")
-        self.assertEqual(BUILD, "FORGEPY-F60R377")
+        self.assertEqual(VERSION, "0.4.379-F60R379")
+        self.assertEqual(BUILD, "FORGEPY-F60R379")
 
     def test_download_is_cataloged_then_explicitly_approved(self) -> None:
         with tempfile.TemporaryDirectory() as td:

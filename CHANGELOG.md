@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.379-F60R379 — immutable package/self-update boundary
+
+- Runtime logs, bootstrap traces, artifacts, updates, `.forge`, build output and machine-local settings are no longer distributable patch/package content.
+- Adds one canonical `ForgePackagePolicy` shared by manifests, release packaging and patch construction.
+- Adds governed `BuildForgePYPatch.py` so future ForgePY patches cannot accidentally capture live logs.
+- ForgePY self-update preflights every queued transport before applying any of them.
+- Unsafe legacy self-update transports are moved out of the executable queue into lineage instead of blocking later safe updates.
+- Patch engine rejects any ForgePY self-update that attempts to mutate runtime/machine-local paths.
+
+## 0.4.378-F60R378 — global patch target authority
+
+- Patch routing now follows the patch, not the currently selected ForgePY project.
+- Normal Git unified-diff `.patch` files are live-checked against all registered projects and auto-route only when exactly one project is compatible.
+- Manifest-backed patches remain restricted to their declared project identity and build/source preconditions.
+- Ambiguous patches fail closed into review; ForgePY never guesses between multiple compatible registered projects.
+- Check Downloads and Approve Download are global registered-project operations.
+- Manual Select .patch resolves the target before showing confirmation and displays both target and currently selected project.
+- Applying a patch to another project does not switch the visible ForgePY workspace.
+- Patch Review Apply Now can run the target project's Full Gate without changing the active project.
+
 ## 0.4.377-F60R377 — dual .patch transport + modal ownership hotfix
 
 - `.patch` is now a semantic ForgePY patch transport, not an alias for ZIP.

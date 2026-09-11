@@ -14,8 +14,8 @@ from ForgePYVersion import VERSION, BUILD
 
 class F60R373Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,"0.4.377-F60R377")
-        self.assertEqual(BUILD,"FORGEPY-F60R377")
+        self.assertEqual(VERSION,"0.4.379-F60R379")
+        self.assertEqual(BUILD,"FORGEPY-F60R379")
 
     def test_normal_launch_never_requires_folder_picker(self):
         with patch.object(ForgeStandalone,"_registry_root",return_value=None), \

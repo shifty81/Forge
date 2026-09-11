@@ -18,15 +18,15 @@ from ForgePYVersion import VERSION, BUILD
 
 class ForgePYF60R22Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, "0.4.377-F60R377")
-        self.assertEqual(BUILD, "FORGEPY-F60R377")
+        self.assertEqual(VERSION, "0.4.379-F60R379")
+        self.assertEqual(BUILD, "FORGEPY-F60R379")
 
     def test_canonical_patch_filename_contract(self):
         meta = parse_canonical_patch_filename("Cortex__20260910__1.2.3.patch")
         self.assertEqual(meta["project"], "Cortex")
         self.assertEqual(meta["date"], "20260910")
         self.assertEqual(meta["version"], "1.2.3")
-        self.assertEqual(canonical_patch_filename("ForgePY", "0.4.377-F60R377"), canonical_patch_filename("ForgePY", "0.4.377-F60R377"))
+        self.assertEqual(canonical_patch_filename("ForgePY", "0.4.379-F60R379"), canonical_patch_filename("ForgePY", "0.4.379-F60R379"))
         self.assertFalse(parse_canonical_patch_filename("random_old_patch.patch"))
 
     def test_embedded_console_is_no_window_and_tray_notice_is_deduped(self):

@@ -199,8 +199,14 @@ def inspect_patch(path: Path, project_hint: Path | None = None) -> dict[str, Any
     if path.suffix.casefold() not in PATCH_SUFFIXES:
         raise IntakeError("unsupported patch transport extension")
     if is_unified_diff(path):
-        project = "unassigned"
-        if project_hint is not None:
+        # A normal Git unified diff usually carries no project identity. Never bind it
+        # to whichever project happens to be selected in ForgePY. Canonical filename
+        # metadata may provide a routing hint. The one deliberate exception is the
+        # project-owned incoming.patch transport, whose containing root is explicit
+        # operator/project authority.
+        filename_meta = parse_canonical_patch_filename(path)
+        project = str(filename_meta.get("project") or "unassigned")
+        if project_hint is not None and path.name.casefold() == INCOMING_PATCH_NAME:
             try:
                 from VaultBuildIdentity import build_identity
                 identity=build_identity(project_hint.expanduser().resolve())
@@ -213,7 +219,7 @@ def inspect_patch(path: Path, project_hint: Path | None = None) -> dict[str, Any
             "dateStatus":"PASS","zipMinUtc":"","zipMaxUtc":"","project":project,"schema":manifest["schema"],
             "modern":True,"buildBound":True,"boundFields":["gitApplyCheck"],
             "verificationClass":"UNIFIED-DIFF-CONTEXT-BOUND","title":manifest["title"],
-            "filenameMeta":parse_canonical_patch_filename(path),"manifest":manifest,"transportFormat":"unified-diff",
+            "filenameMeta":filename_meta,"manifest":manifest,"transportFormat":"unified-diff",
         }
     zip_min_utc = ""
     zip_max_utc = ""
@@ -671,6 +677,180 @@ def _verify_transport_for_root(manifest: dict[str, Any], source: Path, root: Pat
     return verify_manifest_preconditions(manifest,root)
 
 
+def _registered_project_entries() -> list[Any]:
+    try:
+        from PCCSurfaceCommon import ProjectRegistry
+        return [entry for entry in ProjectRegistry().entries() if entry.root.is_dir()]
+    except Exception:
+        return []
+
+
+def _canonical_project_id(root: Path) -> str:
+    root = root.expanduser().resolve()
+    try:
+        from PCCProjectDiscovery import discover_project_contract_data
+        data = discover_project_contract_data(root)
+        project = data.get("project") or {}
+        return str(project.get("id") or project.get("name") or root.name).strip() or root.name
+    except Exception:
+        return root.name
+
+
+def _entry_alias_forms(entry: Any) -> set[str]:
+    aliases: set[str] = set()
+    for value in (getattr(entry, "project_id", ""), getattr(entry, "name", ""), getattr(entry, "root", Path(".")).name):
+        aliases.update(_project_identity_forms(str(value or "")))
+    try:
+        aliases.update(_project_aliases(Path(entry.root)))
+    except Exception:
+        pass
+    return {x for x in aliases if x}
+
+
+def resolve_patch_target(source: Path, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Resolve one patch transport against all registered projects.
+
+    Project selection in the GUI is deliberately irrelevant. Manifest-backed packages
+    are restricted to their declared project aliases. Git unified diffs without a
+    declared canonical filename are checked against every registered Git project and
+    resolve only when exactly one project passes the live applicability check.
+    """
+    source = source.expanduser().resolve()
+    if not source.is_file():
+        # Downloads watcher and manual picker may race. If the selected bytes were
+        # already promoted into immutable Vault evidence, resolve that stored copy.
+        try:
+            existing = _cataloged_original_candidate(source)
+        except Exception:
+            existing = None
+        if existing is not None:
+            stored = Path(str(existing.get("vault_path") or ""))
+            if stored.is_file():
+                return resolve_catalog_item_target(existing)
+    details = dict(details or inspect_patch(source, project_hint=None))
+    manifest = details.get("manifest") if isinstance(details.get("manifest"), dict) else {}
+    schema = str(manifest.get("schema") or details.get("schema") or "").casefold()
+    unified = schema == "forge.patch.unified-diff.v1" or str(details.get("transportFormat") or "").casefold() == "unified-diff"
+
+    # Unified diffs are content-routed unless their filename explicitly declares a
+    # project. Do not trust a legacy synthetic manifest that may have inherited the
+    # formerly active project.
+    if unified:
+        filename_meta = details.get("filenameMeta") if isinstance(details.get("filenameMeta"), dict) else parse_canonical_patch_filename(source)
+        declared = str((filename_meta or {}).get("project") or "unassigned").strip()
+    else:
+        declared = str(details.get("project") or manifest.get("project") or manifest.get("projectId") or "unassigned").strip()
+
+    entries = _registered_project_entries()
+    declared_forms = _project_identity_forms(declared) if declared and declared.casefold() != "unassigned" else set()
+    candidates: list[Any] = []
+    for entry in entries:
+        if declared_forms and not (declared_forms & _entry_alias_forms(entry)):
+            continue
+        candidates.append(entry)
+
+    if declared_forms and not candidates:
+        return {
+            "status":"UNREGISTERED","declaredProject":declared,"targetRoot":"","targetProject":"",
+            "targetName":"","matches":[],"checks":[],"details":details,
+            "reason":f"patch declares project {declared!r}, but no registered project matches that identity",
+        }
+
+    checks: list[dict[str, Any]] = []
+    matches: list[dict[str, Any]] = []
+    for entry in candidates:
+        root = Path(entry.root).expanduser().resolve()
+        verification = _verify_transport_for_root(manifest, source, root)
+        row = {
+            "projectId":str(getattr(entry,"project_id","") or _canonical_project_id(root)),
+            "name":str(getattr(entry,"name","") or root.name),
+            "root":str(root),
+            "status":str(verification.get("status") or "FAIL"),
+            "verification":verification,
+        }
+        checks.append(row)
+        if row["status"] == "PASS":
+            matches.append(row)
+
+    if len(matches) == 1:
+        hit = matches[0]
+        return {
+            "status":"RESOLVED","declaredProject":declared,"targetRoot":hit["root"],
+            "targetProject":hit["projectId"],"targetName":hit["name"],"matches":matches,
+            "checks":checks,"details":details,"reason":"exactly one registered project is compatible",
+        }
+    if len(matches) > 1:
+        names = ", ".join(f"{row['name']} ({row['root']})" for row in matches)
+        return {
+            "status":"AMBIGUOUS","declaredProject":declared,"targetRoot":"","targetProject":"",
+            "targetName":"","matches":matches,"checks":checks,"details":details,
+            "reason":"patch is compatible with more than one registered project: " + names,
+        }
+    return {
+        "status":"INCOMPATIBLE","declaredProject":declared,"targetRoot":"","targetProject":"",
+        "targetName":"","matches":[],"checks":checks,"details":details,
+        "reason":"patch does not currently apply to any compatible registered project",
+    }
+
+
+def resolve_catalog_item_target(item: dict[str, Any]) -> dict[str, Any]:
+    source = Path(str(item.get("vault_path") or ""))
+    if not source.is_file():
+        return {"status":"MISSING","reason":f"cataloged patch transport is missing: {source}","matches":[],"checks":[]}
+    manifest = item.get("manifest") if isinstance(item.get("manifest"), dict) else {}
+    details = {
+        "project":str(item.get("target_project") or "unassigned"),
+        "manifest":manifest,
+        "schema":str(manifest.get("schema") or ""),
+        "transportFormat":"unified-diff" if str(manifest.get("schema") or "").casefold()=="forge.patch.unified-diff.v1" else "manifest-package",
+        "filenameMeta":parse_canonical_patch_filename(str(item.get("source_name") or source.name)),
+    }
+    return resolve_patch_target(source, details=details)
+
+
+def available_globally(*, compatible_only: bool = True) -> list[dict[str, Any]]:
+    """Return cataloged patch candidates resolved against all registered projects."""
+    out: list[dict[str, Any]] = []
+    for item in [x for x in list_items() if str(x.get("state") or "").upper() in {"CANDIDATE","AVAILABLE"}]:
+        resolution = resolve_catalog_item_target(item)
+        enriched = dict(item)
+        enriched["targetResolution"] = resolution
+        if resolution.get("status") == "RESOLVED":
+            canonical = str(resolution.get("targetProject") or "")
+            target_root = str(resolution.get("targetRoot") or "")
+            enriched["target_project"] = canonical
+            enriched["resolvedRoot"] = target_root
+            checks = resolution.get("matches") or []
+            if checks:
+                enriched["buildVerification"] = checks[0].get("verification") or {}
+            if canonical and canonical.casefold() != str(item.get("target_project") or "").casefold():
+                with _connect() as db:
+                    db.execute("UPDATE intake_items SET target_project=? WHERE intake_id=?", (canonical, str(item.get("intake_id") or "")))
+                    db.commit()
+            out.append(enriched)
+        elif not compatible_only:
+            out.append(enriched)
+    return out
+
+
+def approve_available_globally(intake_id: str) -> dict[str, Any]:
+    item = next((x for x in list_items() if str(x.get("intake_id")) == str(intake_id) and str(x.get("state") or "").upper() in {"CANDIDATE","AVAILABLE"}), None)
+    if item is None:
+        raise IntakeError("selected downloaded patch is not an executable candidate")
+    resolution = resolve_catalog_item_target(item)
+    if resolution.get("status") != "RESOLVED":
+        raise IntakeError(str(resolution.get("reason") or "downloaded patch target could not be resolved uniquely"))
+    root = Path(str(resolution.get("targetRoot") or "")).expanduser().resolve()
+    canonical = str(resolution.get("targetProject") or _canonical_project_id(root))
+    with _connect() as db:
+        db.execute("UPDATE intake_items SET target_project=? WHERE intake_id=?", (canonical, str(intake_id)))
+        db.commit()
+    approved = approve_available_for_project(root, intake_id)
+    approved["resolvedRoot"] = str(root)
+    approved["resolvedProject"] = canonical
+    return approved
+
+
 def _queue_existing_for_project(
     root: Path,
     existing: dict[str, Any],
@@ -682,8 +862,9 @@ def _queue_existing_for_project(
     root = root.expanduser().resolve()
     manifest = existing.get("manifest") if isinstance(existing.get("manifest"), dict) else {}
     target = str(existing.get("target_project") or "")
-    if target.casefold() not in _project_aliases(root):
-        raise IntakeError(f"{source_label} project identity does not match the active project")
+    unified = str(manifest.get("schema") or "").casefold() == "forge.patch.unified-diff.v1"
+    if target.casefold() not in _project_aliases(root) and not unified:
+        raise IntakeError(f"{source_label} project identity does not match the selected target project")
     source = Path(str(existing.get("vault_path") or ""))
     verification = _verify_transport_for_root(manifest, source, root)
     if verification.get("status") != "PASS":
@@ -692,6 +873,13 @@ def _queue_existing_for_project(
             for x in verification.get("mismatches", [])
         )
         raise IntakeError(f"{source_label} does not match active project/build identity: " + detail)
+    if unified:
+        canonical = _canonical_project_id(root)
+        with _connect() as db:
+            db.execute("UPDATE intake_items SET target_project=? WHERE intake_id=?", (canonical, str(existing.get("intake_id") or "")))
+            db.commit()
+        existing = dict(existing)
+        existing["target_project"] = canonical
     expected = str(existing.get("sha256") or "")
     if not source.is_file() or not expected or sha256_file(source) != expected:
         raise IntakeError(f"cataloged {source_label} evidence is missing or hash-mismatched")
@@ -887,6 +1075,24 @@ def ingest_patch(source: Path, *, remove_source: bool = True, trusted_root: bool
         return duplicate
 
     project = str(details.get("project") or "unassigned")
+    # Global/Downloads intake is project-independent. For a unified diff with no
+    # declared project identity, use live git-apply compatibility across every
+    # registered project. Exactly one match becomes the target; zero/multiple matches
+    # stay non-executable in Review.
+    if not trusted_root and str((details.get("manifest") or {}).get("schema") or "").casefold() == "forge.patch.unified-diff.v1":
+        resolution = resolve_patch_target(source, details=details)
+        if resolution.get("status") == "RESOLVED":
+            project = str(resolution.get("targetProject") or "unassigned")
+            details["project"] = project
+            details["manifest"] = dict(details.get("manifest") or {})
+            details["manifest"]["project"] = project
+            details["targetResolution"] = resolution
+        else:
+            return _archive_review_transport(
+                source, details, reason=str(resolution.get("reason") or "patch target requires operator review"),
+                relation="ambiguous-target" if resolution.get("status") == "AMBIGUOUS" else "unresolved-target",
+                remove_source=remove_source,
+            )
     verification: dict[str, Any] | None = None
     classification = "PATCH-LINEAGE"
     state = "LINEAGE"
@@ -1247,10 +1453,11 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
 
 
 def scan_downloads(*, force_stable: bool = False, remove_source: bool = True, active_root: Path | None = None) -> dict[str, Any]:
-    # Repair stale pre-F60R9 queue state before cataloging anything new. Downloads
-    # itself remains discovery/lineage authority only.
+    # Repair stale pre-F60R9 queue state before cataloging anything new. Downloads is
+    # global discovery authority: active_root is retained only for API compatibility
+    # and MUST NOT influence patch routing.
     normalize_queue_authority()
-    return scan_roots(downloads_roots(), force_stable=force_stable, remove_source=remove_source, project_hint=active_root)
+    return scan_roots(downloads_roots(), force_stable=force_stable, remove_source=remove_source, project_hint=None)
 
 
 def scan_intake(*, extra_roots: Sequence[Path] = (), force_stable: bool = False, remove_source: bool = True) -> dict[str, Any]:
@@ -1480,6 +1687,14 @@ def ignore_review_item(intake_id: str) -> dict[str, Any]:
     if item is None:
         raise IntakeError("review item no longer exists")
     _set_item_state(str(intake_id), "IGNORED", error=str(item.get("error") or "ignored by operator"))
+    return next(x for x in list_items() if str(x.get("intake_id")) == str(intake_id))
+
+
+def quarantine_queued_item(intake_id: str, *, reason: str) -> dict[str, Any]:
+    item = next((x for x in list_items() if str(x.get("intake_id")) == str(intake_id) and str(x.get("state") or "").upper() in {"QUEUED", "STAGED", "AVAILABLE"}), None)
+    if item is None:
+        raise IntakeError("queued item no longer exists")
+    _relocate_catalog_item_to_lineage(item, "unsafe-self-update", error=str(reason or "unsafe self-update transport"))
     return next(x for x in list_items() if str(x.get("intake_id")) == str(intake_id))
 
 

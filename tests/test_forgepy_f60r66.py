@@ -16,8 +16,8 @@ from ForgePYVersion import VERSION, BUILD
 
 class ForgePYF60R66Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, "0.4.377-F60R377")
-        self.assertEqual(BUILD, "FORGEPY-F60R377")
+        self.assertEqual(VERSION, "0.4.379-F60R379")
+        self.assertEqual(BUILD, "FORGEPY-F60R379")
 
     def test_startup_keep_root_quits_hidden_splash_loop(self):
         src = (APP / "ForgeStartup.py").read_text(encoding="utf-8")

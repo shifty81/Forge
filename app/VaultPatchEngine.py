@@ -16,6 +16,7 @@ from typing import Any
 
 from VaultPaths import vault_root
 from ForgeUnifiedDiffPatch import is_unified_diff, validate as validate_unified_diff, apply as apply_unified_diff, synthetic_manifest as unified_manifest
+from ForgePackagePolicy import self_update_safe, classification as package_path_classification
 
 PATCH_ENGINE_VERSION = "FORGE-PATCH-0.5"
 SUPPORTED_SCHEMAS = {
@@ -192,6 +193,14 @@ def validate_transport(path: Path, root: Path | None = None) -> dict[str, Any]:
     with zipfile.ZipFile(path, "r") as zf:
         manifest = _read_manifest(zf)
         files = _normalize_files(manifest)
+        if root is not None and _is_vault_application_root(root, manifest):
+            unsafe=[row["path"] for row in files if not self_update_safe(row["path"])]
+            if unsafe:
+                first=unsafe[0]
+                raise PatchError(
+                    "unsafe ForgePY self-update target: " + first +
+                    " (" + package_path_classification(first) + ")"
+                )
         for row in files:
             rel = row["path"]
             if row["operation"] == "write":

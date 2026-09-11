@@ -49,8 +49,11 @@ from ForgePYIntake import (
     scan_roots as vault_scan_roots,
     scan_downloads as vault_scan_downloads,
     available_for_project as vault_available_for_project,
+    available_globally as vault_available_globally,
     approve_available_for_project as vault_approve_available_for_project,
+    approve_available_globally as vault_approve_available_globally,
     approve_manual_patch_for_project as vault_approve_manual_patch_for_project,
+    resolve_patch_target as vault_resolve_patch_target,
     counts_for_project as vault_update_counts_for_project,
     stage_for_project as vault_stage_for_project,
     reconcile_project as vault_reconcile_project,
@@ -60,10 +63,11 @@ from ForgePYIntake import (
     archive_review_item as vault_archive_review_item,
     ignore_review_item as vault_ignore_review_item,
     retarget_review_item as vault_retarget_review_item,
+    quarantine_queued_item as vault_quarantine_queued_item,
     parse_canonical_patch_filename as vault_parse_patch_filename,
 )
 from ForgePYPaths import configured_scan_roots, data_root as vault_data_root, downloads_roots, intake_roots, projects_root as vault_projects_root, artifact_central_root, ensure_artifact_project_tree
-from ForgePYPatchEngine import restart_marker_path, apply_transport as vault_apply_transport, can_apply_transport as vault_can_apply_transport
+from ForgePYPatchEngine import restart_marker_path, apply_transport as vault_apply_transport, can_apply_transport as vault_can_apply_transport, validate_transport as vault_validate_transport
 from ForgePYVersion import VERSION as FORGE_VERSION
 from ForgePYSettings import load_settings, save_settings, set_projects_root, set_section, set_vault_home, set_scan_roots, set_artifact_central_root
 from ForgeArtifactIndex import search as artifact_index_search, rebuild as artifact_index_rebuild, db_path as artifact_index_db_path
@@ -2656,11 +2660,11 @@ class ForgeGui:
         patch_root = lambda: ensure_artifact_project_tree(self.contract.project_id)["patches"]
         review_root = lambda: ensure_artifact_project_tree(self.contract.project_id)["review"]
         self._command_category_list(parent, "Queue", (
-            ("Apply Patch…", "Select a descriptive .patch or .zip package, validate it against the active project, and apply it without renaming it to incoming.patch.", self._apply_patch_file, True),
+            ("Apply Patch…", "Select a .patch or .zip transport, resolve it against all registered projects, and apply it only to the uniquely compatible target.", self._apply_patch_file, True),
             ("Inspect Queue", "Show deliberately queued project updates and validation state.", lambda: self._start_command("patch-status"), False),
             ("Apply Validated Queue", "Stage and apply only deliberately queued updates using the project or Vault transaction engine.", self._apply_updates, False),
             ("Check Downloads", "Scan Downloads now. Matching packages are cataloged safely and remain non-executable until you approve one.", self._check_downloads_now, False),
-            ("Approve Download…", "Choose a verified compatible download and explicitly promote it into this project's update queue.", self._approve_available_download, True),
+            ("Approve Download…", "Choose a verified compatible download and promote it into its resolved registered project queue, regardless of the active workspace.", self._approve_available_download, True),
             ("Available Downloads", "Open this project's cataloged download packages in Artifact Central. They cannot execute until explicitly approved.", lambda: open_path(patch_root() / "available"), False),
             ("Refresh Health", "Refresh update, Git and provider health after intake changes.", self._refresh_status_async, False),
         ))
@@ -3809,7 +3813,9 @@ class ForgeGui:
                     self._append_log(f"=== END {label}: PASS ({applied} update(s) applied) ===\n","pass")
                     self._refresh_status_async()
                     if run_full_after:
-                        self.window.after(150, lambda: self._start_command("full", label="post-update-full"))
+                        gate = (result or {}).get("gate") or {}
+                        if gate.get("ran"):
+                            self._append_log(f"[PASS] Target Full Gate completed for {target}.\n", "pass")
                 elif kind == "universal-project-apply-error":
                     label, target, detail = payload
                     if self._runtime_operation_token:
@@ -4018,30 +4024,65 @@ class ForgeGui:
                     waiting = [item for item in (result.get("skipped") or []) if "stabil" in str(item.get("reason") or "").casefold()]
                     compatible = []
                     try:
-                        compatible = vault_available_for_project(self.root_path, compatible_only=True)
+                        compatible = vault_available_globally(compatible_only=True)
                     except Exception:
                         compatible = []
-                    self._append_log(f"[INFO] Downloads check complete: {len(available)} newly cataloged, {len(compatible)} compatible candidate(s) for {self.contract.name}, {len(waiting)} still stabilizing.\n", "info")
+                    grouped: dict[str, int] = {}
+                    for item in compatible:
+                        grouped[str(item.get("target_project") or "unassigned")] = grouped.get(str(item.get("target_project") or "unassigned"), 0) + 1
+                    summary = ", ".join(f"{name}: {count}" for name,count in sorted(grouped.items())) or "none"
+                    self._append_log(f"[INFO] Downloads check complete: {len(available)} newly cataloged, {len(compatible)} compatible candidate(s) across registered projects ({summary}), {len(waiting)} still stabilizing.\n", "info")
                     if compatible:
-                        self._popup("Downloaded Patch Candidate", f"{len(compatible)} compatible downloaded descendant candidate(s) are ready for {self.contract.name}.\n\nUse Approve Download… or Apply Updates to authorize one.", kind="success")
+                        self._popup("Downloaded Patch Candidate", f"{len(compatible)} compatible downloaded patch candidate(s) are ready across registered projects.\n\nTargets: {summary}\n\nApproval follows the patch target, not the project currently selected in ForgePY.", kind="success")
                     elif waiting:
                         self._popup("Downloads Still Stabilizing", "Forge sees a candidate file that is still changing or too new. Wait a few seconds and use Check Downloads again. It will not be executed while incomplete.", kind="info")
                     else:
-                        self._popup("Downloads Checked", f"No compatible downloaded descendant candidate is currently available for {self.contract.name}.", kind="info")
+                        self._popup("Downloads Checked", "No uniquely compatible downloaded patch candidate is currently available for any registered project.", kind="info")
                     self._refresh_status_async()
                 elif kind == "downloads-check-error":
                     self._download_approval_busy = False
                     self._append_log(f"[WARN] Downloads check failed: {payload}\n", "warn")
                     self._popup("Downloads Check Failed", str(payload), kind="error")
+                elif kind == "manual-patch-target-resolved":
+                    self._download_approval_busy = False
+                    source_raw, resolution = payload
+                    source = Path(str(source_raw)).expanduser().resolve()
+                    if str((resolution or {}).get("status") or "") != "RESOLVED":
+                        detail = str((resolution or {}).get("reason") or "Patch target could not be resolved uniquely.")
+                        self._append_log(f"[WARN] Patch target resolution requires review: {source.name}: {detail}\n", "warn")
+                        self._popup("Patch Target Requires Review", detail + "\n\nForgePY will not guess which project to modify.", kind="warning")
+                        return
+                    target_root = Path(str(resolution.get("targetRoot") or "")).expanduser().resolve()
+                    target_name = str(resolution.get("targetName") or resolution.get("targetProject") or target_root.name)
+                    message = (
+                        f"Patch: {source.name}\n"
+                        f"Target project: {target_name}\n"
+                        f"Target root: {target_root}\n"
+                        f"Currently selected: {self.contract.name}\n\n"
+                        "ForgePY resolved this patch against all registered projects. Approval applies it only to the target above; the selected ForgePY workspace does not control routing.\n\n"
+                        "Apply this patch now?"
+                    )
+                    if not self._popup("Apply Patch", message, kind="warning", confirm=True):
+                        return
+                    self._download_approval_busy = True
+                    self._append_log(f"[INFO] Approving {source.name} for resolved target {target_name}: {target_root}\n", "info")
+                    def approve_manual_target() -> None:
+                        try:
+                            approved = vault_approve_manual_patch_for_project(target_root, source)
+                            self._event_q.put(("manual-patch-approved", (approved, str(target_root), target_name)))
+                        except Exception as exc:
+                            self._event_q.put(("manual-patch-error", str(exc)))
+                    threading.Thread(target=approve_manual_target, daemon=True, name="ForgeManualPatchApproveResolved").start()
                 elif kind == "manual-patch-approved":
                     self._download_approval_busy = False
-                    approved = payload or {}
-                    self._append_log(f"[PASS] Manually selected patch {approved.get('patch_id')} approved for {self.contract.name}; applying validated queue now.\n", "pass")
+                    approved, target_root_raw, target_name = payload
+                    target_root = Path(str(target_root_raw)).expanduser().resolve()
+                    self._append_log(f"[PASS] Manually selected patch {approved.get('patch_id')} approved for {target_name}; applying to {target_root}.\n", "pass")
                     self._refresh_status_async()
-                    if self._is_forgepy_self_project():
-                        self._start_forgepy_self_apply("apply-patch")
+                    if self._is_forgepy_root(target_root):
+                        self._start_forgepy_self_apply("apply-patch", target_root=target_root)
                     else:
-                        self._start_command("patch-apply", ["--yes"], label="apply-patch")
+                        self._start_universal_project_apply(target_root, "apply-patch", run_full_after=False)
                 elif kind == "manual-patch-error":
                     self._download_approval_busy = False
                     self._append_log(f"[FAIL] Manual patch selection failed: {payload}\n", "fail")
@@ -4049,15 +4090,17 @@ class ForgeGui:
                 elif kind == "download-approved":
                     self._download_approval_busy = False
                     approved, apply_after = payload
-                    self._append_log(f"[PASS] Approved downloaded patch {approved.get('patch_id')} for {self.contract.name}; approval receipt: {approved.get('approvalReceipt')}\n", "pass")
+                    target_root = Path(str(approved.get("resolvedRoot") or approved.get("approved_root") or "")).expanduser().resolve()
+                    target_name = str(approved.get("resolvedProject") or approved.get("target_project") or target_root.name)
+                    self._append_log(f"[PASS] Approved downloaded patch {approved.get('patch_id')} for {target_name}; approval receipt: {approved.get('approvalReceipt')}\n", "pass")
                     self._refresh_status_async()
                     if apply_after:
-                        if self._is_forgepy_self_project():
-                            self._start_forgepy_self_apply("apply-updates")
+                        if self._is_forgepy_root(target_root):
+                            self._start_forgepy_self_apply("apply-updates", target_root=target_root)
                         else:
-                            self._start_command("patch-apply", ["--yes"], label="apply-updates")
+                            self._start_universal_project_apply(target_root, "apply-updates", run_full_after=False)
                     else:
-                        self._popup("Update Queued", f"{approved.get('patch_id')} is now explicitly approved and queued for {self.contract.name}.\n\nUse Apply Validated Queue when ready.", kind="success")
+                        self._popup("Update Queued", f"{approved.get('patch_id')} is explicitly approved and queued for {target_name}.\n\nThe queue belongs to that project regardless of which ForgePY workspace is selected.", kind="success")
                 elif kind == "download-approval-error":
                     self._download_approval_busy = False
                     self._append_log(f"[FAIL] Download approval failed: {payload}\n", "fail")
@@ -4889,12 +4932,10 @@ class ForgeGui:
             self._append_log(f"[PASS] Review approved {approved.get('patch_id')} for {target}; explicit queue authority recorded.\n", "pass")
             if apply_now:
                 dialog.destroy()
-                if root.resolve() != self.root_path.resolve():
-                    self._activate_project(root)
-                if (root / "app" / "ForgePYVersion.py").is_file():
-                    self.window.after(120, lambda: self._start_forgepy_self_apply("review-apply"))
+                if self._is_forgepy_root(root):
+                    self.window.after(120, lambda target=root: self._start_forgepy_self_apply("review-apply", target_root=target))
                 else:
-                    self.window.after(120, lambda: self._start_universal_project_apply(root, "review-apply", run_full_after=True))
+                    self.window.after(120, lambda target=root: self._start_universal_project_apply(target, "review-apply", run_full_after=True))
                 return
             refresh()
 
@@ -4964,7 +5005,7 @@ class ForgeGui:
 
         def work() -> None:
             try:
-                result = vault_scan_downloads(force_stable=False, remove_source=True, active_root=self.root_path)
+                result = vault_scan_downloads(force_stable=False, remove_source=True)
                 self._event_q.put(("downloads-check-done", result))
             except Exception as exc:
                 self._event_q.put(("downloads-check-error", str(exc)))
@@ -4993,7 +5034,7 @@ class ForgeGui:
         box.pack(fill="both", expand=True, padx=18, pady=(0, 10))
         for item in items:
             created = str(item.get("package_created_utc") or (item.get("manifest") or {}).get("createdUtc") or "unknown date")
-            box.insert("end", f"{item.get('patch_id') or item.get('source_name')}  |  {created}  |  {item.get('verification_class') or ''}")
+            box.insert("end", f"{item.get('patch_id') or item.get('source_name')}  |  {item.get('target_project') or 'unassigned'}  |  {created}  |  {item.get('verification_class') or ''}")
         box.selection_set(0); box.activate(0)
         def close(value: dict[str, Any] | None) -> None:
             result[0] = value
@@ -5018,14 +5059,14 @@ class ForgeGui:
         if self._download_approval_busy:
             return
         try:
-            items = vault_available_for_project(self.root_path, compatible_only=True)
+            items = vault_available_globally(compatible_only=True)
         except Exception as exc:
             self._popup("Downloaded Updates", f"Could not inspect cataloged downloads:\n{exc}", kind="error")
             return
         if not items:
             self._popup(
                 "Downloaded Updates",
-                "No compatible descendant candidate is currently cataloged for this project.\n\nUse Apply Patch… to select a descriptive patch directly, Check Downloads for browser downloads, or use the legacy incoming.patch root transport.",
+                "No uniquely compatible descendant candidate is currently cataloged for any registered project.\n\nUse Apply Patch… to select a patch directly or Check Downloads to refresh global discovery.",
                 kind="info",
             )
             return
@@ -5040,7 +5081,8 @@ class ForgeGui:
             f"Project: {chosen.get('target_project')}\n"
             f"Created: {created}\n"
             f"Current build: {identity.get('projectBuild') or '<not declared>'}\n\n"
-            "Approve this cataloged Downloads descendant candidate for the active project? Forge will re-check its hash and build/source binding before authorizing it for the executable queue."
+            f"Currently selected: {self.contract.name}\n\n"
+            "Approve this candidate for the resolved target project above? ForgePY will re-check its hash and build/source binding. The active workspace does not control patch routing."
         )
         if not self._popup("Approve Downloaded Update", message, kind="warning", confirm=True):
             return
@@ -5048,21 +5090,21 @@ class ForgeGui:
         intake_id = str(chosen.get("intake_id") or "")
         def work() -> None:
             try:
-                approved = vault_approve_available_for_project(self.root_path, intake_id)
+                approved = vault_approve_available_globally(intake_id)
                 self._event_q.put(("download-approved", (approved, bool(apply_after))))
             except Exception as exc:
                 self._event_q.put(("download-approval-error", str(exc)))
         threading.Thread(target=work, daemon=True, name="ForgeDownloadApproval").start()
 
     def _apply_patch_file(self) -> None:
-        """Select, validate and immediately apply one descriptive Forge patch."""
+        """Select one patch and resolve its target across all registered projects."""
         if self._download_approval_busy:
             return
         selected = self.filedialog.askopenfilename(
             parent=self.window,
-            title=f"Apply Patch — {self.contract.name}",
+            title="Apply Patch — resolve registered project automatically",
             filetypes=(
-                ("Forge patch packages", "*.patch *.zip"),
+                ("Forge patch transports", "*.patch *.zip"),
                 ("Patch files", "*.patch"),
                 ("ZIP patch packages", "*.zip"),
                 ("All files", "*.*"),
@@ -5071,27 +5113,17 @@ class ForgeGui:
         if not selected:
             return
         source = Path(selected).expanduser().resolve()
-        message = (
-            f"Patch: {source.name}\n"
-            f"Project: {self.contract.name}\n\n"
-            "ForgePY will detect the .patch transport type (manifest package or Git unified diff), "
-            "verify its hash and applicability to the active project before queueing it. The selected file "
-            "does not need to be renamed to incoming.patch and the original file is retained.\n\n"
-            "Apply this patch now?"
-        )
-        if not self._popup("Apply Patch", message, kind="warning", confirm=True):
-            return
         self._download_approval_busy = True
-        self._append_log(f"[INFO] Validating manually selected patch: {source}\n", "info")
+        self._append_log(f"[INFO] Resolving patch target across registered projects: {source} (manifest package or Git unified diff)\n", "info")
 
         def work() -> None:
             try:
-                approved = vault_approve_manual_patch_for_project(self.root_path, source)
-                self._event_q.put(("manual-patch-approved", approved))
+                resolution = vault_resolve_patch_target(source)
+                self._event_q.put(("manual-patch-target-resolved", (str(source), resolution)))
             except Exception as exc:
                 self._event_q.put(("manual-patch-error", str(exc)))
 
-        threading.Thread(target=work, daemon=True, name="ForgeManualPatchApply").start()
+        threading.Thread(target=work, daemon=True, name="ForgeManualPatchResolve").start()
 
     def _commit_green(self) -> None:
         message = self._ask_commit_message(push=False)
@@ -5108,9 +5140,12 @@ class ForgeGui:
         ):
             self._start_builtin_source("commit-push-green", [self.contract.project_id, message])
 
+    def _is_forgepy_root(self, root: Path) -> bool:
+        root = root.expanduser().resolve()
+        return bool((root / "app" / "ForgePYVersion.py").is_file())
+
     def _is_forgepy_self_project(self) -> bool:
-        aliases = {str(self.contract.project_id or "").casefold(), str(self.contract.name or "").casefold(), self.root_path.name.casefold()}
-        return bool((self.root_path / "app" / "ForgePYVersion.py").is_file() and ({"forgepy", "forge-py", "forge"} & aliases))
+        return self._is_forgepy_root(self.root_path)
 
     def _start_universal_project_apply(self, root: Path, label: str = "apply-updates", *, run_full_after: bool = False) -> None:
         """Apply an explicitly approved universal patch directly through ForgePY.
@@ -5125,7 +5160,13 @@ class ForgeGui:
         target = root.expanduser().resolve()
         self._busy = True
         self._active_command = label
-        self._runtime_operation_token = self._runtime.operation_started(self.contract.project_id,label,lane="patch")
+        try:
+            target_contract = ProjectContract.load(target)
+            target_project_id = target_contract.project_id
+        except Exception:
+            target_contract = None
+            target_project_id = target.name
+        self._runtime_operation_token = self._runtime.operation_started(target_project_id,label,lane="patch")
         self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
         self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
         self.footer.configure(text=f"[Job:Running] [{label}]", fg=CYAN)
@@ -5148,12 +5189,31 @@ class ForgeGui:
                         raise RuntimeError(f"Approved transport is not a canonical universal patch: {source.name}")
                     receipts.append(vault_apply_transport(source,target))
                 vault_reconcile_project(target)
-                self._event_q.put(("universal-project-apply-done",(label,target,run_full_after,{"applied":len(receipts),"receipts":receipts})))
+                gate = {"requested": bool(run_full_after), "ran": False, "returncode": None}
+                if run_full_after:
+                    try:
+                        backend = BackendClient(target, target_contract or ProjectContract.load(target))
+                        if backend.supports("full"):
+                            gate["ran"] = True
+                            self._event_q.put(("universal-build-log", f"[INFO] Running target Full Gate without changing active ForgePY project: {target}\n"))
+                            proc = backend.popen("full")
+                            assert proc.stdout is not None
+                            for line in proc.stdout:
+                                self._event_q.put(("universal-build-log", line))
+                            rc = proc.wait()
+                            gate["returncode"] = rc
+                            if rc != 0:
+                                raise RuntimeError(f"Target project Full Gate failed with exit {rc}: {target}")
+                        else:
+                            self._event_q.put(("universal-build-log", f"[WARN] Target project has no Full Gate command; patch applied but gate was not run: {target}\n"))
+                    except Exception as gate_exc:
+                        raise RuntimeError(f"Patch applied, but target project certification failed: {gate_exc}") from gate_exc
+                self._event_q.put(("universal-project-apply-done",(label,target,run_full_after,{"applied":len(receipts),"receipts":receipts,"gate":gate})))
             except Exception as exc:
                 self._event_q.put(("universal-project-apply-error",(label,target,str(exc))))
         threading.Thread(target=work,daemon=True,name="ForgePYUniversalPatchApply").start()
 
-    def _start_forgepy_self_apply(self, label: str = "apply-updates") -> None:
+    def _start_forgepy_self_apply(self, label: str = "apply-updates", *, target_root: Path | None = None) -> None:
         """Apply ForgePY's own approved canonical queue without calling project CLI.
 
         ForgePY self-maintenance is application authority, not a project-provided
@@ -5163,9 +5223,14 @@ class ForgeGui:
         if self._busy:
             self._popup("ForgePY", "Another ForgePY job is already running.", kind="warning")
             return
+        target = (target_root or self.root_path).expanduser().resolve()
         self._busy = True
         self._active_command = label
-        self._runtime_operation_token = self._runtime.operation_started(self.contract.project_id,label,lane="patch")
+        try:
+            target_project_id = ProjectContract.load(target).project_id
+        except Exception:
+            target_project_id = target.name
+        self._runtime_operation_token = self._runtime.operation_started(target_project_id,label,lane="patch")
         self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
         self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
         self.footer.configure(text=f"[Job:Running] [{label}]", fg=CYAN)
@@ -5175,20 +5240,38 @@ class ForgeGui:
 
         def work() -> None:
             try:
-                staged = vault_stage_for_project(self.root_path, compatibility_inbox=False)
+                staged = vault_stage_for_project(target, compatibility_inbox=False)
                 rows = list(staged.get("items") or [])
                 if not rows:
                     raise RuntimeError("No explicitly approved ForgePY update is currently queued.")
                 receipts = []
+                safe_rows = []
                 for row in rows:
                     source = Path(str(row.get("source") or ""))
                     if not source.is_file():
                         raise RuntimeError(f"Approved ForgePY transport is missing: {source}")
                     if not vault_can_apply_transport(source):
                         raise RuntimeError(f"Approved ForgePY transport is not a canonical universal patch: {source.name}")
-                    receipt = vault_apply_transport(source, self.root_path)
+                    try:
+                        vault_validate_transport(source, target)
+                    except Exception as preflight_exc:
+                        detail=str(preflight_exc)
+                        if "unsafe ForgePY self-update target:" in detail:
+                            intake_id=str(row.get("intake_id") or "")
+                            if intake_id:
+                                try:vault_quarantine_queued_item(intake_id, reason=detail)
+                                except Exception:pass
+                            self._event_q.put(("universal-build-log", f"[WARN] Quarantined unsafe legacy ForgePY update {source.name}: {detail}\n"))
+                            continue
+                        raise
+                    safe_rows.append(row)
+                if not safe_rows:
+                    raise RuntimeError("No safe approved ForgePY update remains queued after self-update preflight.")
+                for row in safe_rows:
+                    source = Path(str(row.get("source") or ""))
+                    receipt = vault_apply_transport(source, target)
                     receipts.append(receipt)
-                vault_reconcile_project(self.root_path)
+                vault_reconcile_project(target)
                 self._event_q.put(("forgepy-self-apply-done", (label, {"applied": len(receipts), "receipts": receipts})))
             except Exception as exc:
                 self._event_q.put(("forgepy-self-apply-error", (label, str(exc))))

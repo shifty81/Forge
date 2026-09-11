@@ -11,8 +11,8 @@ def digest(data: bytes) -> str: return hashlib.sha256(data).hexdigest()
 
 class ForgePYF60R24Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, "0.4.377-F60R377")
-        self.assertEqual(BUILD, "FORGEPY-F60R377")
+        self.assertEqual(VERSION, "0.4.379-F60R379")
+        self.assertEqual(BUILD, "FORGEPY-F60R379")
     def _make_patch(self, td: Path, rel: str, before: bytes, after: bytes) -> Path:
         patch = td / "test.patch"
         manifest = {"schema":"forge.patch.v1","engine":"forge-universal","project":"forgepy","patchId":"TEST-R24","files":[{"path":rel,"operation":"write","preSha256":digest(before),"sha256":digest(after),"bytes":len(after)}]}
