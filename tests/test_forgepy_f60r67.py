@@ -13,8 +13,8 @@ from ForgePYVersion import VERSION, BUILD
 
 class ForgePYF60R67Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, "0.4.379-F60R379")
-        self.assertEqual(BUILD, "FORGEPY-F60R379")
+        self.assertEqual(VERSION, "0.4.389-F60R389")
+        self.assertEqual(BUILD, "FORGEPY-F60R389")
 
     def test_shared_root_destroys_splash_widgets_before_handoff(self):
         src = (APP / "ForgeStartup.py").read_text(encoding="utf-8")

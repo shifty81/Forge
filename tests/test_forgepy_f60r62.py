@@ -12,7 +12,7 @@ from ForgeVaultBootstrap import layout
 
 class ForgePYF60R62Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,'0.4.379-F60R379'); self.assertEqual(BUILD,'FORGEPY-F60R379')
+        self.assertEqual(VERSION,'0.4.389-F60R389'); self.assertEqual(BUILD,'FORGEPY-F60R389')
     def test_gui_keeps_health_rail_permanent_and_rebalances_workspace(self):
         src=(APP/'ForgeGui.py').read_text(encoding='utf-8')
         self.assertIn('workspaceConsoleRatio',src); self.assertIn('Compatibility no-op: F92',src)

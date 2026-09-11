@@ -61,8 +61,8 @@ def make_patch(path: Path, *, patch_id: str = "DEMO-MANUAL-001", build: str = "B
 
 class ForgeF60R11Tests(unittest.TestCase):
     def test_version_authority(self) -> None:
-        self.assertEqual(VERSION, "0.4.379-F60R379")
-        self.assertEqual(BUILD, "FORGEPY-F60R379")
+        self.assertEqual(VERSION, "0.4.389-F60R389")
+        self.assertEqual(BUILD, "FORGEPY-F60R389")
 
     def test_descriptive_manual_patch_can_be_explicitly_queued_without_rename(self) -> None:
         with tempfile.TemporaryDirectory() as td:

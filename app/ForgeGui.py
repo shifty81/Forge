@@ -6,6 +6,7 @@ import json
 import os
 import queue
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -208,6 +209,11 @@ class ForgeGui:
         self._built_app_tabs: set[str] = set()
         self._lazy_app_builders: dict[str, Callable[[Any], None]] = {}
         self._layout_save_after = None
+        self._console_command_catalog: list[tuple[str, str]] = []
+        self._console_suggestion_keys: list[str] = []
+        self._console_history: list[str] = []
+        self._console_history_index = 0
+        self._embedded_action_active = False
 
         bootstrap_trace("GUI_RUNTIME_SERVICES_PASS")
         self._configure_styles()
@@ -314,16 +320,35 @@ class ForgeGui:
             btn.pack(fill="x", padx=5, pady=1)
             self._app_tab_buttons[name] = btn
 
-        self.app_content = tk.Frame(self.main_body, bg=BG)
-        self.app_content.pack(side="left", fill="both", expand=True)
-        for name in ("Projects", "Project Workspace", "Vault", "Source Control", "IDE", "Cortex", "Settings"):
-            self._app_frames[name] = tk.Frame(self.app_content, bg=BG)
-
+        # App-wide operating shell. Every workspace shares the same geometry:
+        # left workspace rail | global quick actions + active workspace | persistent console | health rail.
         rail_px=max(185,min(260,int((load_settings().get("ui") or {}).get("rightRailPixels") or 205)))
         self.health_host = tk.Frame(self.main_body, bg=PANEL, width=rail_px, highlightthickness=1, highlightbackground=BORDER)
         self.health_host.pack(side="right", fill="y")
         self.health_host.pack_propagate(False)
         self._build_project_health_gauge(self.health_host)
+
+        self.center_host = tk.Frame(self.main_body, bg=BG)
+        self.center_host.pack(side="left", fill="both", expand=True)
+        self._build_global_quick_actions(self.center_host)
+
+        self.global_workspace_panes = tk.PanedWindow(
+            self.center_host, orient="horizontal", bg=BG, bd=0, sashwidth=5,
+            sashrelief="flat", showhandle=False, opaqueresize=True,
+        )
+        self.global_workspace_panes.pack(fill="both", expand=True, padx=10, pady=(0, 4))
+
+        self.app_content = tk.Frame(self.global_workspace_panes, bg=BG)
+        for name in ("Projects", "Project Workspace", "Vault", "Source Control", "IDE", "Cortex", "Settings"):
+            self._app_frames[name] = tk.Frame(self.app_content, bg=BG)
+        self.global_workspace_panes.add(self.app_content, minsize=520, width=900, stretch="always")
+
+        self.console_panel = self._panel(self.global_workspace_panes)
+        self._build_global_console(self.console_panel)
+        self.global_workspace_panes.add(self.console_panel, minsize=360, width=500)
+        self.global_workspace_panes.bind("<ButtonRelease-1>", lambda _e: self._persist_global_shell_layout(), add="+")
+        self.window.after(180, self._set_global_shell_sash)
+        self._build_global_statusbar(self.center_host)
 
         self._build_projects_tab(self._app_frames["Projects"])
         self._built_app_tabs.add("Projects")
@@ -340,6 +365,90 @@ class ForgeGui:
         ui = load_settings().get("ui") or {}
         if ui.get("leftRailCollapsed"):
             self.window.after(10, lambda: self._set_app_rail_collapsed(True))
+
+    def _build_global_quick_actions(self, parent: Any) -> None:
+        tk = self.tk
+        quick = self._panel(parent)
+        quick.pack(fill="x", padx=10, pady=(8, 6))
+        row = tk.Frame(quick, bg=PANEL)
+        row.pack(fill="x", padx=12, pady=8)
+        tk.Label(row, text="QUICK ACTIONS", bg=PANEL, fg=CYAN, font=("Segoe UI Semibold", 9)).pack(side="left", padx=(2, 14))
+        self._button(row, "FULL GATE / CERTIFY GREEN", lambda: self._start_command("full"), primary=True, compact=True).pack(side="left", padx=(0, 5))
+        self._button(row, "COMMIT + PUSH", self._commit_push_green, compact=True).pack(side="left", padx=5)
+        self._button(row, "BUILD", lambda: self._start_command("build"), compact=True).pack(side="left", padx=5)
+        self._button(row, "RUN", lambda: self._start_command("launch-gui"), compact=True).pack(side="left", padx=5)
+        self._button(row, "UPDATES", self._apply_updates, compact=True).pack(side="left", padx=5)
+        self._button(row, "DEBUG", lambda: self._start_command("debug-bundle"), compact=True).pack(side="left", padx=5)
+
+    def _build_global_console(self, console: Any) -> None:
+        tk = self.tk
+        bar = tk.Frame(console, bg=PANEL)
+        bar.pack(fill="x", padx=10, pady=(8, 5))
+        tk.Label(bar, text="PROJECT CONSOLE", bg=PANEL, fg=CYAN, font=("Segoe UI Semibold", 9)).pack(side="left")
+        tk.Label(bar, text=GUI_VERSION, bg=PANEL, fg=MUTED, font=("Consolas", 7)).pack(side="left", padx=(7, 0))
+        self.console_job_label = tk.Label(bar, text="Idle", bg=PANEL, fg=MUTED, font=("Segoe UI", 8))
+        self.console_job_label.pack(side="left", padx=(9, 0))
+        self._button(bar, "Copy All", lambda: self._copy_all(self.console_text), compact=True).pack(side="right", padx=(5, 0))
+        self._button(bar, "Copy Sel", lambda: self._copy_selection(self.console_text), compact=True).pack(side="right", padx=(5, 0))
+        self._button(bar, "Clear", self._clear_log, compact=True).pack(side="right", padx=(5, 0))
+        self._button(bar, "Log", self._open_active_log, compact=True).pack(side="right", padx=(5, 0))
+
+        body = tk.Frame(console, bg="#07090b")
+        body.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+        self.console_text = tk.Text(body, bg="#07090b", fg=TEXT, insertbackground=TEXT, selectbackground="#21404a", selectforeground=TEXT, bd=0, relief="flat", font=("Consolas", 9), wrap="word")
+        scroll = tk.Scrollbar(body, command=self.console_text.yview, bg=PANEL)
+        self.console_text.configure(yscrollcommand=scroll.set)
+        self.console_text.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self._configure_log_tags(self.console_text)
+
+        self.console_suggestions = tk.Listbox(console, height=6, bg="#0c1014", fg=TEXT, selectbackground="#21404a", selectforeground=TEXT, bd=0, highlightthickness=1, highlightbackground=BORDER, font=("Consolas", 8), activestyle="none")
+        self.console_suggestions.bind("<Double-Button-1>", self._console_accept_suggestion)
+        self.console_suggestions.bind("<Return>", self._console_accept_suggestion)
+
+        command_row = tk.Frame(console, bg=PANEL_2, highlightthickness=1, highlightbackground=BORDER)
+        command_row.pack(fill="x", padx=8, pady=(0, 8))
+        self.console_command_row = command_row
+        tk.Label(command_row, text=">", bg=PANEL_2, fg=CYAN, font=("Consolas", 11)).pack(side="left", padx=(8, 4))
+        self.console_command_var = tk.StringVar()
+        self.console_command_entry = tk.Entry(command_row, textvariable=self.console_command_var, bg=PANEL_2, fg=TEXT, insertbackground=CYAN, bd=0, relief="flat", font=("Consolas", 9))
+        self.console_command_entry.pack(side="left", fill="x", expand=True, ipady=7)
+        self.console_command_entry.bind("<KeyRelease>", self._console_command_changed)
+        self.console_command_entry.bind("<Return>", self._console_execute_entry)
+        self.console_command_entry.bind("<Tab>", self._console_complete_entry)
+        self.console_command_entry.bind("<Down>", lambda _e: self._console_history_move(1))
+        self.console_command_entry.bind("<Up>", lambda _e: self._console_history_move(-1))
+        self.console_command_entry.bind("<Control-space>", lambda _e: self._console_show_suggestions(force_all=True))
+        self.console_command_entry.bind("<Escape>", lambda _e: self._console_hide_suggestions())
+        self._button(command_row, "Commands", lambda: self._console_show_suggestions(force_all=True), compact=True).pack(side="right", padx=4, pady=3)
+        self._button(command_row, "Run", self._console_execute_entry, primary=True, compact=True).pack(side="right", padx=(4, 3), pady=3)
+        self._refresh_console_command_catalog()
+
+    def _build_global_statusbar(self, parent: Any) -> None:
+        tk = self.tk
+        statusbar = tk.Frame(parent, bg="#07090b", height=25, highlightthickness=1, highlightbackground="#20262d")
+        statusbar.pack(fill="x", side="bottom", padx=10, pady=(0, 5))
+        statusbar.pack_propagate(False)
+        self.footer = tk.Label(statusbar, text="[Status:Loading]", bg="#07090b", fg=CYAN, font=("Consolas", 8), anchor="w")
+        self.footer.pack(fill="both", padx=10)
+
+    def _set_global_shell_sash(self) -> None:
+        panes = getattr(self, "global_workspace_panes", None)
+        if panes is None: return
+        try:
+            panes.update_idletasks(); width=max(760,panes.winfo_width())
+            ratio=max(0.24,min(0.46,float((load_settings().get("ui") or {}).get("globalConsoleRatio") or 0.34)))
+            panes.sash_place(0,max(420,int(width*(1.0-ratio))),0)
+        except Exception: pass
+
+    def _persist_global_shell_layout(self) -> None:
+        panes=getattr(self,"global_workspace_panes",None)
+        if panes is None: return
+        try:
+            width=max(1,panes.winfo_width()); sash=int(panes.sash_coord(0)[0])
+            ratio=max(0.20,min(0.58,(width-sash)/width))
+            set_section("ui", {"globalConsoleRatio":round(ratio,4)})
+        except Exception: pass
 
     def _build_projects_tab(self, parent: Any) -> None:
         tk = self.tk
@@ -409,221 +518,35 @@ class ForgeGui:
 
     def _build_workspace_tab(self, parent: Any) -> None:
         tk = self.tk
-
-        # Quick actions span the entire workspace above all three operational panels.
-        quick = self._panel(parent)
-        quick.pack(fill="x", padx=16, pady=(10, 6))
-        quick_row = tk.Frame(quick, bg=PANEL)
-        quick_row.pack(fill="x", padx=12, pady=9)
-        tk.Label(
-            quick_row,
-            text="QUICK ACTIONS",
-            bg=PANEL,
-            fg=CYAN,
-            font=("Segoe UI Semibold", 9),
-        ).pack(side="left", padx=(2, 14))
-        self._button(
-            quick_row,
-            "FULL GATE / CERTIFY GREEN",
-            lambda: self._start_command("full"),
-            primary=True,
-            compact=True,
-        ).pack(side="left", padx=(0, 6))
-        self._button(
-            quick_row,
-            "COMMIT + PUSH",
-            self._commit_push_green,
-            compact=True,
-        ).pack(side="left", padx=6)
-        self._button(
-            quick_row,
-            "BUILD",
-            lambda: self._start_command("build"),
-            compact=True,
-        ).pack(side="left", padx=6)
-        self._button(
-            quick_row,
-            "RUN",
-            lambda: self._start_command("launch-gui"),
-            compact=True,
-        ).pack(side="left", padx=6)
-        self._button(
-            quick_row,
-            "UPDATES",
-            self._apply_updates,
-            compact=True,
-        ).pack(side="left", padx=6)
-        self._button(
-            quick_row,
-            "DEBUG",
-            lambda: self._start_command("debug-bundle"),
-            compact=True,
-        ).pack(side="left", padx=6)
-
-        # Main Project Workspace is always three columns:
-        #   small operation rail | dynamic command surface | persistent console.
-        panes = tk.PanedWindow(
-            parent,
-            orient="horizontal",
-            bg=BG,
-            bd=0,
-            sashwidth=5,
-            sashrelief="flat",
-            showhandle=False,
-            opaqueresize=True,
-        )
-        panes.pack(fill="both", expand=True, padx=16, pady=(0, 6))
+        panes = tk.PanedWindow(parent, orient="horizontal", bg=BG, bd=0, sashwidth=5, sashrelief="flat", showhandle=False, opaqueresize=True)
+        panes.pack(fill="both", expand=True, padx=6, pady=6)
         self.workspace_panes = panes
 
-        # LEFT: compact navigation authority.
         nav = self._panel(panes)
-        nav.configure(width=158)
-        nav.pack_propagate(False)
-        nav_header = tk.Frame(nav, bg=PANEL)
-        nav_header.pack(fill="x", padx=10, pady=(11, 5))
-        tk.Label(
-            nav_header,
-            text="PROJECT OPERATIONS",
-            bg=PANEL,
-            fg=MUTED,
-            font=("Segoe UI Semibold", 8),
-        ).pack(anchor="w")
+        nav.configure(width=158); nav.pack_propagate(False)
+        nav_header = tk.Frame(nav, bg=PANEL); nav_header.pack(fill="x", padx=10, pady=(11, 5))
+        tk.Label(nav_header, text="PROJECT OPERATIONS", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8)).pack(anchor="w")
+        nav_pages = (("Dashboard","Dashboard"),("Build & Run","Build & Run"),("Updates","Updates"),("Source Control","Source Control"),("Diagnostics","Diagnostics"),("Tooling","Tooling"),("Advanced Commands","Advanced Commands"))
+        for page,label in nav_pages:
+            btn=tk.Button(nav,text=label,anchor="w",command=lambda p=page:self._show_page(p),bg=PANEL,fg=TEXT,activebackground=PANEL_2,activeforeground=CYAN,bd=0,relief="flat",font=("Segoe UI",9),cursor="hand2",padx=12,pady=7)
+            btn.pack(fill="x",padx=3,pady=1); self._nav_buttons[page]=btn
+        tk.Frame(nav,bg=BORDER,height=1).pack(fill="x",padx=10,pady=(10,8))
+        self.operation_label=tk.Label(nav,text="Idle",bg=PANEL,fg=MUTED,font=("Segoe UI",8),wraplength=132,justify="left")
+        self.operation_label.pack(anchor="w",padx=12,pady=(0,5))
+        self.stop_btn=self._button(nav,"Stop Active Job",self._stop_active,compact=True,danger=True); self.stop_btn.configure(state="disabled")
 
-        nav_pages = (
-            ("Dashboard", "Dashboard"),
-            ("Build & Run", "Build & Run"),
-            ("Updates", "Updates"),
-            ("Source Control", "Source Control"),
-            ("Diagnostics", "Diagnostics"),
-            ("Tooling", "Tooling"),
-            ("Advanced Commands", "Advanced Commands"),
-        )
-        for page, label in nav_pages:
-            btn = tk.Button(
-                nav,
-                text=label,
-                anchor="w",
-                command=lambda p=page: self._show_page(p),
-                bg=PANEL,
-                fg=TEXT,
-                activebackground=PANEL_2,
-                activeforeground=CYAN,
-                bd=0,
-                relief="flat",
-                font=("Segoe UI", 9),
-                cursor="hand2",
-                padx=12,
-                pady=7,
-            )
-            btn.pack(fill="x", padx=3, pady=1)
-            self._nav_buttons[page] = btn
-
-        tk.Frame(nav, bg=BORDER, height=1).pack(fill="x", padx=10, pady=(10, 8))
-        self.operation_label = tk.Label(
-            nav,
-            text="Idle",
-            bg=PANEL,
-            fg=MUTED,
-            font=("Segoe UI", 8),
-            wraplength=132,
-            justify="left",
-        )
-        self.operation_label.pack(anchor="w", padx=12, pady=(0, 5))
-        self.stop_btn = self._button(nav, "Stop Active Job", self._stop_active, compact=True, danger=True)
-        # Hidden when idle; it appears only while an operation is actually running.
-        self.stop_btn.configure(state="disabled")
-
-        # MIDDLE: clicking the left rail swaps this dynamic command surface.
-        center = self._panel(panes)
-        self.content = tk.Frame(center, bg=PANEL)
-        self.content.pack(fill="both", expand=True, padx=13, pady=12)
-
-        pages = ("Dashboard", "ForgePY Self", "Build & Run", "Updates", "Source Control", "Diagnostics", "Tooling", "Advanced Commands")
-        scroll_pages = {"Build & Run", "Updates", "Source Control", "Diagnostics", "Tooling"}
+        center=self._panel(panes)
+        self.content=tk.Frame(center,bg=PANEL); self.content.pack(fill="both",expand=True,padx=13,pady=12)
+        pages=("Dashboard","ForgePY Self","Build & Run","Updates","Source Control","Diagnostics","Tooling","Advanced Commands")
+        scroll_pages={"Build & Run","Updates","Source Control","Diagnostics","Tooling"}
         for page in pages:
-            frame = tk.Frame(self.content, bg=PANEL)
-            self._page_frames[page] = frame
-            self._page_bodies[page] = self._make_scrollable_page(frame) if page in scroll_pages else frame
-
-        self._build_dashboard(self._page_bodies["Dashboard"])
-        self._build_forgepy_self_page(self._page_bodies["ForgePY Self"])
-        self._build_build_page(self._page_bodies["Build & Run"])
-        self._build_updates_page(self._page_bodies["Updates"])
-        self._build_source_page(self._page_bodies["Source Control"])
-        self._build_diagnostics_page(self._page_bodies["Diagnostics"])
-        self._build_tooling_page(self._page_bodies["Tooling"])
-        self._build_commands_page(self._page_bodies["Advanced Commands"])
-
-        # RIGHT: persistent console defaults to ~38% of the workspace; center controls get the recovered width.
-        console = self._panel(panes)
-        self.console_panel = console
-        console_bar = tk.Frame(console, bg=PANEL)
-        console_bar.pack(fill="x", padx=10, pady=(8, 5))
-        tk.Label(
-            console_bar,
-            text="PROJECT CONSOLE",
-            bg=PANEL,
-            fg=CYAN,
-            font=("Segoe UI Semibold", 9),
-        ).pack(side="left")
-        tk.Label(
-            console_bar,
-            text=GUI_VERSION,
-            bg=PANEL,
-            fg=MUTED,
-            font=("Consolas", 7),
-        ).pack(side="left", padx=(7, 0))
-        self.console_job_label = tk.Label(
-            console_bar,
-            text="Idle",
-            bg=PANEL,
-            fg=MUTED,
-            font=("Segoe UI", 8),
-        )
-        self.console_job_label.pack(side="left", padx=(9, 0))
-        self._button(console_bar, "Copy All", lambda: self._copy_all(self.console_text), compact=True).pack(side="right", padx=(5, 0))
-        self._button(console_bar, "Copy Sel", lambda: self._copy_selection(self.console_text), compact=True).pack(side="right", padx=(5, 0))
-        self._button(console_bar, "Clear", self._clear_log, compact=True).pack(side="right", padx=(5, 0))
-        self._button(console_bar, "Log", self._open_active_log, compact=True).pack(side="right", padx=(5, 0))
-
-        console_body = tk.Frame(console, bg="#07090b")
-        console_body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        self.console_text = tk.Text(
-            console_body,
-            bg="#07090b",
-            fg=TEXT,
-            insertbackground=TEXT,
-            selectbackground="#21404a",
-            selectforeground=TEXT,
-            bd=0,
-            relief="flat",
-            font=("Consolas", 9),
-            wrap="word",
-        )
-        cscroll = tk.Scrollbar(console_body, command=self.console_text.yview, bg=PANEL)
-        self.console_text.configure(yscrollcommand=cscroll.set)
-        self.console_text.pack(side="left", fill="both", expand=True)
-        cscroll.pack(side="right", fill="y")
-        self._configure_log_tags(self.console_text)
-
-        panes.add(nav, minsize=132, width=150)
-        panes.add(center, minsize=390, width=600)
-        panes.add(console, minsize=390, width=500)
-        self.window.after(160, self._set_workspace_sashes)
-        panes.bind("<ButtonRelease-1>", lambda _e: self._persist_workspace_layout(), add="+")
-
-        statusbar = tk.Frame(parent, bg="#07090b", height=25, highlightthickness=1, highlightbackground="#20262d")
-        statusbar.pack(fill="x", side="bottom")
-        statusbar.pack_propagate(False)
-        self.footer = tk.Label(
-            statusbar,
-            text="[Status:Loading]",
-            bg="#07090b",
-            fg=CYAN,
-            font=("Consolas", 8),
-            anchor="w",
-        )
-        self.footer.pack(fill="both", padx=10)
+            frame=tk.Frame(self.content,bg=PANEL); self._page_frames[page]=frame; self._page_bodies[page]=self._make_scrollable_page(frame) if page in scroll_pages else frame
+        self._build_dashboard(self._page_bodies["Dashboard"]); self._build_forgepy_self_page(self._page_bodies["ForgePY Self"])
+        self._build_build_page(self._page_bodies["Build & Run"]); self._build_updates_page(self._page_bodies["Updates"])
+        self._build_source_page(self._page_bodies["Source Control"]); self._build_diagnostics_page(self._page_bodies["Diagnostics"])
+        self._build_tooling_page(self._page_bodies["Tooling"]); self._build_commands_page(self._page_bodies["Advanced Commands"])
+        panes.add(nav,minsize=132,width=150); panes.add(center,minsize=390,width=760,stretch="always")
+        self.window.after(160,self._set_workspace_sashes); panes.bind("<ButtonRelease-1>",lambda _e:self._persist_workspace_layout(),add="+")
 
     def _build_vault_tab(self, parent: Any) -> None:
         tk = self.tk
@@ -2353,87 +2276,50 @@ class ForgeGui:
             x, y = max(0, (sw - width) // 2), max(0, (sh - height) // 2)
         dialog.geometry(f"{width}x{height}+{x}+{y}")
 
-    def _popup(self, title: str, message: str, *, kind: str = "info", confirm: bool = False, parent: Any | None = None) -> bool:
-        tk = self.tk
-        host = parent or self.window
-        dialog = tk.Toplevel(host)
-        dialog.withdraw()
-        dialog.configure(bg=BG)
-        dialog.overrideredirect(True)
-        dialog.transient(host)
-        try:
-            dialog.attributes("-toolwindow", True)
-            dialog.attributes("-topmost", True)
-        except Exception:
-            pass
-        dialog.resizable(False, False)
-
-        accent = RED if kind == "error" else (YELLOW if kind == "warning" else (GREEN if kind == "success" else CYAN))
-        outer = tk.Frame(dialog, bg=accent, padx=1, pady=1)
-        outer.pack(fill="both", expand=True)
-        shell = tk.Frame(outer, bg=PANEL)
-        shell.pack(fill="both", expand=True)
-        tk.Frame(shell, bg=accent, height=4).pack(fill="x")
-        tk.Label(shell, text=title, bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 13), anchor="w").pack(fill="x", padx=18, pady=(16, 6))
-        tk.Label(shell, text=message, bg=PANEL, fg=MUTED, font=("Segoe UI", 10), anchor="w", justify="left", wraplength=520).pack(fill="both", expand=True, padx=18, pady=(0, 14))
-        result = [False]
-        def close(value: bool) -> None:
-            result[0] = value
+    def _embedded_action_shell(self,title:str,*,kind:str="info",width:int=570)->tuple[Any,Any]:
+        tk=self.tk
+        if getattr(self,"_embedded_action_active",False):
             try:
-                dialog.grab_release()
-            except Exception:
-                pass
-            dialog.destroy()
-        actions = tk.Frame(shell, bg=PANEL)
-        actions.pack(fill="x", padx=16, pady=(0, 16))
+                old=getattr(self,"_embedded_action_overlay",None)
+                if old is not None:old.destroy()
+            except Exception:pass
+        self._embedded_action_active=True; host=getattr(self,"center_host",self.window)
+        overlay=tk.Frame(host,bg="#050607"); overlay.place(x=0,y=0,relwidth=1,relheight=1); overlay.lift()
+        accent=RED if kind=="error" else (YELLOW if kind=="warning" else (GREEN if kind=="success" else CYAN))
+        card=tk.Frame(overlay,bg=accent,padx=1,pady=1,width=width,height=250); card.place(relx=.5,rely=.44,anchor="center"); card.pack_propagate(False)
+        shell=tk.Frame(card,bg=PANEL); shell.pack(fill="both",expand=True); tk.Frame(shell,bg=accent,height=4).pack(fill="x")
+        tk.Label(shell,text=title,bg=PANEL,fg=TEXT,font=("Segoe UI Semibold",13),anchor="w").pack(fill="x",padx=18,pady=(16,6))
+        self._embedded_action_overlay=overlay
+        try:overlay.grab_set()
+        except Exception:pass
+        return overlay,shell
+
+    def _finish_embedded_action(self,overlay:Any)->None:
+        try:overlay.grab_release()
+        except Exception:pass
+        try:overlay.destroy()
+        except Exception:pass
+        self._embedded_action_active=False; self._embedded_action_overlay=None
+
+    def _popup(self,title:str,message:str,*,kind:str="info",confirm:bool=False,parent:Any|None=None)->bool:
+        tk=self.tk; overlay,shell=self._embedded_action_shell(title,kind=kind,width=590)
+        tk.Label(shell,text=message,bg=PANEL,fg=MUTED,font=("Segoe UI",10),anchor="w",justify="left",wraplength=540).pack(fill="both",expand=True,padx=18,pady=(0,14))
+        result=tk.BooleanVar(master=self.window,value=False); done=tk.BooleanVar(master=self.window,value=False)
+        def close(value:bool)->None:result.set(bool(value));self._finish_embedded_action(overlay);done.set(True)
+        actions=tk.Frame(shell,bg=PANEL);actions.pack(fill="x",padx=16,pady=(0,16))
         if confirm:
-            self._button(actions, "Cancel", lambda: close(False), compact=True).pack(side="right", padx=(8, 0))
-            self._button(actions, "Continue", lambda: close(True), primary=True, compact=True).pack(side="right")
-        else:
-            self._button(actions, "OK", lambda: close(True), primary=True, compact=True).pack(side="right")
-        dialog.bind("<Escape>", lambda _e: close(False))
-        dialog.bind("<Return>", lambda _e: close(True))
-        dialog.protocol("WM_DELETE_WINDOW", lambda: close(False))
-        self._center_modal(dialog, 570, 250 if len(message) < 380 else 310)
-        self._round_window(dialog)
-        dialog.deiconify()
-        dialog.lift()
-        dialog.grab_set()
-        dialog.focus_force()
-        host.wait_window(dialog)
-        return bool(result[0])
+            self._button(actions,"Cancel",lambda:close(False),compact=True).pack(side="right",padx=(8,0));self._button(actions,"Continue",lambda:close(True),primary=True,compact=True).pack(side="right")
+        else:self._button(actions,"OK",lambda:close(True),primary=True,compact=True).pack(side="right")
+        shell.bind("<Escape>",lambda _e:close(False));shell.bind("<Return>",lambda _e:close(True));shell.focus_set();self.window.wait_variable(done);return bool(result.get())
 
-
-    def _ask_text(self, title: str, prompt: str, *, initial: str = "") -> str | None:
-        """Forge-owned text prompt that remains owned by the main application."""
-        tk = self.tk
-        dialog = tk.Toplevel(self.window)
-        dialog.withdraw(); dialog.configure(bg=BG); dialog.overrideredirect(True); dialog.transient(self.window)
-        try:
-            dialog.attributes("-toolwindow", True); dialog.attributes("-topmost", True)
-        except Exception:
-            pass
-        outer = tk.Frame(dialog, bg=CYAN, padx=1, pady=1); outer.pack(fill="both", expand=True)
-        shell = tk.Frame(outer, bg=PANEL); shell.pack(fill="both", expand=True)
-        tk.Label(shell, text=title, bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 12), anchor="w").pack(fill="x", padx=18, pady=(16, 7))
-        tk.Label(shell, text=prompt, bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", anchor="w", wraplength=530).pack(fill="x", padx=18, pady=(0, 10))
-        value = tk.StringVar(value=initial)
-        entry = tk.Entry(shell, textvariable=value, bg="#07090b", fg=TEXT, insertbackground=TEXT, relief="flat", bd=0, font=("Consolas", 10))
-        entry.pack(fill="x", padx=18, ipady=8)
-        result: list[str | None] = [None]
-        def close(ok: bool) -> None:
-            result[0] = value.get().strip() if ok and value.get().strip() else None
-            try: dialog.grab_release()
-            except Exception: pass
-            dialog.destroy()
-        actions = tk.Frame(shell, bg=PANEL); actions.pack(fill="x", padx=18, pady=16)
-        self._button(actions, "Cancel", lambda: close(False), compact=True).pack(side="right", padx=(8,0))
-        self._button(actions, "Continue", lambda: close(True), primary=True, compact=True).pack(side="right")
-        dialog.bind("<Escape>", lambda _e: close(False)); dialog.bind("<Return>", lambda _e: close(True)); dialog.protocol("WM_DELETE_WINDOW", lambda: close(False))
-        self._center_modal(dialog, 590, 220); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); entry.focus_force()
-        self.window.wait_window(dialog)
-        return result[0]
-
+    def _ask_text(self,title:str,prompt:str,*,initial:str="")->str|None:
+        tk=self.tk; overlay,shell=self._embedded_action_shell(title,kind="info",width=610)
+        tk.Label(shell,text=prompt,bg=PANEL,fg=MUTED,font=("Segoe UI",9),justify="left",anchor="w",wraplength=555).pack(fill="x",padx=18,pady=(0,10))
+        value=tk.StringVar(master=self.window,value=initial);entry=tk.Entry(shell,textvariable=value,bg="#07090b",fg=TEXT,insertbackground=CYAN,relief="flat",bd=0,font=("Consolas",10));entry.pack(fill="x",padx=18,ipady=8)
+        result=[None];done=tk.BooleanVar(master=self.window,value=False)
+        def close(ok:bool)->None:result[0]=value.get().strip() if ok and value.get().strip() else None;self._finish_embedded_action(overlay);done.set(True)
+        actions=tk.Frame(shell,bg=PANEL);actions.pack(fill="x",padx=18,pady=16);self._button(actions,"Cancel",lambda:close(False),compact=True).pack(side="right",padx=(8,0));self._button(actions,"Continue",lambda:close(True),primary=True,compact=True).pack(side="right")
+        entry.bind("<Escape>",lambda _e:close(False));entry.bind("<Return>",lambda _e:close(True));entry.focus_set();self.window.wait_variable(done);return result[0]
 
     def _section_title(self, parent: Any, title: str, subtitle: str = "") -> None:
         tk = self.tk
@@ -2504,25 +2390,18 @@ class ForgeGui:
             self._status_leds[key] = (led, oval)
 
     def _set_workspace_sashes(self) -> None:
-        panes = getattr(self, "workspace_panes", None)
-        if panes is None: return
+        panes=getattr(self,"workspace_panes",None)
+        if panes is None:return
         try:
-            panes.update_idletasks(); width=max(900,panes.winfo_width())
-            ui=load_settings().get("ui") or {}
-            nav_px=max(132,min(220,int(ui.get("workspaceNavPixels") or 150)))
-            console_ratio=max(0.26,min(0.46,float(ui.get("workspaceConsoleRatio") or 0.32)))
-            second=max(nav_px+390,int(width*(1.0-console_ratio)))
-            panes.sash_place(0,nav_px,0); panes.sash_place(1,second,0)
-        except Exception: pass
+            panes.update_idletasks(); ui=load_settings().get("ui") or {}; _legacy_console_ratio=ui.get("workspaceConsoleRatio")  # compatibility migration input; globalConsoleRatio is authoritative
+            nav_px=max(132,min(220,int(ui.get("workspaceNavPixels") or 150))); panes.sash_place(0,nav_px,0)
+        except Exception:pass
 
     def _persist_workspace_layout(self) -> None:
         panes=getattr(self,"workspace_panes",None)
-        if panes is None: return
-        try:
-            width=max(1,panes.winfo_width()); nav=int(panes.sash_coord(0)[0]); second=int(panes.sash_coord(1)[0])
-            ratio=max(0.20,min(0.70,(width-second)/width))
-            set_section("ui", {"workspaceNavPixels":nav,"workspaceConsoleRatio":round(ratio,4),"workspacePersistLayout":True})
-        except Exception: pass
+        if panes is None:return
+        try:set_section("ui", {"workspaceNavPixels":int(panes.sash_coord(0)[0]),"workspacePersistLayout":True})
+        except Exception:pass
 
     def _action_grid(self, parent: Any, actions: Sequence[tuple[str, Callable[[], None], bool]], *, columns: int = 2) -> Any:
         tk = self.tk
@@ -3036,6 +2915,7 @@ class ForgeGui:
         self._last_status = {}
         self._update_header()
         self._reload_registered_commands()
+        self._refresh_console_command_catalog()
         self._reset_status_cards()
         self._clear_log()
         if hasattr(self, "vault_tree"):
@@ -3316,9 +3196,9 @@ class ForgeGui:
     # ------------------------------------------------------------------
     # Live output / clipboard
     # ------------------------------------------------------------------
-    _SEMANTIC_LOG_RE = re.compile(
-        r"\b(PASS(?:ED)?|FAIL(?:ED|URE)?|WARN(?:ING)?|ERROR)\b",
-        re.IGNORECASE,
+    _LOG_TOKEN_RE = re.compile(
+        r"(?P<semantic>\b(?:PASS(?:ED)?|FAIL(?:ED|URE)?|WARN(?:ING)?|ERROR)\b)"
+        r"|(?P<native>\[(?:FORGEPY|FORGE)\]|\[ProcessHost\]|\bForgePY\b)", re.IGNORECASE,
     )
 
     def _configure_log_tags(self, widget: Any) -> None:
@@ -3328,6 +3208,7 @@ class ForgeGui:
         widget.tag_configure("semantic-pass", foreground=GREEN)
         widget.tag_configure("semantic-warn", foreground=YELLOW)
         widget.tag_configure("semantic-fail", foreground=RED)
+        widget.tag_configure("forgepy-native", foreground=CYAN)
 
     @staticmethod
     def _semantic_log_tag(token: str) -> str:
@@ -3339,16 +3220,13 @@ class ForgeGui:
         return "semantic-fail"
 
     def _insert_semantic_log(self, widget: Any, text: str) -> None:
-        cursor = 0
-        for match in self._SEMANTIC_LOG_RE.finditer(text):
-            start, end = match.span()
-            if start > cursor:
-                widget.insert("end", text[cursor:start])
-            token = text[start:end]
-            widget.insert("end", token, self._semantic_log_tag(token))
-            cursor = end
-        if cursor < len(text):
-            widget.insert("end", text[cursor:])
+        cursor=0
+        for match in self._LOG_TOKEN_RE.finditer(text):
+            start,end=match.span()
+            if start>cursor: widget.insert("end",text[cursor:start])
+            token=text[start:end]; tag=self._semantic_log_tag(token) if match.lastgroup=="semantic" else "forgepy-native"
+            widget.insert("end",token,tag); cursor=end
+        if cursor<len(text): widget.insert("end",text[cursor:])
 
     def _append_log(self, text: str, tag: str = "") -> None:
         # Tk Text redraw/scroll operations are expensive during compiler output. Update
@@ -3389,6 +3267,93 @@ class ForgeGui:
             widget.configure(state="normal")
             widget.delete("1.0", "end")
             widget.configure(state="disabled")
+
+    def _refresh_console_command_catalog(self) -> None:
+        if not hasattr(self,"console_command_entry"):return
+        builtins=[("help","Show ForgePY console help"),("commands","List commands available for the active project"),("clear","Clear the visible console"),("status","Refresh project and health status"),("full","Run Full Gate / certify GREEN"),("build","Run project build"),("run","Launch/run active project"),("test","Run project tests"),("updates","Apply approved updates"),("debug","Create project debug bundle"),("commit-push","Commit GREEN and push"),("stop","Stop active ForgePY job")]
+        rows=list(builtins); seen={k.casefold() for k,_ in rows}
+        for item in self.contract.commands:
+            key=str(item.key or "").strip()
+            if key and key.casefold() not in seen: rows.append((key,str(item.label or item.key))); seen.add(key.casefold())
+        self._console_command_catalog=rows; self._console_suggestion_keys=[]; self._console_history_index=len(self._console_history); self._console_hide_suggestions()
+
+    def _console_command_changed(self,_event:Any=None)->None:self._console_show_suggestions(force_all=False)
+
+    def _console_show_suggestions(self,_event:Any=None,*,force_all:bool=False)->str:
+        box=getattr(self,"console_suggestions",None)
+        if box is None:return "break"
+        raw=str(self.console_command_var.get()).strip(); prefix=(raw.split(maxsplit=1)[0] if raw else "").casefold(); rows=[]
+        for key,label in self._console_command_catalog:
+            k=key.casefold()
+            if force_all or not prefix or k.startswith(prefix) or prefix in k or prefix in label.casefold():rows.append((key,label))
+        rows=rows[:40]; box.delete(0,"end"); self._console_suggestion_keys=[k for k,_ in rows]
+        for key,label in rows:box.insert("end",f"{key:<28} {label}")
+        if rows:
+            box.selection_set(0); box.activate(0)
+            if not box.winfo_ismapped(): box.pack(fill="x",padx=8,pady=(0,4),before=self.console_command_row)
+        else:self._console_hide_suggestions()
+        return "break"
+
+    def _console_hide_suggestions(self)->str:
+        box=getattr(self,"console_suggestions",None)
+        if box is not None:
+            try:box.pack_forget()
+            except Exception:pass
+        return "break"
+
+    def _console_accept_suggestion(self,_event:Any=None)->str:
+        box=getattr(self,"console_suggestions",None); selection=box.curselection() if box is not None else ()
+        if selection:
+            idx=int(selection[0]); current=str(self.console_command_var.get()); parts=current.split(maxsplit=1); suffix=(" "+parts[1]) if len(parts)>1 else ""
+            if 0<=idx<len(self._console_suggestion_keys): self.console_command_var.set(self._console_suggestion_keys[idx]+suffix); self.console_command_entry.icursor("end")
+        self._console_hide_suggestions(); self.console_command_entry.focus_set(); return "break"
+
+    def _console_complete_entry(self,_event:Any=None)->str:
+        raw=str(self.console_command_var.get()).strip(); prefix=(raw.split(maxsplit=1)[0] if raw else "").casefold(); matches=[key for key,_ in self._console_command_catalog if key.casefold().startswith(prefix)]
+        if len(matches)==1:
+            parts=raw.split(maxsplit=1); suffix=(" "+parts[1]) if len(parts)>1 else ""; self.console_command_var.set(matches[0]+suffix); self.console_command_entry.icursor("end"); self._console_hide_suggestions()
+        else:self._console_show_suggestions(force_all=False)
+        return "break"
+
+    def _console_history_move(self,delta:int)->str:
+        if not self._console_history:return "break"
+        self._console_history_index=max(0,min(len(self._console_history),self._console_history_index+int(delta))); value="" if self._console_history_index>=len(self._console_history) else self._console_history[self._console_history_index]
+        self.console_command_var.set(value); self.console_command_entry.icursor("end"); return "break"
+
+    def _console_print_commands(self)->None:
+        self._append_log(f"[FORGEPY] Commands for {self.contract.name}:\n","info")
+        for key,label in self._console_command_catalog:self._append_log(f"  {key:<28} {label}\n","info")
+        self._append_log("[FORGEPY] Enter runs · Tab completes · Ctrl+Space lists commands · Up/Down recalls history.\n","info")
+
+    @staticmethod
+    def _console_unquote_arg(value:str)->str:
+        if len(value)>=2 and value[0]==value[-1] and value[0] in {"'",'"'}:return value[1:-1]
+        return value
+
+    def _console_execute_entry(self,_event:Any=None)->str:
+        raw=str(self.console_command_var.get()).strip() if hasattr(self,"console_command_var") else ""
+        if not raw:self._console_show_suggestions(force_all=True);return "break"
+        try:argv=[self._console_unquote_arg(x) for x in shlex.split(raw,posix=(os.name!="nt"))]
+        except ValueError as exc:self._append_log(f"[FORGEPY] ERROR: command parse failed: {exc}\n","error");return "break"
+        if not argv:return "break"
+        command,extra=argv[0],argv[1:]; self._console_history.append(raw); self._console_history=self._console_history[-100:]; self._console_history_index=len(self._console_history); self.console_command_var.set(""); self._console_hide_suggestions(); self._append_log(f"> {raw}\n","info")
+        key=command.casefold()
+        if key in {"help","commands","?"}:self._console_print_commands()
+        elif key=="clear":self._clear_log()
+        elif key=="status":self._refresh_projects();self._refresh_status_async();self._append_log("[FORGEPY] Status refresh requested.\n","info")
+        elif key=="full":self._start_command("full",extra)
+        elif key=="build":self._start_command("build",extra)
+        elif key in {"run","launch"}:self._start_command("launch-gui",extra)
+        elif key=="test":self._start_command("test",extra)
+        elif key=="updates":self._apply_updates()
+        elif key=="debug":self._start_command("debug-bundle",extra)
+        elif key in {"commit-push","commit+push"}:self._commit_push_green()
+        elif key=="stop":self._stop_active()
+        else:
+            available={str(item.key).casefold():str(item.key) for item in self.contract.commands}; resolved=available.get(key)
+            if resolved:self._start_command(resolved,extra,label=resolved)
+            else:self._append_log(f"[FORGEPY] ERROR: unknown command '{command}'. Type 'commands' to list available commands.\n","error");self._console_show_suggestions(force_all=False)
+        self.console_command_entry.focus_set();return "break"
 
     def _copy_to_clipboard(self, text: str, label: str) -> None:
         self.window.clipboard_clear()
@@ -4582,176 +4547,8 @@ class ForgeGui:
 
 
     def _ask_commit_message(self, *, push: bool) -> str | None:
-        tk = self.tk
-        default, basis = self._green_commit_default()
-        dialog = tk.Toplevel(self.window)
-        dialog.withdraw()
-        dialog.configure(bg=BG)
-        dialog.overrideredirect(True)
-        dialog.transient(self.window)
-        try:
-            dialog.attributes("-toolwindow", True)
-            dialog.attributes("-topmost", True)
-        except Exception:
-            pass
-        dialog.resizable(False, False)
-
-        outer = tk.Frame(dialog, bg=CYAN, padx=1, pady=1)
-        outer.pack(fill="both", expand=True)
-        shell = tk.Frame(outer, bg=PANEL)
-        shell.pack(fill="both", expand=True)
-
-        result: list[str | None] = [None]
-
-        def close(value: str | None) -> None:
-            result[0] = value
-            try:
-                dialog.grab_release()
-            except Exception:
-                pass
-            dialog.destroy()
-
-        titlebar = tk.Frame(shell, bg=PANEL_2, height=44)
-        titlebar.pack(fill="x")
-        titlebar.pack_propagate(False)
-        tk.Label(
-            titlebar,
-            text="COMMIT + PUSH CERTIFIED GREEN" if push else "COMMIT CERTIFIED GREEN",
-            bg=PANEL_2,
-            fg=TEXT,
-            font=("Segoe UI Semibold", 12),
-        ).pack(side="left", padx=16)
-        close_btn = tk.Button(
-            titlebar,
-            text="×",
-            command=lambda: close(None),
-            bg=PANEL_2,
-            fg=MUTED,
-            activebackground=RED,
-            activeforeground=TEXT,
-            bd=0,
-            relief="flat",
-            cursor="hand2",
-            font=("Segoe UI Semibold", 15),
-            width=3,
-        )
-        close_btn.pack(side="right", fill="y")
-
-        header = tk.Frame(shell, bg=PANEL)
-        header.pack(fill="x", padx=18, pady=(14, 8))
-        tk.Label(
-            header,
-            text=f"{self.contract.name}  ·  {basis}",
-            bg=PANEL,
-            fg=GREEN,
-            font=("Segoe UI", 9),
-            wraplength=700,
-            justify="left",
-        ).pack(anchor="w")
-
-        git = self._last_status.get("git") or {}
-        green_state = "MATCH" if git.get("greenMatch") else ("STALE" if git.get("greenMarker") else "NONE")
-        branch = str(git.get("branch") or "unknown")
-        ahead = git.get("ahead")
-        behind = git.get("behind")
-        sync = "unknown" if ahead is None or behind is None else (f"{ahead} ahead / {behind} behind")
-        statebar = tk.Frame(shell, bg=PANEL_2)
-        statebar.pack(fill="x", padx=18, pady=(0, 10))
-        for label, value, color in (
-            ("GREEN", green_state, GREEN if green_state == "MATCH" else YELLOW),
-            ("Branch", branch, TEXT),
-            ("Sync", sync, GREEN if ahead == 0 and behind == 0 else YELLOW),
-        ):
-            cell = tk.Frame(statebar, bg=PANEL_2)
-            cell.pack(side="left", padx=12, pady=7)
-            tk.Label(cell, text=label, bg=PANEL_2, fg=MUTED, font=("Segoe UI", 7)).pack(anchor="w")
-            tk.Label(cell, text=value, bg=PANEL_2, fg=color, font=("Segoe UI Semibold", 9)).pack(anchor="w")
-
-        body = tk.Frame(shell, bg=PANEL)
-        body.pack(fill="both", expand=True, padx=18, pady=(0, 10))
-        tk.Label(body, text="Commit message", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 9)).pack(anchor="w")
-        editor_frame = tk.Frame(body, bg="#07090b", highlightthickness=1, highlightbackground=BORDER)
-        editor_frame.pack(fill="both", expand=True, pady=(6, 0))
-        editor = tk.Text(
-            editor_frame,
-            bg="#07090b",
-            fg=TEXT,
-            insertbackground=TEXT,
-            selectbackground="#21404a",
-            selectforeground=TEXT,
-            bd=0,
-            relief="flat",
-            font=("Consolas", 10),
-            wrap="word",
-            undo=True,
-            height=12,
-        )
-        scroll = tk.Scrollbar(editor_frame, command=editor.yview, bg=PANEL)
-        editor.configure(yscrollcommand=scroll.set)
-        editor.pack(side="left", fill="both", expand=True, padx=(11, 0), pady=10)
-        scroll.pack(side="right", fill="y", padx=(5, 8), pady=8)
-        editor.insert("1.0", default)
-        editor.tag_add("sel", "1.0", "end-1c")
-
-        def accept() -> None:
-            message = editor.get("1.0", "end-1c").strip()
-            if not message:
-                self._popup("Commit Certified GREEN", "Enter a commit message before continuing.", kind="warning", parent=dialog)
-                editor.focus_set()
-                return
-            close(message)
-
-        actions = tk.Frame(shell, bg=PANEL)
-        actions.pack(fill="x", padx=18, pady=(0, 16))
-        tk.Label(actions, text="Esc = Cancel  ·  Ctrl+Enter = Commit", bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(side="left")
-        self._button(actions, "Cancel", lambda: close(None), compact=True).pack(side="right", padx=(8, 0))
-        self._button(
-            actions,
-            "Commit + Push GREEN" if push else "Commit GREEN",
-            accept,
-            primary=True,
-            compact=True,
-        ).pack(side="right")
-
-        dialog.bind("<Escape>", lambda _e: close(None))
-        dialog.bind("<Control-Return>", lambda _e: accept())
-        dialog.protocol("WM_DELETE_WINDOW", lambda: close(None))
-        self._center_modal(dialog, 760, 455)
-        self._round_window(dialog)
-        dialog.deiconify()
-        dialog.lift()
-        dialog.grab_set()
-        editor.focus_force()
-        self.window.wait_window(dialog)
-        return result[0]
-
-    def _registry_root_for_patch_target(self, target: str) -> Path | None:
-        wanted = str(target or "").strip().casefold()
-        if not wanted:
-            return None
-        def forms(value: str) -> set[str]:
-            raw = str(value or "").strip().casefold()
-            out = {raw, re.sub(r"[^a-z0-9]+", "", raw)}
-            stem = re.sub(r"(?:[-_. ](?:main|master|standalone|project|repo|repository|source|src))+$", "", raw).strip("-_. ")
-            out.update({stem, re.sub(r"[^a-z0-9]+", "", stem)})
-            return {x for x in out if x}
-        wanted_forms = forms(wanted)
-        exact: list[Path] = []
-        fuzzy: list[Path] = []
-        for entry in self.registry.entries():
-            aliases = {entry.project_id.casefold(), entry.name.casefold(), entry.root.name.casefold()}
-            if wanted in aliases:
-                exact.append(entry.root.resolve()); continue
-            alias_forms: set[str] = set()
-            for value in aliases:
-                alias_forms.update(forms(value))
-            if wanted_forms & alias_forms:
-                fuzzy.append(entry.root.resolve())
-        exact = list(dict.fromkeys(exact))
-        if len(exact) == 1:
-            return exact[0]
-        fuzzy = list(dict.fromkeys(fuzzy))
-        return fuzzy[0] if not exact and len(fuzzy) == 1 else None
+        default,basis=self._green_commit_default(); action="Commit + Push certified GREEN" if push else "Commit certified GREEN"
+        return self._ask_text(action,f"{self.contract.name} · {basis}\n\nCommit message:",initial=default)
 
     def _open_artifact_central_browser(self) -> None:
         """Browse ForgePY evidence/artifacts by project and category."""

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.389-F60R389 — unified GUI shell + command console
+
+- Normalized every top-level ForgePY workspace around one persistent operating shell: workspace rail, global quick actions, active workspace, persistent project console, and permanent health rail.
+- Added a project-aware console command line with autocomplete, command list, Tab completion, Ctrl+Space suggestions, history, and governed project command execution.
+- Added cyan ForgePY-native console identity while preserving PASS/WARN/FAIL semantic coloring.
+- Converted common confirmation/text prompts and certified GREEN commit entry to embedded in-GUI action cards.
+- Reduced Project Workspace to its project-operation rail + dynamic command surface because console/status are now app-wide.
+
 ## 0.4.379-F60R379 — immutable package/self-update boundary
 
 - Runtime logs, bootstrap traces, artifacts, updates, `.forge`, build output and machine-local settings are no longer distributable patch/package content.

@@ -23,8 +23,8 @@ class ForgeF60R6Tests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(root), *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
 
     def test_version_authority(self):
-        self.assertEqual(VERSION, "0.4.379-F60R379")
-        self.assertEqual(BUILD, "FORGEPY-F60R379")
+        self.assertEqual(VERSION, "0.4.389-F60R389")
+        self.assertEqual(BUILD, "FORGEPY-F60R389")
 
     def test_declared_github_is_available_before_remote_exists(self):
         with tempfile.TemporaryDirectory() as tmp:

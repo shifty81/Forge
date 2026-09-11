@@ -18,8 +18,8 @@ from ForgePYVersion import VERSION, BUILD
 
 class ForgePYF60R63Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, "0.4.379-F60R379")
-        self.assertEqual(BUILD, "FORGEPY-F60R379")
+        self.assertEqual(VERSION, "0.4.389-F60R389")
+        self.assertEqual(BUILD, "FORGEPY-F60R389")
 
     def test_nonpatch_auto_archive_is_off_by_default(self):
         self.assertFalse(defaults()["intake"]["archiveNonPatchArtifacts"])
@@ -39,7 +39,7 @@ class ForgePYF60R63Tests(unittest.TestCase):
             self.assertTrue(any("patch-only" in row["reason"] for row in result["skipped"]))
 
     def test_manual_picker_can_approve_patch_already_moved_by_watcher(self):
-        missing = Path(r"C:\Users\Example\Downloads\ForgePY__20260911__0.4.379-F60R379.patch")
+        missing = Path(r"C:\Users\Example\Downloads\ForgePY__20260911__0.4.389-F60R389.patch")
         item = {
             "intake_id": "candidate-1",
             "original_path": str(missing),

@@ -19,7 +19,7 @@ from ForgeHealthV3 import aggregate
 from ForgeUiMetrics import WorkspaceMetrics
 from ForgeCommandAvailability import matrix
 class F60R367Tests(unittest.TestCase):
-    def test_identity(self):self.assertEqual(VERSION,'0.4.379-F60R379');self.assertEqual(BUILD,'FORGEPY-F60R379')
+    def test_identity(self):self.assertEqual(VERSION,'0.4.389-F60R389');self.assertEqual(BUILD,'FORGEPY-F60R389')
     def test_version_constraints(self):
         self.assertTrue(satisfies('4.2.1','>=4.0,<5'));self.assertFalse(satisfies('3.9','>=4.0'));self.assertTrue(satisfies('4.2.8','~4.2'))
     def test_tool_form_model(self):

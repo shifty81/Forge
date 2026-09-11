@@ -28,8 +28,8 @@ def init_repo(root:Path, text:str):
 
 class F60R378Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,'0.4.379-F60R379')
-        self.assertEqual(BUILD,'FORGEPY-F60R379')
+        self.assertEqual(VERSION,'0.4.389-F60R389')
+        self.assertEqual(BUILD,'FORGEPY-F60R389')
 
     def test_unified_diff_is_not_bound_to_active_project_hint(self):
         with tempfile.TemporaryDirectory() as td:

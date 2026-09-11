@@ -17,8 +17,8 @@ from ForgePYVersion import VERSION, BUILD
 
 class ForgePYF60R23Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, "0.4.379-F60R379")
-        self.assertEqual(BUILD, "FORGEPY-F60R379")
+        self.assertEqual(VERSION, "0.4.389-F60R389")
+        self.assertEqual(BUILD, "FORGEPY-F60R389")
 
     def test_f60r17_drive_catalog_forward_migrates_before_family_index(self):
         with tempfile.TemporaryDirectory() as td:
