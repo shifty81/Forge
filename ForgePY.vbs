@@ -3,7 +3,7 @@ Dim shell, fso, base, app, args, cmd, py
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(WScript.ScriptFullName)
-app = base & "\app\ForgePYStandalone.py"
+app = base & "\app\ForgePYBootstrap.py"
 Function Quote(value)
     Quote = Chr(34) & Replace(value, Chr(34), Chr(34) & Chr(34)) & Chr(34)
 End Function
@@ -30,3 +30,4 @@ For i = 0 To WScript.Arguments.Count - 1
 Next
 cmd = py & " " & Quote(app) & args
 shell.Run cmd, 0, False
+WScript.Quit 0

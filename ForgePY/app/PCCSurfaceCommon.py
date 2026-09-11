@@ -1,0 +1,655 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import hashlib
+from datetime import datetime, timezone
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Iterable, Sequence
+
+from PCCProjectDiscovery import discover_project_contract_data, discovery_summary
+from ForgePYPaths import legacy_registry_paths, registry_path, projects_root
+
+SURFACE_VERSION = "VAULT-SURFACE-0.7"
+
+
+class SurfaceError(RuntimeError):
+    pass
+
+
+def resolve_root(raw: str | os.PathLike[str] | None = None) -> Path:
+    if raw:
+        root = Path(raw).expanduser().resolve()
+    else:
+        root = Path(__file__).resolve().parents[2]
+    if not root.is_dir():
+        raise SurfaceError(f"Project root does not exist: {root}")
+    return root
+
+
+@dataclass(frozen=True)
+class ContractCommand:
+    key: str
+    label: str
+    risk: str = "unknown"
+    program: str = ""
+    args: tuple[str, ...] = ()
+    category: str = ""
+    mutates: bool = False
+    requires_confirmation: bool = False
+
+
+@dataclass(frozen=True)
+class ProjectContract:
+    root: Path
+    project_id: str
+    name: str
+    kind: str
+    commands: tuple[ContractCommand, ...] = field(default_factory=tuple)
+    gate_keys: tuple[str, ...] = field(default_factory=tuple)
+    raw: dict[str, Any] = field(default_factory=dict, compare=False)
+
+    @classmethod
+    def load(cls, root: Path) -> "ProjectContract":
+        root = root.expanduser().resolve()
+        data = discover_project_contract_data(root)
+        project = data.get("project") or {}
+        commands: list[ContractCommand] = []
+        for item in data.get("commands", []) or []:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key", "")).strip()
+            if not key:
+                continue
+            commands.append(
+                ContractCommand(
+                    key=key,
+                    label=str(item.get("label") or key),
+                    risk=str(item.get("risk") or "unknown"),
+                    program=str(item.get("program") or ""),
+                    args=tuple(str(x) for x in (item.get("args") or [])),
+                    category=str(item.get("category") or ""),
+                    mutates=bool(item.get("mutates")),
+                    requires_confirmation=bool(item.get("requiresConfirmation")),
+                )
+            )
+        gate_keys = tuple(
+            str(item.get("key"))
+            for item in (data.get("quality_gates") or [])
+            if isinstance(item, dict) and item.get("key")
+        )
+        return cls(
+            root=root,
+            project_id=str(project.get("id") or root.name).strip(),
+            name=str(project.get("name") or root.name).strip(),
+            kind=str(project.get("kind") or "project").strip(),
+            commands=tuple(commands),
+            gate_keys=gate_keys,
+            raw=data,
+        )
+
+    @property
+    def command_keys(self) -> set[str]:
+        return {item.key for item in self.commands}
+
+
+@dataclass(frozen=True)
+class RegisteredProject:
+    registry_id: str
+    project_id: str
+    name: str
+    kind: str
+    root: Path
+    last_opened_utc: str = ""
+    github_url: str = ""
+
+
+class ProjectRegistry:
+    SCHEMA = "pcc.project_registry.v1"
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or self.default_path()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # One-way compatibility migration: adopt the old standalone PCC registry if
+        # Forge has not created its own registry yet. The legacy file is never deleted.
+        if path is None and not self.path.exists():
+            for legacy in legacy_registry_paths():
+                if legacy.is_file():
+                    try:
+                        shutil.copy2(legacy, self.path)
+                        break
+                    except OSError:
+                        continue
+
+    @staticmethod
+    def default_path() -> Path:
+        # FORGEPY_PROJECT_REGISTRY is canonical; retain older overrides as a
+        # compatibility override for existing project launchers during migration.
+        legacy_override = str(os.environ.get("PCC_PROJECT_REGISTRY") or "").strip()
+        primary_override = str(os.environ.get("FORGEPY_PROJECT_REGISTRY") or os.environ.get("FORGE_PROJECT_REGISTRY") or os.environ.get("VAULT_PROJECT_REGISTRY") or "").strip()
+        if legacy_override and not primary_override:
+            return Path(legacy_override).expanduser().resolve()
+        return registry_path()
+
+    @staticmethod
+    def _registry_id(root: Path) -> str:
+        key = os.path.normcase(str(root.resolve()))
+        return hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+    def passport_path(self, root: Path) -> Path:
+        folder = self.path.parent / "passports"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / f"{self._registry_id(root)}.json"
+
+    def _write_passport(self, root: Path, contract: ProjectContract, *, last_opened_utc: str = "") -> Path:
+        discovery = contract.raw.get("_pccDiscovery") or {}
+        categories = sorted({item.category for item in contract.commands if item.category})
+        try:
+            from ForgeProjectSource import project_github
+            github = project_github(root)
+        except Exception:
+            github = {"remote": "", "cloneUrl": "", "webUrl": ""}
+        payload = {
+            "schema": "FORGE_PROJECT_PASSPORT_V1",
+            "projectId": contract.project_id,
+            "name": contract.name,
+            "kind": contract.kind,
+            "root": str(root),
+            "trustState": "trusted_local",
+            "integrationState": "auto_bound" if contract.commands else "observed",
+            "contractSource": str(discovery.get("source") or "filesystem-scan"),
+            "projectContractRequired": False,
+            "provider": str(discovery.get("provider") or (contract.raw.get("root_control_center") or {}).get("machine_provider") or ""),
+            "capabilities": categories,
+            "commands": [item.key for item in contract.commands],
+            "qualityGates": list(contract.gate_keys),
+            "markers": discovery.get("markers") or {},
+            "sourceControl": {"github": github},
+            "lastOpenedUtc": last_opened_utc,
+            "updatedUtc": datetime.now(timezone.utc).isoformat(),
+        }
+        path = self.passport_path(root)
+        temp = path.with_suffix(path.suffix + ".tmp")
+        temp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+        return path
+
+    def _read(self) -> dict[str, Any]:
+        if not self.path.is_file():
+            return {"schema": self.SCHEMA, "projects": [], "activeProject": ""}
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8-sig"))
+        except Exception as exc:
+            raise SurfaceError(f"Project registry is unreadable: {self.path}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise SurfaceError(f"Project registry root must be an object: {self.path}")
+        data.setdefault("schema", self.SCHEMA)
+        data.setdefault("projects", [])
+        data.setdefault("activeProject", "")
+        return data
+
+    def _write(self, data: dict[str, Any]) -> None:
+        temp = self.path.with_suffix(self.path.suffix + ".tmp")
+        temp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(temp, self.path)
+
+    def entries(self) -> list[RegisteredProject]:
+        data = self._read()
+        rows: list[RegisteredProject] = []
+        for item in data.get("projects", []) or []:
+            if not isinstance(item, dict):
+                continue
+            raw_root = str(item.get("root") or "").strip()
+            if not raw_root:
+                continue
+            root = Path(raw_root).expanduser()
+            # Portable registry fallback: if a project was moved together with the configured
+            # Projects root (for example C: -> D:), resolve its stored relative location.
+            portable = str(item.get("portablePath") or "").strip()
+            if not root.exists() and portable:
+                candidate = projects_root() / Path(portable)
+                if candidate.exists():
+                    root = candidate
+            source_control = item.get("sourceControl") if isinstance(item.get("sourceControl"), dict) else {}
+            github = source_control.get("github") if isinstance(source_control.get("github"), dict) else {}
+            rows.append(RegisteredProject(
+                registry_id=str(item.get("registryId") or self._registry_id(root)),
+                project_id=str(item.get("projectId") or root.name),
+                name=str(item.get("name") or root.name),
+                kind=str(item.get("kind") or "project"),
+                root=root,
+                last_opened_utc=str(item.get("lastOpenedUtc") or ""),
+                github_url=str(github.get("webUrl") or ""),
+            ))
+        rows.sort(key=lambda x: (x.name.lower(), str(x.root).lower()))
+        return rows
+
+    def active_registry_id(self) -> str:
+        return str(self._read().get("activeProject") or "")
+
+    def register(self, root: Path, *, make_active: bool = False) -> RegisteredProject:
+        root = root.expanduser().resolve()
+        contract = ProjectContract.load(root)
+        rid = self._registry_id(root)
+        now = datetime.now(timezone.utc).isoformat()
+        data = self._read()
+        projects = [x for x in (data.get("projects") or []) if isinstance(x, dict)]
+        try:
+            portable_path = root.relative_to(projects_root().resolve()).as_posix()
+        except Exception:
+            portable_path = ""
+        try:
+            from ForgeProjectSource import project_github
+            github = project_github(root)
+        except Exception:
+            github = {"remote": "", "cloneUrl": "", "webUrl": ""}
+        record = {
+            "registryId": rid,
+            "projectId": contract.project_id,
+            "name": contract.name,
+            "kind": contract.kind,
+            "root": str(root),
+            "portablePath": portable_path,
+            "sourceControl": {"github": github},
+            "lastOpenedUtc": now if make_active else "",
+        }
+        found = False
+        for i, item in enumerate(projects):
+            same_portable = bool(portable_path) and str(item.get("portablePath") or "").casefold() == portable_path.casefold()
+            if str(item.get("registryId") or "") == rid or os.path.normcase(str(item.get("root") or "")) == os.path.normcase(str(root)) or same_portable:
+                previous = str(item.get("lastOpenedUtc") or "")
+                # Preserve the stable registry identity when a portable project root moves drives.
+                if same_portable and str(item.get("registryId") or ""):
+                    record["registryId"] = str(item.get("registryId"))
+                    rid = record["registryId"]
+                if not make_active:
+                    record["lastOpenedUtc"] = previous
+                projects[i] = record
+                found = True
+                break
+        if not found:
+            projects.append(record)
+        data["projects"] = projects
+        if make_active:
+            data["activeProject"] = rid
+        self._write(data)
+        self._write_passport(root, contract, last_opened_utc=str(record["lastOpenedUtc"]))
+        return RegisteredProject(rid, contract.project_id, contract.name, contract.kind, root, str(record["lastOpenedUtc"]), str(github.get("webUrl") or ""))
+
+    def touch(self, root: Path) -> RegisteredProject:
+        return self.register(root, make_active=True)
+
+    def relocate(self, old_root: Path, new_root: Path, *, make_active: bool = True) -> RegisteredProject:
+        """Rebind an existing registry identity after a verified portable project migration."""
+        old_root = old_root.expanduser().resolve()
+        new_root = new_root.expanduser().resolve()
+        contract = ProjectContract.load(new_root)
+        data = self._read()
+        projects = [x for x in (data.get("projects") or []) if isinstance(x, dict)]
+        old_rid = self._registry_id(old_root)
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            portable_path = new_root.relative_to(projects_root().resolve()).as_posix()
+        except Exception:
+            portable_path = ""
+        matched_index = None
+        stable_rid = self._registry_id(new_root)
+        previous_opened = ""
+        for i, item in enumerate(projects):
+            item_root = str(item.get("root") or "")
+            if (str(item.get("registryId") or "") == old_rid or
+                    os.path.normcase(item_root) == os.path.normcase(str(old_root))):
+                matched_index = i
+                stable_rid = str(item.get("registryId") or stable_rid)
+                previous_opened = str(item.get("lastOpenedUtc") or "")
+                break
+        try:
+            from ForgeProjectSource import project_github
+            github = project_github(new_root)
+        except Exception:
+            github = {"remote": "", "cloneUrl": "", "webUrl": ""}
+        record = {
+            "registryId": stable_rid,
+            "projectId": contract.project_id,
+            "name": contract.name,
+            "kind": contract.kind,
+            "root": str(new_root),
+            "portablePath": portable_path,
+            "sourceControl": {"github": github},
+            "lastOpenedUtc": now if make_active else previous_opened,
+        }
+        if matched_index is None:
+            projects.append(record)
+        else:
+            projects[matched_index] = record
+        data["projects"] = projects
+        if make_active:
+            data["activeProject"] = stable_rid
+        self._write(data)
+        try:
+            self.passport_path(old_root).unlink(missing_ok=True)
+        except OSError:
+            pass
+        self._write_passport(new_root, contract, last_opened_utc=str(record["lastOpenedUtc"]))
+        return RegisteredProject(stable_rid, contract.project_id, contract.name, contract.kind, new_root, str(record["lastOpenedUtc"]), str(github.get("webUrl") or ""))
+
+    def remove(self, registry_id: str) -> None:
+        data = self._read()
+        removed_root: Path | None = None
+        kept: list[Any] = []
+        for item in (data.get("projects") or []):
+            if isinstance(item, dict) and str(item.get("registryId") or "") == registry_id:
+                raw = str(item.get("root") or "").strip()
+                if raw:
+                    removed_root = Path(raw)
+                continue
+            kept.append(item)
+        data["projects"] = kept
+        if str(data.get("activeProject") or "") == registry_id:
+            data["activeProject"] = ""
+        self._write(data)
+        if removed_root is not None:
+            try:
+                self.passport_path(removed_root).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+class BackendClient:
+    """Thin client for the authoritative project-side PCC provider.
+
+    The operator surfaces do not implement build/Git/update policy themselves. They invoke
+    the existing machine-facing PCC authority and render its results. This keeps GUI, CLI,
+    Cortex and automation on one execution path.
+    """
+
+    def __init__(self, root: Path, contract: ProjectContract | None = None) -> None:
+        self.root = root.expanduser().resolve()
+        self.contract = contract or ProjectContract.load(self.root)
+        self.provider_mode = "python"
+        self.script = self._resolve_provider_script()
+
+    def _resolve_provider_script(self) -> Path:
+        control = self.contract.raw.get("root_control_center") or {}
+        declared = str(control.get("machine_provider") or control.get("python_provider") or "").strip()
+        candidates: list[Path] = []
+        if declared:
+            candidates.append((self.root / declared).resolve())
+        candidates.extend([
+            self.root / "tools" / "control" / "ProjectControlCenter.py",
+            self.root / "tools" / "control" / "CortexPCC.py",
+            self.root / "tools" / "pcc" / "ProjectControlCenter.py",
+        ])
+        for path in candidates:
+            if path.is_file():
+                self.provider_mode = "python"
+                return path
+
+        # Universal auto-adapter: consume the project's existing command contract/root tool
+        # instead of requiring every project to be rewritten to Cortex's Python provider first.
+        if self.contract.commands:
+            bridge = Path(__file__).resolve().parent / "PCCAutoAdapter.py"
+            if bridge.is_file():
+                self.provider_mode = "auto-contract"
+                return bridge
+        summary = discovery_summary(self.root)
+        raise SurfaceError(
+            "Project scan found no executable PCC command authority. "
+            f"source={summary.get('source')}, provider={summary.get('provider') or '<none>'}, "
+            f"commands={summary.get('commands', 0)}"
+        )
+
+    @property
+    def provider_label(self) -> str:
+        if self.provider_mode == "python":
+            try:
+                return str(self.script.relative_to(self.root))
+            except ValueError:
+                return str(self.script)
+        discovery = self.contract.raw.get("_pccDiscovery") or {}
+        source = str(discovery.get("source") or "auto-scan")
+        declared = str(discovery.get("provider") or "").strip()
+        if not declared:
+            control = self.contract.raw.get("root_control_center") or {}
+            declared = str(control.get("discoveredPowerShell") or control.get("launcher") or "project.control.json")
+        return f"Auto adapter ({source}) -> {declared or 'registered commands'}"
+
+    def supports(self, command: str) -> bool:
+        if self.provider_mode == "python":
+            return True
+        from PCCAutoAdapter import ALIASES
+        keys = {item.key.casefold() for item in self.contract.commands}
+        if command.casefold() in keys:
+            return True
+        if command == "status-json":
+            return True
+        if command == "commit-push-green":
+            return "git.commit-green" in keys and "git.push" in keys
+        if command == "patch-apply":
+            # The operation host can use Vault's universal transactional patch engine even
+            # when the selected project has no project-native patch provider.
+            return True
+        return any(alias.casefold() in keys for alias in ALIASES.get(command, ()))
+
+    def _provider_python(self) -> str:
+        """Resolve a console Python for the hidden process host.
+
+        The GUI normally runs under pythonw.exe.  Launching the provider with pythonw and
+        CREATE_NO_WINDOW leaves console-subsystem grandchildren without a console, so Cargo,
+        Git, test helpers or PowerShell may allocate transient consoles of their own.  A
+        hidden console Python gives the whole descendant tree one invisible console to inherit.
+        """
+        exe = Path(sys.executable)
+        if os.name == "nt" and exe.name.casefold() == "pythonw.exe":
+            console = exe.with_name("python.exe")
+            if console.is_file():
+                return str(console)
+        return str(exe)
+
+    def provider_argv(self, command: str, extra: Sequence[str] = ()) -> list[str]:
+        return [self._provider_python(), str(self.script), command, "--root", str(self.root), *map(str, extra)]
+
+    def argv(self, command: str, extra: Sequence[str] = ()) -> list[str]:
+        provider = self.provider_argv(command, extra)
+        # All operator-triggered operations run through the universal host so repository
+        # transport hygiene and hidden-console inheritance are consistent for Cortex,
+        # Subspace, Windstead and future auto-bound projects. Status reads stay side-effect free.
+        if command == "status-json":
+            return provider
+        host = Path(__file__).resolve().parent / "PCCOperationHost.py"
+        if host.is_file():
+            return [
+                self._provider_python(), str(host),
+                "--root", str(self.root),
+                "--operation", command,
+                "--", *provider,
+            ]
+        return provider
+
+    @staticmethod
+    def _embedded_creationflags(*, process_group: bool = False) -> int:
+        """Run project operations without allocating a second visible console window.
+
+        ForgePY's embedded Project Console is the sole operator-facing console surface.
+        stdout/stderr remain piped back into the GUI, while Windows console allocation is
+        suppressed for the operation host and its normal descendants.
+        """
+        if os.name != "nt":
+            return 0
+        flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if process_group:
+            flags |= int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        return flags
+
+    @staticmethod
+    def _quiet_creationflags() -> int:
+        """Never allocate a visible console for short read/status operations."""
+        if os.name != "nt":
+            return 0
+        return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    @staticmethod
+    def _embedded_startupinfo() -> subprocess.STARTUPINFO | None:
+        if os.name != "nt":
+            return None
+        info = subprocess.STARTUPINFO()
+        info.dwFlags |= int(getattr(subprocess, "STARTF_USESHOWWINDOW", 1))
+        info.wShowWindow = int(getattr(subprocess, "SW_HIDE", 0))
+        return info
+
+    def _embedded_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env.pop("CORTEX_PCC_EMBEDDED_NO_CONSOLE", None)
+        env["PCC_EMBEDDED_HIDDEN_CONSOLE"] = "1"
+        control_dir = str(Path(__file__).resolve().parent)
+        current = str(env.get("PYTHONPATH") or "").strip()
+        parts = [part for part in current.split(os.pathsep) if part] if current else []
+        normalized = {os.path.normcase(os.path.abspath(part)) for part in parts}
+        if os.path.normcase(os.path.abspath(control_dir)) not in normalized:
+            parts.insert(0, control_dir)
+        env["PYTHONPATH"] = os.pathsep.join(parts)
+        return env
+
+    def run(self, command: str, extra: Sequence[str] = (), *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            self.argv(command, extra),
+            cwd=str(self.root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+            creationflags=self._quiet_creationflags(),
+            startupinfo=self._embedded_startupinfo(),
+            env=self._embedded_env(),
+        )
+
+    def status(self) -> dict[str, Any]:
+        cp = self.run("status-json", timeout=90)
+        if cp.returncode != 0:
+            detail = (cp.stderr or cp.stdout).strip()
+            raise SurfaceError(f"PCC status failed with exit {cp.returncode}: {detail[-1500:]}")
+        text = cp.stdout.strip().splitlines()
+        if not text:
+            raise SurfaceError("PCC status returned no JSON payload.")
+        try:
+            return json.loads(text[-1])
+        except json.JSONDecodeError as exc:
+            raise SurfaceError(f"PCC status returned invalid JSON: {exc}") from exc
+
+    def popen(self, command: str, extra: Sequence[str] = ()) -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            self.argv(command, extra),
+            cwd=str(self.root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            creationflags=self._embedded_creationflags(process_group=True),
+            startupinfo=self._embedded_startupinfo(),
+            env=self._embedded_env(),
+        )
+
+
+def terminate_process_tree(proc: subprocess.Popen[Any]) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        else:
+            proc.terminate()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def open_path(path: Path) -> None:
+    target = path.resolve()
+    if not target.exists():
+        # Operator shortcuts under artifacts are safe to materialize as directories;
+        # file-like targets fall back to their nearest existing parent.
+        if target.suffix:
+            target = target.parent
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        os.startfile(str(target))  # type: ignore[attr-defined]
+        return
+    opener = shutil.which("xdg-open") or shutil.which("open")
+    if opener:
+        subprocess.Popen([opener, str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def reveal_file(path: Path) -> None:
+    path = path.resolve()
+    if os.name == "nt" and path.exists():
+        subprocess.Popen(["explorer.exe", f"/select,{path}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    open_path(path.parent if path.parent.exists() else path)
+
+
+def latest_debug_bundle(root: Path) -> Path | None:
+    pointer = root / "artifacts" / "debug" / "LATEST_DEBUG_BUNDLE.json"
+    if pointer.is_file():
+        try:
+            data = json.loads(pointer.read_text(encoding="utf-8-sig"))
+            raw = str(data.get("path") or "").strip()
+            if raw:
+                path = Path(raw)
+                if path.exists():
+                    return path
+        except Exception:
+            pass
+    txt = root / "artifacts" / "debug" / "LATEST_DEBUG_BUNDLE.txt"
+    if txt.is_file():
+        for line in txt.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+            if line.startswith("Path="):
+                path = Path(line.split("=", 1)[1].strip())
+                if path.exists():
+                    return path
+    return None
+
+
+def compact_path(path: str | Path, max_chars: int = 92) -> str:
+    value = str(path)
+    if len(value) <= max_chars:
+        return value
+    keep = max(12, (max_chars - 3) // 2)
+    return value[:keep] + "..." + value[-keep:]
+
+
+def status_text(value: Any, *, true_text: str = "Ready", false_text: str = "Missing") -> str:
+    return true_text if bool(value) else false_text
+
+
+def validate_surface(root: Path) -> list[str]:
+    contract = ProjectContract.load(root)
+    backend = BackendClient(root)
+    notes = [
+        f"contract={contract.project_id}:{contract.kind}",
+        f"provider={backend.provider_label}",
+        f"provider_mode={backend.provider_mode}",
+        f"commands={len(contract.commands)}",
+        f"gates={len(contract.gate_keys)}",
+    ]
+    return notes

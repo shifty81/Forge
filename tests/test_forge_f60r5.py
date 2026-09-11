@@ -21,8 +21,8 @@ from VaultIntake import _promote_verified
 
 class ForgeF60R5Tests(unittest.TestCase):
     def test_version_authority(self):
-        self.assertEqual(VERSION, "0.4.45-F60R45")
-        self.assertEqual(BUILD, "FORGEPY-F60R45")
+        self.assertEqual(VERSION, "0.4.377-F60R377")
+        self.assertEqual(BUILD, "FORGEPY-F60R377")
 
     def test_github_url_normalization(self):
         clone, web = normalize_github_repo("shifty81/Havenwild")

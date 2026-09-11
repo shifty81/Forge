@@ -27,7 +27,7 @@ def data_root() -> Path:
     if os.name == "nt":
         d_drive = Path("D:/")
         if d_drive.exists():
-            return d_drive / "ForgePY"
+            return d_drive / "Vault"
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
         return base / "ForgePY"
     base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")

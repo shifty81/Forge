@@ -1,6 +1,6 @@
 # ForgePY
 
-**Current certified development build:** `0.4.45-F60R45` (`FORGEPY-F60R45`)
+**Current certified development build:** `0.4.377-F60R377` (`FORGEPY-F60R377`)
 
 ForgePY is the standalone, local-first universal project operations application. It discovers a project's own CLI/PCC authority and provides the common GUI for build, run, quality gates, logs, updates, GitHub + ForgeGit source control, Artifact Central, Vault storage, diagnostics, and project tooling. Projects remain independently buildable without ForgePY.
 

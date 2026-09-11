@@ -15,8 +15,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from VaultPaths import vault_root
+from ForgeUnifiedDiffPatch import is_unified_diff, validate as validate_unified_diff, apply as apply_unified_diff, synthetic_manifest as unified_manifest
 
-PATCH_ENGINE_VERSION = "FORGE-PATCH-0.4"
+PATCH_ENGINE_VERSION = "FORGE-PATCH-0.5"
 SUPPORTED_SCHEMAS = {
     "vault.patch.v1",
     "forge.patch.v1",
@@ -161,6 +162,8 @@ def _normalize_files(manifest: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def can_apply_transport(path: Path) -> bool:
+    if is_unified_diff(path):
+        return True
     try:
         with zipfile.ZipFile(path, "r") as zf:
             manifest = _read_manifest(zf)
@@ -180,6 +183,12 @@ def can_apply_transport(path: Path) -> bool:
 
 def validate_transport(path: Path, root: Path | None = None) -> dict[str, Any]:
     path = path.expanduser().resolve()
+    if is_unified_diff(path):
+        manifest = unified_manifest(path, root.name if root is not None else "unassigned")
+        if root is None:
+            return {"manifest": manifest, "files": manifest.get("files", []), "sha256": sha256_file(path), "format": "unified-diff"}
+        checked = validate_unified_diff(path, root)
+        return {"manifest": manifest, "files": manifest.get("files", []), "sha256": checked["sha256"], "format": "unified-diff", "verification": checked}
     with zipfile.ZipFile(path, "r") as zf:
         manifest = _read_manifest(zf)
         files = _normalize_files(manifest)
@@ -218,6 +227,8 @@ def _safe_project_name(root: Path, manifest: dict[str, Any]) -> str:
 def apply_transport(path: Path, root: Path) -> dict[str, Any]:
     root = root.expanduser().resolve()
     path = path.expanduser().resolve()
+    if is_unified_diff(path):
+        return apply_unified_diff(path, root)
     checked = validate_transport(path, root)
     manifest = checked["manifest"]
     patch_id = str(manifest.get("patchId") or manifest.get("patch_id") or path.stem).strip()

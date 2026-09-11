@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-SETTINGS_VERSION = "FORGEPY-SETTINGS-0.4.44"
+SETTINGS_VERSION = "FORGEPY-SETTINGS-0.4.367"
 APP_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -63,16 +63,17 @@ def settings_path() -> Path:
 def defaults() -> dict[str, Any]:
     d = _windows_d_drive()
     if d is not None:
-        preferred = d / "ForgePY"
+        preferred = d / "Vault"
+        forgepy_legacy = d / "ForgePY"
         forge_legacy = d / "Forge"
-        vault_legacy = d / "Vault"
-        # Existing Forge/Vault data remains authoritative until the user explicitly migrates it.
+        # D:\Vault is the canonical new-machine storage authority. Existing
+        # ForgePY/Forge homes remain adoptable so upgrades never strand data.
         if preferred.exists():
             home = preferred
+        elif forgepy_legacy.exists():
+            home = forgepy_legacy
         elif forge_legacy.exists():
             home = forge_legacy
-        elif vault_legacy.exists():
-            home = vault_legacy
         else:
             home = preferred
         projects = d / "Projects"
@@ -123,15 +124,27 @@ def defaults() -> dict[str, Any]:
             "startMinimized": False,
             "showTrayNotifications": True,
             "leftRailCollapsed": False,
-            "healthRailCollapsed": False,
             "healthRefreshSeconds": 30,
+            "workspaceNavPixels": 150,
+            "workspaceConsoleRatio": 0.32,
+            "workspacePersistLayout": True,
+            "lazyHeavyTabs": True,
+            "workerThreads": 6,
             "consoleMaxLines": 30000,
             "consoleBatchLines": 64,
             "consoleBatchBytes": 32768,
             "sourceRefreshDebounceMs": 350,
             "performanceTelemetry": True,
+            "startupSelfTest": False,
+            "startupMinimumMs": 420,
+            "rightRailPixels": 205,
+            "adaptiveQuickActions": True,
+            "virtualPageSize": 250,
+            "contentIndexEnabled": False,
+            "performanceTraceLimit": 1000,
         },
         "services": {
+            "systemTray": True,
             "intakeWatcher": True,
             "driveWatcher": False,
             "forgejoAutoStart": False,
@@ -148,7 +161,7 @@ def defaults() -> dict[str, Any]:
             "futureClockToleranceMinutes": 10,
             "requirePackageDate": False,
             "requireBuildIdentityWhenDeclared": True,
-            "archiveNonPatchArtifacts": True,
+            "archiveNonPatchArtifacts": False,
             "maxPatchFiles": 5000,
             "maxPatchUncompressedBytes": 2147483648,
             "maxPatchSingleFileBytes": 536870912,
@@ -208,6 +221,12 @@ def defaults() -> dict[str, Any]:
             "preferredPythonBinary": "",
             "preferredCMakeBinary": "",
             "preferredMSBuildBinary": "",
+            "activateDiscoveredTools": True,
+            "generateMachineAdapters": True,
+            "probeTimeoutSeconds": 4,
+            "executionTimeoutSeconds": 300,
+            "requireConfirmationForMutations": True,
+            "enableUnknownToolProbe": False,
         },
         "security": {
             "strictModernPatches": True,
@@ -216,6 +235,10 @@ def defaults() -> dict[str, Any]:
             "allowUnsignedLocalPatches": True,
             "blenderDisableAutoexec": True,
         },
+        "plugins": {"enabled": True, "allowUnsignedMachineLocal": True, "autoEnable": False},
+        "automation": {"enabled": False, "maxConcurrentJobs": 4, "scheduledExecution": False, "schedulerEnabled": False, "minimumIntervalSeconds": 60},
+        "retention": {"automaticDelete": False, "defaultReviewDays": 30},
+        "release": {"channel": "preview", "allowSelfUpdate": True, "requireSignatureForStable": False},
     }
 
 

@@ -236,7 +236,9 @@ def classify_root(root: Path) -> dict[str, Any]:
         "pendingPatchTransports": sorted(pending_patches),
         "debugResidue": sorted(debug_residue),
         "otherZip": sorted(other_zip),
-        "looseOperationalCount": len(manual) + len(consumed_patches) + len(debug_residue),
+        # Only patch transports are automatic-mutation authority.  Other loose
+        # artifacts are advisory findings and remain exactly where the operator put them.
+        "looseOperationalCount": len(consumed_patches),
         "sourceMutationPerformed": False,
     }
 
@@ -249,26 +251,17 @@ def prepare(root: Path, *, apply: bool = True) -> dict[str, Any]:
     moves: list[MoveRecord] = []
     artifact = _artifact_root(root)
 
-    for name in scan["manualOverwrite"]:
-        path = root / name
-        if path.is_file():
-            moves.extend(_move_with_sidecars(path, artifact / "transports" / "manual-overwrites" / "archived" / session, "manual overwrite transport", apply=apply))
-
+    # Automatic repository hygiene is patch-only.  Manual-overwrite packages,
+    # debug bundles/logs and every other non-patch file are reported but retained.
     for name in scan["consumedPatchTransports"]:
         path = root / name
         if path.is_file():
-            moves.extend(_move_with_sidecars(path, artifact / "patches" / "consumed-transports" / session, "already-applied patch transport", apply=apply))
-
-    for name in scan["debugResidue"]:
-        path = root / name
-        if not path.is_file():
-            continue
-        low = path.name.casefold()
-        if path.suffix.casefold() == ".zip":
-            dest_dir = artifact / "debug" / "legacy-root"
-        else:
-            dest_dir = artifact / "debug" / "legacy-root"
-        moves.append(_move_one(path, dest_dir / path.name, "root debug residue", apply=apply))
+            moves.extend(_move_with_sidecars(
+                path,
+                artifact / "patches" / "consumed-transports" / session,
+                "already-applied patch transport",
+                apply=apply,
+            ))
 
     result = {
         "schema": "pcc.repo_hygiene_result.v1",
@@ -280,7 +273,9 @@ def prepare(root: Path, *, apply: bool = True) -> dict[str, Any]:
         "moved": len(moves),
         "pendingPatchTransports": scan["pendingPatchTransports"],
         "otherZip": scan["otherZip"],
-        "sourceMutationPerformed": False,
+        "retainedManualOverwrite": scan["manualOverwrite"],
+        "retainedDebugResidue": scan["debugResidue"],
+        "sourceMutationPerformed": bool(moves) if apply else False,
         "localGitExcludes": git_excludes,
     }
     if apply:

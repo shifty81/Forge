@@ -24,7 +24,7 @@ class ForgeF60R3Tests(unittest.TestCase):
         sys.path.insert(0, str(ROOT/'app'))
         from ForgeVersion import VERSION, BUILD, PRODUCT
         self.assertEqual(PRODUCT, 'ForgePY')
-        self.assertEqual(VERSION, "0.4.45-F60R45")
-        self.assertEqual(BUILD, "FORGEPY-F60R45")
+        self.assertEqual(VERSION, "0.4.377-F60R377")
+        self.assertEqual(BUILD, "FORGEPY-F60R377")
 
 if __name__=='__main__': unittest.main()

@@ -66,6 +66,7 @@ from ForgePYPaths import configured_scan_roots, data_root as vault_data_root, do
 from ForgePYPatchEngine import restart_marker_path, apply_transport as vault_apply_transport, can_apply_transport as vault_can_apply_transport
 from ForgePYVersion import VERSION as FORGE_VERSION
 from ForgePYSettings import load_settings, save_settings, set_projects_root, set_section, set_vault_home, set_scan_roots, set_artifact_central_root
+from ForgeArtifactIndex import search as artifact_index_search, rebuild as artifact_index_rebuild, db_path as artifact_index_db_path
 from VaultStorage import migrate_home as vault_migrate_home, migrate_project as vault_migrate_project
 from VaultDriveIndex import (scan as vault_drive_scan, list_projects as vault_drive_projects, list_entries as vault_drive_entries, search_entries as vault_drive_search, latest_summary as vault_drive_latest_summary, lineage_groups as vault_drive_lineage_groups, entry_counts as vault_drive_counts)
 from VaultForgejo import server_status as forgejo_server_status
@@ -82,6 +83,16 @@ from ForgeUniversalTooling import capability_matrix as forge_capability_matrix, 
 from ForgePYBrand import apply_window_icon
 from ForgePerformance import record as forge_perf_record, recent as forge_perf_recent, export as forge_perf_export
 from ForgeGit import status as forgegit_status, repository_path as forgegit_repository_path, branches as forgegit_branches
+from ForgeEventBroker import EventBroker
+from ForgeWorkers import ForgeWorkerPool
+from ForgeDriveCensus import run as forge_drive_census
+from ForgeToolScanner import activate as forge_activate_tools
+from ForgeToolRegistry import load as forge_load_tools, run_tool as forge_run_tool
+from ForgeToolAdapters import generate as forge_generate_adapter
+from ForgeToolchainDoctor import inspect as forge_toolchain_inspect, bootstrap_plan as forge_toolchain_plan
+from ForgeRuntimeServices import ForgeRuntimeServices
+from ForgeToolRuntime import execute as forge_tool_execute
+from ForgeBootstrapLog import trace as bootstrap_trace
 
 GUI_VERSION = f"FORGEPY-GUI-{FORGE_VERSION}"
 
@@ -98,7 +109,8 @@ RED = "#ff5d68"
 
 
 class ForgeGui:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, window: Any | None = None) -> None:
+        bootstrap_trace("GUI_INIT_ENTER", root=str(root), shared_window=window is not None)
         import tkinter as tk
         from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -108,21 +120,30 @@ class ForgeGui:
         self.messagebox = messagebox
         self.simpledialog = simpledialog
 
+        bootstrap_trace("GUI_TK_IMPORT_PASS", tk_version=getattr(tk,"TkVersion",None))
         self.registry = ProjectRegistry()
         self.root_path = root.resolve()
+        bootstrap_trace("GUI_REGISTRY_PASS", root=str(self.root_path))
         self._startup_hygiene: dict[str, Any] = {}
         try:
             self._startup_hygiene = repo_hygiene_prepare(self.root_path, apply=True)
         except Exception as exc:
             self._startup_hygiene = {"moved": 0, "error": str(exc)}
+        bootstrap_trace("GUI_HYGIENE_PASS", moved=int(self._startup_hygiene.get("moved",0) or 0), error=str(self._startup_hygiene.get("error") or ""))
         self.contract = ProjectContract.load(self.root_path)
+        bootstrap_trace("GUI_CONTRACT_PASS", project=self.contract.name, kind=self.contract.kind)
         self.backend: BackendClient | None = None
         self.backend_error = ""
         self._bind_project_backend()
+        bootstrap_trace("GUI_BACKEND_BIND_PASS", provider=self.backend.provider_label if self.backend is not None else "", error=self.backend_error)
         self.registry.touch(self.root_path)
+        bootstrap_trace("GUI_REGISTRY_TOUCH_PASS")
 
-        self.window = tk.Tk()
+        bootstrap_trace("GUI_TK_ROOT_CREATE_START")
+        self.window = window if window is not None else tk.Tk()
+        bootstrap_trace("GUI_TK_ROOT_CREATE_PASS")
         apply_window_icon(self.window)
+        bootstrap_trace("GUI_ICON_PASS")
         self.window.title(f"ForgePY — {self.contract.name}")
         self.window.geometry("1280x860")
         self.window.minsize(1040, 720)
@@ -130,8 +151,14 @@ class ForgeGui:
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._event_q: queue.Queue[tuple[str, Any]] = queue.Queue()
+        self._broker = EventBroker()
+        worker_count = int((load_settings().get("ui") or {}).get("workerThreads") or 6)
+        self._runtime = ForgeRuntimeServices(max_workers=worker_count)
+        # Compatibility alias while remaining GUI jobs are migrated to the unified runtime.
+        self._workers = self._runtime.workers
         self._active_proc: subprocess.Popen[str] | None = None
         self._active_command = ""
+        self._runtime_operation_token = ""
         self._last_status: dict[str, Any] = {}
         self._page_frames: dict[str, Any] = {}
         self._page_bodies: dict[str, Any] = {}
@@ -174,10 +201,17 @@ class ForgeGui:
         self._ide_web = None
         self._settings_pages: dict[str, Any] = {}
         self._settings_nav: dict[str, Any] = {}
+        self._built_app_tabs: set[str] = set()
+        self._lazy_app_builders: dict[str, Callable[[Any], None]] = {}
+        self._layout_save_after = None
 
+        bootstrap_trace("GUI_RUNTIME_SERVICES_PASS")
         self._configure_styles()
+        bootstrap_trace("GUI_STYLES_PASS")
         self._build_shell()
+        bootstrap_trace("GUI_SHELL_BUILD_PASS")
         self._refresh_projects()
+        bootstrap_trace("GUI_PROJECT_REFRESH_PASS")
         self._show_page("Dashboard")
         self._show_app_tab("Projects")
         self._append_log(f"[PASS] ForgePY {GUI_VERSION} ACTIVE.\n", "pass")
@@ -189,13 +223,22 @@ class ForgeGui:
             self._append_log(f"[PASS] Startup repository hygiene moved {moved} loose operational artifact(s) out of the repository root.\n", "pass")
         else:
             self._append_log("[PASS] Startup repository hygiene: root transport area clean.\n", "pass")
-        self._refresh_status_async()
+        # Keep __init__ single-threaded through the first stable Tk shell.  All
+        # watchers/status/native services begin only after mainloop has started.
         self.window.after(60, self._drain_events)
-        self._start_intake_watcher()
-        self._start_tray()
-        self._start_configured_services()
-        self._schedule_health_refresh()
+        self.window.after(350, self._refresh_status_async)
+        self.window.after(700, self._start_intake_watcher)
+        self.window.after(2500, self._start_tray)
+        self.window.after(2800, self._start_configured_services)
+        self.window.after(3100, self._schedule_health_refresh)
+        self.window.after(5000, self._start_background_census)
         self.window.bind("<Unmap>", self._on_window_unmap, add="+")
+        try:
+            self.window.deiconify()
+            self.window.lift()
+        except Exception:
+            pass
+        bootstrap_trace("GUI_INIT_COMPLETE")
         if bool((load_settings().get("ui") or {}).get("startMinimized", False)):
             self.window.after(250, self._hide_to_tray)
 
@@ -225,13 +268,13 @@ class ForgeGui:
     def _build_shell(self) -> None:
         tk = self.tk
 
-        header = tk.Frame(self.window, bg=BG, height=82)
-        header.pack(fill="x", padx=20, pady=(10, 4))
+        header = tk.Frame(self.window, bg=BG, height=68)
+        header.pack(fill="x", padx=16, pady=(7, 3))
         header.pack_propagate(False)
 
         title_block = tk.Frame(header, bg=BG)
         title_block.pack(side="left", fill="y")
-        tk.Label(title_block, text="FORGEPY", bg=BG, fg=CYAN, font=("Segoe UI Semibold", 18)).pack(anchor="w")
+        tk.Label(title_block, text="FORGEPY", bg=BG, fg=CYAN, font=("Segoe UI Semibold", 16)).pack(anchor="w")
         self.active_project_label = tk.Label(title_block, text="", bg=BG, fg=MUTED, font=("Segoe UI", 9))
         self.active_project_label.pack(anchor="w", pady=(4, 0))
         self._update_header()
@@ -272,24 +315,27 @@ class ForgeGui:
         for name in ("Projects", "Project Workspace", "Vault", "Source Control", "IDE", "Cortex", "Settings"):
             self._app_frames[name] = tk.Frame(self.app_content, bg=BG)
 
-        self.health_host = tk.Frame(self.main_body, bg=PANEL, width=225, highlightthickness=1, highlightbackground=BORDER)
+        rail_px=max(185,min(260,int((load_settings().get("ui") or {}).get("rightRailPixels") or 205)))
+        self.health_host = tk.Frame(self.main_body, bg=PANEL, width=rail_px, highlightthickness=1, highlightbackground=BORDER)
         self.health_host.pack(side="right", fill="y")
         self.health_host.pack_propagate(False)
         self._build_project_health_gauge(self.health_host)
 
         self._build_projects_tab(self._app_frames["Projects"])
+        self._built_app_tabs.add("Projects")
         self._build_workspace_tab(self._app_frames["Project Workspace"])
-        self._build_vault_tab(self._app_frames["Vault"])
-        self._build_source_control_tab(self._app_frames["Source Control"])
-        self._build_ide_tab(self._app_frames["IDE"])
-        self._build_cortex_tab(self._app_frames["Cortex"])
-        self._build_settings_tab(self._app_frames["Settings"])
+        self._built_app_tabs.add("Project Workspace")
+        self._lazy_app_builders = {
+            "Vault": self._build_vault_tab,
+            "Source Control": self._build_source_control_tab,
+            "IDE": self._build_ide_tab,
+            "Cortex": self._build_cortex_tab,
+            "Settings": self._build_settings_tab,
+        }
 
         ui = load_settings().get("ui") or {}
         if ui.get("leftRailCollapsed"):
             self.window.after(10, lambda: self._set_app_rail_collapsed(True))
-        if ui.get("healthRailCollapsed"):
-            self.window.after(10, lambda: self._set_health_rail_collapsed(True))
 
     def _build_projects_tab(self, parent: Any) -> None:
         tk = self.tk
@@ -381,7 +427,7 @@ class ForgeGui:
         ).pack(side="left", padx=(0, 6))
         self._button(
             quick_row,
-            "COMMIT + PUSH GREEN",
+            "COMMIT + PUSH",
             self._commit_push_green,
             compact=True,
         ).pack(side="left", padx=6)
@@ -399,13 +445,13 @@ class ForgeGui:
         ).pack(side="left", padx=6)
         self._button(
             quick_row,
-            "APPLY UPDATES",
+            "UPDATES",
             self._apply_updates,
             compact=True,
         ).pack(side="left", padx=6)
         self._button(
             quick_row,
-            "DEBUG BUNDLE",
+            "DEBUG",
             lambda: self._start_command("debug-bundle"),
             compact=True,
         ).pack(side="left", padx=6)
@@ -504,7 +550,7 @@ class ForgeGui:
         self._build_tooling_page(self._page_bodies["Tooling"])
         self._build_commands_page(self._page_bodies["Advanced Commands"])
 
-        # RIGHT: persistent console takes almost half the application by default.
+        # RIGHT: persistent console defaults to ~38% of the workspace; center controls get the recovered width.
         console = self._panel(panes)
         self.console_panel = console
         console_bar = tk.Frame(console, bg=PANEL)
@@ -556,10 +602,11 @@ class ForgeGui:
         cscroll.pack(side="right", fill="y")
         self._configure_log_tags(self.console_text)
 
-        panes.add(nav, minsize=138, width=158)
-        panes.add(center, minsize=330, width=430)
-        panes.add(console, minsize=460, width=610)
+        panes.add(nav, minsize=132, width=150)
+        panes.add(center, minsize=390, width=600)
+        panes.add(console, minsize=390, width=500)
         self.window.after(160, self._set_workspace_sashes)
+        panes.bind("<ButtonRelease-1>", lambda _e: self._persist_workspace_layout(), add="+")
 
         statusbar = tk.Frame(parent, bg="#07090b", height=25, highlightthickness=1, highlightbackground="#20262d")
         statusbar.pack(fill="x", side="bottom")
@@ -914,8 +961,8 @@ class ForgeGui:
         header.pack(fill="x", padx=10, pady=(9, 3))
         self.health_title = tk.Label(header, text="FORGEPY HEALTH", bg=PANEL, fg=MUTED, font=("Segoe UI Semibold", 8), anchor="w")
         self.health_title.pack(side="left", fill="x", expand=True)
-        self.health_collapse_btn = tk.Button(header, text="›", command=self._toggle_health_rail, bg=PANEL, fg=CYAN, activebackground=PANEL_2, activeforeground=CYAN, bd=0, relief="flat", font=("Segoe UI Semibold", 13), cursor="hand2")
-        self.health_collapse_btn.pack(side="right")
+        # The project-context rail is persistent application chrome. Individual
+        # sections may evolve, but the rail itself is never hidden.
 
         self.health_expanded = tk.Frame(parent, bg=PANEL)
         self.health_expanded.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -960,7 +1007,6 @@ class ForgeGui:
         )
         self.right_context_label.pack(fill="x", padx=2, pady=(4, 0))
 
-        self.health_collapsed_btn = tk.Button(parent, text="H\nE\nA\nL\nT\nH", command=self._toggle_health_rail, bg=PANEL, fg=CYAN, activebackground=PANEL_2, activeforeground=CYAN, bd=0, relief="flat", font=("Segoe UI Semibold", 8), cursor="hand2", padx=4)
 
     def _render_health_gauge(self, health: Any) -> None:
         if not hasattr(self, "health_canvas"):
@@ -1024,29 +1070,17 @@ class ForgeGui:
         self._set_app_rail_collapsed(not self._app_rail_collapsed)
 
     def _set_health_rail_collapsed(self, collapsed: bool) -> None:
-        self._health_rail_collapsed = bool(collapsed)
-        if collapsed:
-            self.health_expanded.pack_forget()
-            for child in (self.health_title, self.health_collapse_btn):
-                try: child.pack_forget()
-                except Exception: pass
-            try: self.health_host.configure(width=30)
-            except Exception: pass
-            self.health_collapsed_btn.pack(fill="both", expand=True)
-        else:
-            self.health_collapsed_btn.pack_forget()
-            try: self.health_host.configure(width=225)
-            except Exception: pass
-            self.health_title.pack(side="left", fill="x", expand=True)
-            self.health_collapse_btn.pack(side="right")
-            self.health_expanded.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        # Compatibility no-op: F92 made the right project-context rail permanent.
+        self._health_rail_collapsed = False
         try:
-            set_section("ui", {"healthRailCollapsed": bool(collapsed)})
+            self.health_host.configure(width=225)
+            if not self.health_expanded.winfo_manager():
+                self.health_expanded.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         except Exception:
             pass
 
     def _toggle_health_rail(self) -> None:
-        self._set_health_rail_collapsed(not self._health_rail_collapsed)
+        self._set_health_rail_collapsed(False)
 
     def _build_ide_tab(self, parent: Any) -> None:
         tk, ttk = self.tk, self.ttk
@@ -1191,7 +1225,7 @@ class ForgeGui:
         self._setting_entry(p,"vaultHome","ForgePY Home",str(cfg.get("vaultHome") or "")); self._setting_entry(p,"projectsRoot","Projects Root",str(cfg.get("projectsRoot") or "")); self._setting_entry(p,"artifactCentralRoot","Artifact Central",str(cfg.get("artifactCentralRoot") or "")); self._setting_entry(p,"scanRoots","Scan Roots",";".join(str(x) for x in cfg.get("scanRoots") or []),"Semicolon-separated roots; D:\\ is supported.")
 
         p=self._settings_panel("Intake & Artifacts","Package Verification / Classification")
-        self._setting_check(p,"intake.watchDownloads","Watch Downloads",bool(intake.get("watchDownloads",True))); self._setting_check(p,"intake.watchProjectRoot","Watch active project/root transport area",bool(intake.get("watchProjectRoot",True))); self._setting_check(p,"intake.requirePackageDate","Require package creation date",bool(intake.get("requirePackageDate",False)),"Legacy packages can remain compatible while new Vault patches are date-stamped."); self._setting_check(p,"intake.archiveNonPatchArtifacts","Archive recognized non-patch artifacts",bool(intake.get("archiveNonPatchArtifacts",True)))
+        self._setting_check(p,"intake.watchDownloads","Watch Downloads",bool(intake.get("watchDownloads",True))); self._setting_check(p,"intake.watchProjectRoot","Watch active project/root transport area",bool(intake.get("watchProjectRoot",True))); self._setting_check(p,"intake.requirePackageDate","Require package creation date",bool(intake.get("requirePackageDate",False)),"Legacy packages can remain compatible while new Vault patches are date-stamped.")
         self._setting_entry(p,"intake.packageClockToleranceHours","ZIP/package clock tolerance (hours)",str(intake.get("packageClockToleranceHours",48))); self._setting_entry(p,"intake.futureClockToleranceMinutes","Future clock tolerance (minutes)",str(intake.get("futureClockToleranceMinutes",10)))
         self._command_category_list(self._settings_pages["Intake & Artifacts"],"Artifact Central",(("Open Artifact Central","Open the durable per-project evidence and artifact hierarchy.",lambda:open_path(artifact_central_root()),True),("Open Active Project Artifacts","Open the selected project's Artifact Central folder.",lambda:open_path(ensure_artifact_project_tree(self.contract.project_id)["root"]),False)))
 
@@ -1221,7 +1255,7 @@ class ForgeGui:
         self._setting_check(p,"security.strictModernPatches","Strict modern ForgePY patches",bool(security.get("strictModernPatches",True)),"Modern ForgePY packages must carry canonical IDs, package time and build binding."); self._setting_entry(p,"security.legacyPatchPolicy","Legacy patch policy",str(security.get("legacyPatchPolicy") or "review"),"Recommended: review. Legacy unbound packages are retained but not auto-applied."); self._setting_check(p,"security.requireModernBuildBinding","Require build binding for modern patches",bool(security.get("requireModernBuildBinding",True))); self._setting_check(p,"security.blenderDisableAutoexec","Disable Blender autoexec for CLI jobs",bool(security.get("blenderDisableAutoexec",True)))
 
         p=self._settings_panel("Interface","Window / Rails / Tray")
-        self._setting_check(p,"ui.closeToTray","Close button hides ForgePY to tray",bool(ui.get("closeToTray",True))); self._setting_check(p,"ui.minimizeToTray","Minimize hides ForgePY to tray",bool(ui.get("minimizeToTray",True))); self._setting_check(p,"ui.startMinimized","Start minimized to tray",bool(ui.get("startMinimized",False))); self._setting_check(p,"ui.showTrayNotifications","System tray notifications",bool(ui.get("showTrayNotifications",True))); self._setting_check(p,"ui.leftRailCollapsed","Collapse workspace rail",bool(ui.get("leftRailCollapsed",False))); self._setting_check(p,"ui.healthRailCollapsed","Collapse health rail",bool(ui.get("healthRailCollapsed",False)))
+        self._setting_check(p,"ui.closeToTray","Close button hides ForgePY to tray",bool(ui.get("closeToTray",True))); self._setting_check(p,"ui.minimizeToTray","Minimize hides ForgePY to tray",bool(ui.get("minimizeToTray",True))); self._setting_check(p,"ui.startMinimized","Start minimized to tray",bool(ui.get("startMinimized",False))); self._setting_check(p,"ui.showTrayNotifications","System tray notifications",bool(ui.get("showTrayNotifications",True))); self._setting_check(p,"ui.leftRailCollapsed","Collapse workspace rail",bool(ui.get("leftRailCollapsed",False)))
         for name,page in self._settings_pages.items():
             actions=self.tk.Frame(page,bg=BG); actions.pack(fill="x",side="bottom",pady=(8,0)); self._button(actions,"Save Settings",self._settings_save,primary=True,compact=True).pack(side="right")
 
@@ -1261,7 +1295,7 @@ class ForgeGui:
         data["vaultHome"]=value("vaultHome"); data["projectsRoot"]=value("projectsRoot"); data["artifactCentralRoot"]=value("artifactCentralRoot"); data["scanRoots"]=[x.strip() for x in str(value("scanRoots")).split(";") if x.strip()]
         try: path=save_settings(data)
         except Exception as exc: self._popup("ForgePY Settings",str(exc),kind="error"); return
-        self._set_app_rail_collapsed(bool(data["ui"].get("leftRailCollapsed"))); self._set_health_rail_collapsed(bool(data["ui"].get("healthRailCollapsed"))); self._refresh_location_labels(); self._popup("ForgePY Settings",f"Settings saved.\n\n{path}\n\nSome service/component changes take effect after restart.",kind="success")
+        self._set_app_rail_collapsed(bool(data["ui"].get("leftRailCollapsed"))); self._refresh_location_labels(); self._popup("ForgePY Settings",f"Settings saved.\n\n{path}\n\nSome service/component changes take effect after restart.",kind="success")
 
     @staticmethod
     def _human_bytes(value: int) -> str:
@@ -2362,10 +2396,6 @@ class ForgeGui:
         dialog.lift()
         dialog.grab_set()
         dialog.focus_force()
-        try:
-            dialog.after(180, lambda d=dialog: d.winfo_exists() and d.attributes("-topmost", False))
-        except Exception:
-            pass
         host.wait_window(dialog)
         return bool(result[0])
 
@@ -2397,8 +2427,6 @@ class ForgeGui:
         self._button(actions, "Continue", lambda: close(True), primary=True, compact=True).pack(side="right")
         dialog.bind("<Escape>", lambda _e: close(False)); dialog.bind("<Return>", lambda _e: close(True)); dialog.protocol("WM_DELETE_WINDOW", lambda: close(False))
         self._center_modal(dialog, 590, 220); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); entry.focus_force()
-        try: dialog.after(180, lambda d=dialog: d.winfo_exists() and d.attributes("-topmost", False))
-        except Exception: pass
         self.window.wait_window(dialog)
         return result[0]
 
@@ -2473,16 +2501,24 @@ class ForgeGui:
 
     def _set_workspace_sashes(self) -> None:
         panes = getattr(self, "workspace_panes", None)
-        if panes is None:
-            return
+        if panes is None: return
         try:
-            panes.update_idletasks()
-            width = max(900, panes.winfo_width())
-            # left ~13%, middle to ~52%, console gets the remaining ~48%.
-            panes.sash_place(0, max(145, int(width * 0.13)), 0)
-            panes.sash_place(1, max(500, int(width * 0.52)), 0)
-        except Exception:
-            pass
+            panes.update_idletasks(); width=max(900,panes.winfo_width())
+            ui=load_settings().get("ui") or {}
+            nav_px=max(132,min(220,int(ui.get("workspaceNavPixels") or 150)))
+            console_ratio=max(0.26,min(0.46,float(ui.get("workspaceConsoleRatio") or 0.32)))
+            second=max(nav_px+390,int(width*(1.0-console_ratio)))
+            panes.sash_place(0,nav_px,0); panes.sash_place(1,second,0)
+        except Exception: pass
+
+    def _persist_workspace_layout(self) -> None:
+        panes=getattr(self,"workspace_panes",None)
+        if panes is None: return
+        try:
+            width=max(1,panes.winfo_width()); nav=int(panes.sash_coord(0)[0]); second=int(panes.sash_coord(1)[0])
+            ratio=max(0.20,min(0.70,(width-second)/width))
+            set_section("ui", {"workspaceNavPixels":nav,"workspaceConsoleRatio":round(ratio,4),"workspacePersistLayout":True})
+        except Exception: pass
 
     def _action_grid(self, parent: Any, actions: Sequence[tuple[str, Callable[[], None], bool]], *, columns: int = 2) -> Any:
         tk = self.tk
@@ -2520,11 +2556,11 @@ class ForgeGui:
             row = tk.Frame(body, bg=PANEL)
             row.pack(fill="x", padx=2, pady=2)
             btn = self._button(row, label, command, primary=primary, compact=True)
-            btn.configure(anchor="w", justify="left", width=20)
+            btn.configure(anchor="w", justify="left", width=18)
             btn.pack(side="left", padx=(0, 9), pady=2)
             tk.Label(
                 row, text=description, bg=PANEL, fg=MUTED, font=("Segoe UI", 8),
-                anchor="w", justify="left", wraplength=215,
+                anchor="w", justify="left", wraplength=245,
             ).pack(side="left", fill="x", expand=True, pady=3)
         return panel
 
@@ -2687,7 +2723,10 @@ class ForgeGui:
         tk = self.tk
         self._section_title(parent, "Tooling", "Project-declared and discovered CLI/script tooling, including Blender automation, build systems and validators.")
         self._command_category_list(parent, "Project Tool Inventory", (
-            ("Audit Project Tools", "Read declared tool registries and scan active scripts by domain without executing them.", self._tooling_audit, True),
+            ("Activate Project Tools", "Classify discovered project tooling, resolve interpreters, register executable capabilities and generate a machine-local adapter.", self._tooling_activate_project, True),
+            ("Toolchain Doctor", "Show which external runtimes are ready or blocking activated project tools.", self._tooling_doctor, False),
+            ("Run Selected Tool", "Execute the selected READY/VERIFIED tool through the ForgePY execution host and stream output to Project Console.", self._tooling_run_selected, False),
+            ("Audit Project Tools", "Read declared tool registries and scan active scripts by domain without executing them.", self._tooling_audit, False),
             ("Audit All Projects", "Build Forge's global script/tool index across every registered project, including Blender automation.", self._tooling_audit_all, False),
             ("Capability Matrix", "Show which registered projects expose Build, Gate, Test and Run through native or universal adapters.", self._tooling_capability_matrix, False),
             ("Build All Registered", "Sequentially build every registered project that exposes a build operation; project-native providers stay authoritative.", self._tooling_build_all, False),
@@ -2699,12 +2738,64 @@ class ForgeGui:
             ("Run Blender Script", "Run a selected project Python tool in Blender background mode with blend-file autoexec disabled.", self._tooling_run_blender_script, False),
             ("Open Blender Tools", "Open the project's Blender tooling folder when one exists.", self._tooling_open_blender, False),
         ))
-        panel = self._panel(parent, "Inventory Summary")
+        panel = self._panel(parent, "Activated Tool Registry")
         panel.pack(fill="both", expand=True)
-        self.tooling_text = tk.Text(panel, bg="#07090b", fg=TEXT, insertbackground=TEXT, bd=0, relief="flat", font=("Consolas", 8), wrap="word", height=10)
-        self.tooling_text.pack(fill="both", expand=True, padx=9, pady=(0, 9))
-        self.tooling_text.insert("1.0", "Run Audit Project Tools to catalog scripts, domains and CLI availability.\n")
+        tool_split = tk.PanedWindow(panel, orient="vertical", bg=PANEL, sashwidth=4, bd=0)
+        tool_split.pack(fill="both", expand=True, padx=8, pady=(0,8))
+        tree_host=tk.Frame(tool_split,bg=PANEL); text_host=tk.Frame(tool_split,bg=PANEL)
+        tool_split.add(tree_host,minsize=150,stretch="always"); tool_split.add(text_host,minsize=110,stretch="always")
+        self.tooling_tree = self.ttk.Treeview(tree_host, columns=("capability","state","scope"), show="headings", selectmode="browse")
+        for key,title,width in (("capability","Capability",220),("state","State",90),("scope","Scope",90)):
+            self.tooling_tree.heading(key,text=title); self.tooling_tree.column(key,width=width,anchor="w")
+        ts=tk.Scrollbar(tree_host,command=self.tooling_tree.yview,bg=PANEL); self.tooling_tree.configure(yscrollcommand=ts.set)
+        self.tooling_tree.pack(side="left",fill="both",expand=True); ts.pack(side="right",fill="y")
+        self.tooling_text = tk.Text(text_host, bg="#07090b", fg=TEXT, insertbackground=TEXT, bd=0, relief="flat", font=("Consolas", 8), wrap="word", height=8)
+        self.tooling_text.pack(fill="both", expand=True)
+        self.tooling_text.insert("1.0", "Activate Project Tools to turn discovered scripts/commands into executable ForgePY capabilities.\n")
         self.tooling_text.configure(state="disabled")
+        self._tooling_refresh_registry()
+
+    def _tooling_refresh_registry(self) -> None:
+        if not hasattr(self, "tooling_tree"): return
+        self.tooling_tree.delete(*self.tooling_tree.get_children())
+        self._tooling_specs = forge_load_tools(self.contract.project_id)
+        for index,tool in enumerate(self._tooling_specs):
+            self.tooling_tree.insert("","end",iid=f"tool:{index}",values=(tool.capability,tool.state,tool.scope),text=tool.name)
+
+    def _tooling_activate_project(self) -> None:
+        root=self.root_path; pid=self.contract.project_id
+        self._tooling_set_text("Activating discovered project tooling…")
+        def work():
+            result=forge_activate_tools(root,pid); adapter=forge_generate_adapter(pid,root)
+            return {"result":result,"adapter":str(adapter)}
+        future=self._workers.submit(f"tool-activate:{pid}",work)
+        def done(_f):
+            try: payload=_f.result(); self._event_q.put(("tooling-activated",payload))
+            except Exception as exc: self._event_q.put(("tooling-audit-error",(root,str(exc))))
+        future.add_done_callback(done)
+
+    def _tooling_doctor(self) -> None:
+        info=forge_toolchain_inspect(); lines=["FORGEPY TOOLCHAIN DOCTOR",""]
+        for row in info["rows"]:
+            lines.append(f"{'READY' if row['ready'] else 'MISSING':<8} {row['tool']:<10} {row['path'] or row['wingetId'] or ''}")
+        plan=forge_toolchain_plan()
+        if plan:
+            lines.extend(["","Approved-install candidates (not run automatically):"]+[f"  {x['tool']}: {x['command']}" for x in plan])
+        self._tooling_set_text("\n".join(lines)+"\n")
+
+    def _tooling_run_selected(self) -> None:
+        if not hasattr(self,"tooling_tree"): return
+        selected=self.tooling_tree.selection()
+        if not selected:
+            self._popup("Tool Registry","Select an activated tool first.",kind="warning"); return
+        index=int(selected[0].split(":",1)[1]); tools=getattr(self,"_tooling_specs",[])
+        if index>=len(tools): return
+        tool=tools[index]
+        if tool.mutates and not self._popup("Run Project Tool",f"{tool.name} may modify project state.\n\nCapability: {tool.capability}\n\nContinue?",kind="warning",confirm=True): return
+        self._append_log(f"\n=== TOOL {tool.name} [{tool.capability}] ===\n","info")
+        def work(): return forge_tool_execute(tool,emit=lambda line:self._event_q.put(("universal-build-log",line)))
+        future=self._workers.submit(f"tool-run:{tool.tool_id}",work)
+        future.add_done_callback(lambda f:self._event_q.put(("tooling-run-done",(tool.name, None if f.exception() else f.result(), str(f.exception() or '')))))
 
     def _tooling_set_text(self, text: str) -> None:
         if not hasattr(self, "tooling_text"):
@@ -2717,21 +2808,16 @@ class ForgeGui:
     def _tooling_audit(self) -> None:
         root = self.root_path
         self._tooling_set_text("Auditing project tooling…")
-        def work() -> None:
-            try:
-                result = audit_project_tooling(root)
-                self._event_q.put(("tooling-audit-done", (root, result)))
-            except Exception as exc:
-                self._event_q.put(("tooling-audit-error", (root, str(exc))))
-        threading.Thread(target=work, daemon=True, name="VaultToolingAudit").start()
+        def work():
+            return audit_project_tooling(root)
+        future=self._runtime.submit(self.contract.project_id,"tooling-audit",work)
+        future.add_done_callback(lambda f:self._event_q.put(("tooling-audit-error",(root,str(f.exception()))) if f.exception() else ("tooling-audit-done",(root,f.result()))))
 
 
     def _tooling_audit_all(self) -> None:
         self._tooling_set_text("Auditing tooling across all registered projects…")
-        def work() -> None:
-            try: self._event_q.put(("tooling-all-done", audit_registered_tooling()))
-            except Exception as exc: self._event_q.put(("tooling-all-error", str(exc)))
-        threading.Thread(target=work, daemon=True, name="VaultGlobalToolingAudit").start()
+        future=self._runtime.submit(self.contract.project_id,"tooling-audit-all",audit_registered_tooling)
+        future.add_done_callback(lambda f:self._event_q.put(("tooling-all-error",str(f.exception())) if f.exception() else ("tooling-all-done",f.result())))
 
     def _tooling_capability_matrix(self) -> None:
         try:
@@ -2874,6 +2960,11 @@ class ForgeGui:
     # ------------------------------------------------------------------
 
     def _show_app_tab(self, name: str) -> None:
+        if name not in self._built_app_tabs and name in self._lazy_app_builders:
+            started = time.perf_counter()
+            self._lazy_app_builders[name](self._app_frames[name])
+            self._built_app_tabs.add(name)
+            forge_perf_record(f"lazy-tab:{name}", (time.perf_counter()-started)*1000.0, 120.0)
         self._current_app_tab = name
         for key, frame in self._app_frames.items():
             frame.pack_forget()
@@ -3045,6 +3136,7 @@ class ForgeGui:
             self.projects_tree.selection_set(current_id)
             self.projects_tree.focus(current_id)
             self._project_selection_changed()
+        forge_perf_record("projects.refresh", (time.perf_counter() - perf_started) * 1000.0, 100.0, {"fullRescan": bool(full_rescan), "projects": len(entries)})
 
     def _refresh_project_health_async(self, entries: Sequence[RegisteredProject]) -> None:
         self._project_health_generation += 1
@@ -3070,8 +3162,6 @@ class ForgeGui:
         if not sel:
             return None
         return self._project_entries_by_id.get(sel[0])
-
-        forge_perf_record("projects.refresh", (time.perf_counter() - perf_started) * 1000.0, {"fullRescan": bool(full_rescan)})
 
     def _project_selection_changed(self, _event: Any = None) -> None:
         entry = self._selected_project()
@@ -3507,6 +3597,7 @@ class ForgeGui:
             self.console_text.see("end")
         self._busy = True
         self._active_command = label
+        self._runtime_operation_token = self._runtime.operation_started(self.contract.project_id, label, lane="forgepy")
         self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
         self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
         self.stop_btn.configure(state="normal")
@@ -3620,6 +3711,7 @@ class ForgeGui:
             self.console_text.focus_set()
         self._busy = True
         self._active_command = label or command
+        self._runtime_operation_token = self._runtime.operation_started(self.contract.project_id, self._active_command, lane="project")
         self.operation_label.configure(text=f"Running: {self._active_command}", fg=CYAN)
         self.console_job_label.configure(text=f"Running: {self._active_command}", fg=CYAN)
         self.stop_btn.configure(state="normal")
@@ -3678,6 +3770,10 @@ class ForgeGui:
                     self._append_log(line, tag)
                 elif kind == "done":
                     command, rc = payload
+                    if self._runtime_operation_token:
+                        try: self._runtime.operation_finished(self._runtime_operation_token,ok=(rc==0),result={'returncode':rc,'command':command})
+                        except Exception: pass
+                        self._runtime_operation_token=""
                     self._active_proc = None
                     self._busy = False
                     self.stop_btn.configure(state="disabled")
@@ -3699,6 +3795,10 @@ class ForgeGui:
                         self._offer_restart_if_updated()
                 elif kind == "universal-project-apply-done":
                     label, target, run_full_after, result = payload
+                    if self._runtime_operation_token:
+                        try: self._runtime.operation_finished(self._runtime_operation_token,ok=True,result=result)
+                        except Exception: pass
+                        self._runtime_operation_token=""
                     self._busy = False
                     self._active_proc = None
                     self.stop_btn.configure(state="disabled"); self.stop_btn.pack_forget()
@@ -3712,6 +3812,10 @@ class ForgeGui:
                         self.window.after(150, lambda: self._start_command("full", label="post-update-full"))
                 elif kind == "universal-project-apply-error":
                     label, target, detail = payload
+                    if self._runtime_operation_token:
+                        try: self._runtime.operation_finished(self._runtime_operation_token,ok=False,error=str(detail))
+                        except Exception: pass
+                        self._runtime_operation_token=""
                     self._busy = False
                     self._active_proc = None
                     self.stop_btn.configure(state="disabled"); self.stop_btn.pack_forget()
@@ -3723,6 +3827,10 @@ class ForgeGui:
                     self._refresh_status_async()
                 elif kind == "forgepy-self-apply-done":
                     label, result = payload
+                    if self._runtime_operation_token:
+                        try: self._runtime.operation_finished(self._runtime_operation_token,ok=True,result=result)
+                        except Exception: pass
+                        self._runtime_operation_token=""
                     self._busy = False
                     self._active_proc = None
                     self.stop_btn.configure(state="disabled")
@@ -3736,6 +3844,10 @@ class ForgeGui:
                     self._offer_restart_if_updated()
                 elif kind == "forgepy-self-apply-error":
                     label, detail = payload
+                    if self._runtime_operation_token:
+                        try: self._runtime.operation_finished(self._runtime_operation_token,ok=False,error=str(detail))
+                        except Exception: pass
+                        self._runtime_operation_token=""
                     self._busy = False
                     self._active_proc = None
                     self.stop_btn.configure(state="disabled")
@@ -3748,6 +3860,10 @@ class ForgeGui:
                     self._refresh_status_async()
                 elif kind == "command-error":
                     command, detail = payload
+                    if self._runtime_operation_token:
+                        try: self._runtime.operation_finished(self._runtime_operation_token,ok=False,error=str(detail))
+                        except Exception: pass
+                        self._runtime_operation_token=""
                     self._active_proc = None
                     self._busy = False
                     self.stop_btn.configure(state="disabled")
@@ -3973,6 +4089,13 @@ class ForgeGui:
                     self.console_job_label.configure(text="Last: build-all FAIL", fg=RED)
                     self._append_log(f"[FAIL] Universal build matrix: {payload}\n", "fail")
                     self._popup("Build All Failed", str(payload), kind="error")
+                elif kind == "tooling-activated":
+                    self._tooling_refresh_registry()
+                    result=(payload or {}).get("result") or {}
+                    self._tooling_set_text(f"Activated {result.get('count',0)} tool(s): {result.get('ready',0)} ready, {result.get('blocked',0)} blocked.\nGenerated adapter: {(payload or {}).get('adapter','')}\n")
+                elif kind == "tooling-run-done":
+                    name,rc,error=payload
+                    self._append_log(f"[{'PASS' if rc == 0 and not error else 'FAIL'}] Tool {name} exited {rc if rc is not None else error}\n", "pass" if rc == 0 and not error else "fail")
                 elif kind == "tooling-audit-done":
                     root, result = payload
                     if Path(root).resolve() == self.root_path.resolve():
@@ -4187,11 +4310,28 @@ class ForgeGui:
             pass
         self.window.after(12 if not self._event_q.empty() else 60, self._drain_events)
 
+    def _start_background_census(self) -> None:
+        settings=load_settings();
+        if not bool((settings.get("services") or {}).get("driveWatcher",False)) and getattr(self,"_census_started",False): return
+        self._census_started=True
+        self._workers.submit("drive-census", lambda: forge_drive_census(max_seconds=8.0))
+
     # ------------------------------------------------------------------
     # Windows tray / background services / active health
     # ------------------------------------------------------------------
     def _start_tray(self) -> None:
+        services = load_settings().get("services") or {}
+        disabled = str(os.environ.get("FORGEPY_DISABLE_TRAY") or "").strip().casefold()
+        if disabled in {"1", "true", "yes", "on"} or not bool(services.get("systemTray", True)):
+            self._append_log("[INFO] Windows tray service disabled by configuration.\n", "info")
+            return
         if not tray_supported():
+            if os.name == "nt" and sys.version_info >= (3, 14):
+                self._append_log(
+                    "[INFO] Legacy ctypes system tray disabled on Python 3.14+ for native-stability certification. "
+                    "ForgePY remains fully usable; tray hosting returns with the packaged application lane.\n",
+                    "info",
+                )
             return
         try:
             self._tray = ForgeTray(lambda key: self._event_q.put(("tray-command", key)), tooltip=f"ForgePY — {self.contract.name}")
@@ -4594,21 +4734,11 @@ class ForgeGui:
         browser_busy = {"value": False}
 
         def rows(needle: str, offset: int):
-            out=[]
-            projects=root / "projects"
-            if not projects.is_dir(): return out
-            skipped = 0
-            for project_dir in sorted((p for p in projects.iterdir() if p.is_dir()),key=lambda x:x.name.casefold()):
-                for path in project_dir.rglob("*"):
-                    if not path.is_file(): continue
-                    try: rel=path.relative_to(project_dir); category=rel.parts[0] if rel.parts else "other"; stat=path.stat()
-                    except OSError: continue
-                    hay=f"{project_dir.name} {category} {path.name} {path}".casefold()
-                    if needle and needle not in hay: continue
-                    if skipped < offset:
-                        skipped += 1; continue
-                    out.append((project_dir.name,category,path,stat.st_size,stat.st_mtime))
-                    if len(out)>=page_size: return out
+            if not artifact_index_db_path().is_file(): artifact_index_rebuild()
+            result=artifact_index_search(query=needle,limit=page_size,offset=offset); out=[]
+            for row in result.get('rows',[]):
+                path=Path(str(row.get('path') or ''))
+                out.append((str(row.get('project_id') or ''),str(row.get('category') or ''),path,int(row.get('bytes') or 0),float(int(row.get('mtime_ns') or 0))/1_000_000_000.0))
             return out
 
         def poll_browser():
@@ -4834,7 +4964,7 @@ class ForgeGui:
 
         def work() -> None:
             try:
-                result = vault_scan_downloads(force_stable=False, remove_source=True)
+                result = vault_scan_downloads(force_stable=False, remove_source=True, active_root=self.root_path)
                 self._event_q.put(("downloads-check-done", result))
             except Exception as exc:
                 self._event_q.put(("downloads-check-error", str(exc)))
@@ -4881,8 +5011,6 @@ class ForgeGui:
         dialog.bind("<Escape>", lambda _e: close(None)); dialog.bind("<Return>", lambda _e: accept())
         dialog.protocol("WM_DELETE_WINDOW", lambda: close(None))
         self._center_modal(dialog, 760, 390); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); box.focus_force()
-        try: dialog.after(180, lambda d=dialog: d.winfo_exists() and d.attributes("-topmost", False))
-        except Exception: pass
         self.window.wait_window(dialog)
         return result[0]
 
@@ -4946,8 +5074,8 @@ class ForgeGui:
         message = (
             f"Patch: {source.name}\n"
             f"Project: {self.contract.name}\n\n"
-            "ForgePY will verify the archive, hash, project identity, package date, and "
-            "current build/source preconditions before queueing it. The selected file "
+            "ForgePY will detect the .patch transport type (manifest package or Git unified diff), "
+            "verify its hash and applicability to the active project before queueing it. The selected file "
             "does not need to be renamed to incoming.patch and the original file is retained.\n\n"
             "Apply this patch now?"
         )
@@ -4997,6 +5125,7 @@ class ForgeGui:
         target = root.expanduser().resolve()
         self._busy = True
         self._active_command = label
+        self._runtime_operation_token = self._runtime.operation_started(self.contract.project_id,label,lane="patch")
         self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
         self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
         self.footer.configure(text=f"[Job:Running] [{label}]", fg=CYAN)
@@ -5036,6 +5165,7 @@ class ForgeGui:
             return
         self._busy = True
         self._active_command = label
+        self._runtime_operation_token = self._runtime.operation_started(self.contract.project_id,label,lane="patch")
         self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
         self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
         self.footer.configure(text=f"[Job:Running] [{label}]", fg=CYAN)
@@ -5131,10 +5261,14 @@ class ForgeGui:
             try: self._tray.stop()
             except Exception: pass
             self._tray = None
+        try: self._runtime.shutdown()
+        except Exception: pass
         self.window.destroy()
 
     def run(self) -> int:
+        bootstrap_trace("GUI_MAINLOOP_START")
         self.window.mainloop()
+        bootstrap_trace("GUI_MAINLOOP_RETURN")
         return 0
 
 

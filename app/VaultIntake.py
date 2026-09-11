@@ -22,8 +22,9 @@ from VaultBuildIdentity import verify_manifest_preconditions
 
 from VaultPaths import downloads_roots, intake_roots, vault_root, ensure_artifact_project_tree
 from VaultArtifacts import archive_file as archive_artifact_file, auto_archive_candidate, classify_artifact, identify_project
+from ForgeUnifiedDiffPatch import is_unified_diff, synthetic_manifest as unified_manifest
 
-VAULT_INTAKE_VERSION = "FORGEPY-INTAKE-0.4.22"
+VAULT_INTAKE_VERSION = "FORGEPY-INTAKE-0.4.23"
 TEMP_SUFFIXES = {".crdownload", ".part", ".download", ".tmp"}
 PATCH_SUFFIXES = {".zip", ".patch"}
 INCOMING_PATCH_NAME = "incoming.patch"
@@ -194,9 +195,26 @@ def _safe_zip_entries(zf: zipfile.ZipFile) -> list[str]:
     return names
 
 
-def inspect_patch(path: Path) -> dict[str, Any]:
+def inspect_patch(path: Path, project_hint: Path | None = None) -> dict[str, Any]:
     if path.suffix.casefold() not in PATCH_SUFFIXES:
-        raise IntakeError("not a ZIP-compatible patch transport")
+        raise IntakeError("unsupported patch transport extension")
+    if is_unified_diff(path):
+        project = "unassigned"
+        if project_hint is not None:
+            try:
+                from VaultBuildIdentity import build_identity
+                identity=build_identity(project_hint.expanduser().resolve())
+                project=str(identity.get("projectId") or identity.get("projectName") or project_hint.name)
+            except Exception:
+                project=project_hint.name
+        manifest=unified_manifest(path,project)
+        return {
+            "patchId":manifest["patchId"],"legacyPatchId":False,"packageCreatedUtc":manifest["createdUtc"],
+            "dateStatus":"PASS","zipMinUtc":"","zipMaxUtc":"","project":project,"schema":manifest["schema"],
+            "modern":True,"buildBound":True,"boundFields":["gitApplyCheck"],
+            "verificationClass":"UNIFIED-DIFF-CONTEXT-BOUND","title":manifest["title"],
+            "filenameMeta":parse_canonical_patch_filename(path),"manifest":manifest,"transportFormat":"unified-diff",
+        }
     zip_min_utc = ""
     zip_max_utc = ""
     with zipfile.ZipFile(path, "r") as zf:
@@ -316,6 +334,8 @@ def looks_like_patch(path: Path) -> bool:
         return False
     if NON_PATCH_RE.search(path.name):
         return False
+    if is_unified_diff(path):
+        return True
     try:
         with zipfile.ZipFile(path, "r") as zf:
             return any(name.replace("\\", "/").casefold() == "patch_manifest.json" for name in zf.namelist())
@@ -638,6 +658,19 @@ def _archive_review_transport(
     return item
 
 
+def _verify_transport_for_root(manifest: dict[str, Any], source: Path, root: Path) -> dict[str, Any]:
+    if str(manifest.get("schema") or "").casefold() == "forge.patch.unified-diff.v1":
+        try:
+            from ForgePYPatchEngine import validate_transport
+            checked=validate_transport(source,root)
+            from VaultBuildIdentity import build_identity
+            return {"status":"PASS","identity":build_identity(root),"matched":[{"field":"gitApplyCheck","expected":"clean apply","actual":"PASS"}],"mismatches":[],"declared":{"gitApplyCheck":True},"transportVerification":checked.get("verification",{})}
+        except Exception as exc:
+            from VaultBuildIdentity import build_identity
+            return {"status":"FAIL","identity":build_identity(root),"matched":[],"mismatches":[{"field":"gitApplyCheck","expected":"clean apply","actual":str(exc)}],"declared":{"gitApplyCheck":True}}
+    return verify_manifest_preconditions(manifest,root)
+
+
 def _queue_existing_for_project(
     root: Path,
     existing: dict[str, Any],
@@ -651,14 +684,14 @@ def _queue_existing_for_project(
     target = str(existing.get("target_project") or "")
     if target.casefold() not in _project_aliases(root):
         raise IntakeError(f"{source_label} project identity does not match the active project")
-    verification = verify_manifest_preconditions(manifest, root)
+    source = Path(str(existing.get("vault_path") or ""))
+    verification = _verify_transport_for_root(manifest, source, root)
     if verification.get("status") != "PASS":
         detail = "; ".join(
             f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
             for x in verification.get("mismatches", [])
         )
         raise IntakeError(f"{source_label} does not match active project/build identity: " + detail)
-    source = Path(str(existing.get("vault_path") or ""))
     expected = str(existing.get("sha256") or "")
     if not source.is_file() or not expected or sha256_file(source) != expected:
         raise IntakeError(f"cataloged {source_label} evidence is missing or hash-mismatched")
@@ -683,6 +716,63 @@ def _queue_existing_from_incoming(root: Path, existing: dict[str, Any]) -> dict[
     )
 
 
+
+def _path_key(value: Path | str) -> str:
+    try:
+        return os.path.normcase(os.path.abspath(os.fspath(Path(value).expanduser())))
+    except Exception:
+        return os.path.normcase(str(value))
+
+
+def _cataloged_original_candidate(source: Path) -> dict[str, Any] | None:
+    """Return the newest catalog row that originated from *source*.
+
+    The Downloads watcher is allowed to atomically move patch transports into Vault.
+    A user can therefore select a file in the picker just before the watcher moves it.
+    Resolve that race through immutable catalog evidence instead of reporting a false
+    "file does not exist" failure.
+    """
+    wanted = _path_key(source)
+    source_exists = source.is_file()
+    source_sha = ""
+    if source_exists:
+        try:
+            source_sha = sha256_file(source)
+        except OSError:
+            source_exists = False
+    for item in list_items():
+        if _path_key(str(item.get("original_path") or "")) != wanted:
+            continue
+        if source_exists and source_sha and str(item.get("sha256") or "") != source_sha:
+            continue
+        return item
+    return None
+
+
+def _approve_cataloged_manual_candidate(root: Path, source: Path) -> dict[str, Any] | None:
+    existing = _cataloged_original_candidate(source)
+    if existing is None:
+        return None
+    state = str(existing.get("state") or "").upper()
+    if state == "APPLIED":
+        raise IntakeError("selected patch is already recorded as applied")
+    if state in {"QUEUED", "STAGED"}:
+        out = dict(existing)
+        out["buildVerification"] = verify_manifest_preconditions(
+            existing.get("manifest") if isinstance(existing.get("manifest"), dict) else {},
+            root.expanduser().resolve(),
+        )
+        return out
+    if state in {"CANDIDATE", "AVAILABLE", "LINEAGE", "REVIEW"}:
+        return _queue_existing_for_project(
+            root,
+            existing,
+            classification="PATCH-MANUAL-APPROVED",
+            source_label="selected patch",
+        )
+    return None
+
+
 def approve_manual_patch_for_project(root: Path, source: Path) -> dict[str, Any]:
     """Explicitly approve a user-selected descriptive patch for the active project.
 
@@ -694,10 +784,24 @@ def approve_manual_patch_for_project(root: Path, source: Path) -> dict[str, Any]
     """
     root = root.expanduser().resolve()
     source = source.expanduser().resolve()
-    if not source.is_file():
-        raise IntakeError(f"selected patch file does not exist: {source}")
 
-    details = inspect_patch(source)
+    # The Downloads watcher may have moved this exact patch into immutable Vault
+    # evidence after the file picker returned.  Prefer that cataloged evidence when
+    # available so watcher activity and explicit manual approval cannot race.
+    cataloged = _approve_cataloged_manual_candidate(root, source)
+    if cataloged is not None:
+        return cataloged
+
+    if not source.is_file():
+        raise IntakeError(f"selected patch file does not exist and no cataloged Vault evidence matches it: {source}")
+
+    try:
+        details = inspect_patch(source, project_hint=root)
+    except FileNotFoundError:
+        cataloged = _approve_cataloged_manual_candidate(root, source)
+        if cataloged is not None:
+            return cataloged
+        raise IntakeError(f"selected patch moved before validation and no cataloged Vault evidence matches it: {source}")
     project = str(details.get("project") or "unassigned")
     if project.casefold() not in _project_aliases(root):
         raise IntakeError("selected patch project identity does not match the active project")
@@ -706,7 +810,7 @@ def approve_manual_patch_for_project(root: Path, source: Path) -> dict[str, Any]
     if str(details.get("dateStatus") or "PASS").upper() != "PASS":
         raise IntakeError(f"selected patch package date status is {details.get('dateStatus')}")
 
-    verification = verify_manifest_preconditions(details["manifest"], root)
+    verification = _verify_transport_for_root(details["manifest"], source, root)
     if verification.get("status") != "PASS":
         detail = "; ".join(
             f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
@@ -732,7 +836,7 @@ def approve_manual_patch_for_project(root: Path, source: Path) -> dict[str, Any]
     # Catalog a new selected transport without consuming the user's source file.
     # The normal scanner stores a verified immutable Vault copy; explicit approval
     # below promotes that exact stored evidence into the queue.
-    item = ingest_patch(source, remove_source=False, trusted_root=False)
+    item = ingest_patch(source, remove_source=False, trusted_root=False, project_hint=root)
     state = str(item.get("state") or "").upper()
     if state in {"CANDIDATE", "AVAILABLE"}:
         approved = approve_available_for_project(root, str(item.get("intake_id") or ""))
@@ -753,9 +857,9 @@ def approve_manual_patch_for_project(root: Path, source: Path) -> dict[str, Any]
     raise IntakeError(f"selected patch could not be approved; catalog state is {state or 'UNKNOWN'}")
 
 
-def ingest_patch(source: Path, *, remove_source: bool = True, trusted_root: bool = False) -> dict[str, Any]:
+def ingest_patch(source: Path, *, remove_source: bool = True, trusted_root: bool = False, project_hint: Path | None = None) -> dict[str, Any]:
     source = source.expanduser().resolve()
-    details = inspect_patch(source)
+    details = inspect_patch(source, project_hint=project_hint)
     digest = sha256_file(source)
     is_incoming = source.name.casefold() == INCOMING_PATCH_NAME
 
@@ -870,7 +974,7 @@ def ingest_patch(source: Path, *, remove_source: bool = True, trusted_root: bool
         elif bool(details.get("modern")) and bool(details.get("buildBound")) and str(details.get("dateStatus") or "PASS").upper() == "PASS":
             target_root = _registered_root_for_project(project)
             if target_root is not None:
-                verification = verify_manifest_preconditions(details["manifest"], target_root)
+                verification = _verify_transport_for_root(details["manifest"], source, target_root)
                 if verification.get("status") == "PASS":
                     state = "CANDIDATE"
                     classification = "PATCH-DESCENDANT-CANDIDATE"
@@ -1025,7 +1129,7 @@ def _archive_global_rejected_transport(path: Path, *, reason: str, remove_source
         pass
     return item
 
-def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_source: bool = True, trusted_roots: Iterable[Path] = ()) -> dict[str, Any]:
+def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_source: bool = True, trusted_roots: Iterable[Path] = (), project_hint: Path | None = None) -> dict[str, Any]:
     """Scan top-level trusted intake roots for patches and recognized project artifacts.
 
     Global locations are intentionally conservative: non-patch files are only moved when
@@ -1040,7 +1144,9 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
     scanned_roots: list[str] = []
     seen_paths: set[str] = set()
     intake_settings = load_settings().get("intake") or {}
-    archive_nonpatch = bool(intake_settings.get("archiveNonPatchArtifacts", True))
+    # Automatic intake is a patch-transport authority only.  Vault Drive indexing
+    # may classify every other file, but scanners must not relocate/copy arbitrary
+    # project or Downloads content without an explicit operator action.
     stable_seconds = float(intake_settings.get("stabilitySeconds", DEFAULT_STABLE_SECONDS) or DEFAULT_STABLE_SECONDS)
     cold_stable_seconds = max(stable_seconds, float(intake_settings.get("coldStableSeconds", 10.0) or 10.0))
     trusted_keys: set[str] = set()
@@ -1076,42 +1182,13 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
                 or (bool(PATCH_NAME_RE.search(path.name)) and not bool(NON_PATCH_RE.search(path.name)))
             )
             if not is_patch_transport and not is_named_patch:
-                # A trusted project/application root is source authority, not an artifact
-                # inbox.  Never relocate manifests, reports, builds, or other normal project
-                # files merely because they resemble an Artifact Central category.  Trusted
-                # roots contribute only deliberate patch transports.
-                if is_trusted_root:
-                    continue
-                if not archive_nonpatch or not auto_archive_candidate(path):
-                    continue
-                project = identify_project(path, root_hint=resolved_root)
-                if not project:
-                    skipped.append({"path": str(path), "reason": "recognized artifact has no unambiguous registered project identity"})
-                    continue
-                try:
-                    age = max(0.0, time.time() - path.stat().st_mtime)
-                    stable_count = _observe(path)
-                    if not force_stable and (age < stable_seconds or (stable_count < 2 and age < cold_stable_seconds)):
-                        skipped.append({"path": str(path), "reason": "waiting for artifact to stabilize"})
-                        continue
-                    category = classify_artifact(path)
-                    receipt = archive_artifact_file(
-                        path,
-                        project,
-                        category=category,
-                        move=remove_source,
-                        metadata={
-                            "sourceRoot": str(resolved_root),
-                            "sourceMtimeUtc": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(),
-                            "intakeUtc": utc_now(),
-                            "classificationAuthority": "VaultArtifacts",
-                        },
-                    )
-                    receipt["source_name"] = path.name
-                    receipt["project_id"] = project
-                    artifacts.append(receipt)
-                except Exception as exc:
-                    errors.append({"path": str(path), "error": f"artifact archive failed: {exc}"})
+                # Hard safety boundary: automatic watchers/catalog scans never move,
+                # copy, archive, rename, or delete non-patch content.  VaultDriveIndex
+                # is the catalog/classification authority for ordinary files.
+                skipped.append({
+                    "path": str(path),
+                    "reason": "non-patch content retained in place; automatic intake is patch-only",
+                })
                 continue
 
             previous = _same_rejection(path)
@@ -1124,7 +1201,7 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
                 if not force_stable and (age < stable_seconds or (stable_count < 2 and age < cold_stable_seconds)):
                     skipped.append({"path": str(path), "reason": "waiting for patch transport to stabilize"})
                     continue
-                item = ingest_patch(path, remove_source=remove_source, trusted_root=os.path.normcase(str(resolved_root)) in trusted_keys)
+                item = ingest_patch(path, remove_source=remove_source, trusted_root=os.path.normcase(str(resolved_root)) in trusted_keys, project_hint=project_hint)
                 _clear_rejection(path)
                 results.append(item)
             except IntakeError as exc:
@@ -1169,11 +1246,11 @@ def scan_roots(roots: Iterable[Path], *, force_stable: bool = False, remove_sour
     }
 
 
-def scan_downloads(*, force_stable: bool = False, remove_source: bool = True) -> dict[str, Any]:
+def scan_downloads(*, force_stable: bool = False, remove_source: bool = True, active_root: Path | None = None) -> dict[str, Any]:
     # Repair stale pre-F60R9 queue state before cataloging anything new. Downloads
     # itself remains discovery/lineage authority only.
     normalize_queue_authority()
-    return scan_roots(downloads_roots(), force_stable=force_stable, remove_source=remove_source)
+    return scan_roots(downloads_roots(), force_stable=force_stable, remove_source=remove_source, project_hint=active_root)
 
 
 def scan_intake(*, extra_roots: Sequence[Path] = (), force_stable: bool = False, remove_source: bool = True) -> dict[str, Any]:
@@ -1237,7 +1314,8 @@ def available_for_project(root: Path, *, compatible_only: bool = True) -> list[d
         if str(item.get("target_project") or "").casefold() not in aliases:
             continue
         manifest = item.get("manifest") if isinstance(item.get("manifest"), dict) else {}
-        verification = verify_manifest_preconditions(manifest, root)
+        source = Path(str(item.get("vault_path") or ""))
+        verification = _verify_transport_for_root(manifest, source, root)
         enriched = dict(item)
         enriched["buildVerification"] = verification
         if compatible_only and verification.get("status") != "PASS":
@@ -1265,7 +1343,7 @@ def approve_available_for_project(root: Path, intake_id: str) -> dict[str, Any]:
     if not expected or sha256_file(source) != expected:
         raise IntakeError("cataloged downloaded patch hash mismatch")
     manifest = selected.get("manifest") if isinstance(selected.get("manifest"), dict) else {}
-    verification = verify_manifest_preconditions(manifest, root)
+    verification = _verify_transport_for_root(manifest, source, root)
     if verification.get("status") != "PASS":
         detail = "; ".join(
             f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"
@@ -1567,7 +1645,7 @@ def stage_for_project(root: Path, *, compatibility_inbox: bool = False) -> dict[
             _set_item_state(str(item.get("intake_id") or ""), "FAILED", error="approved Forge transport hash mismatch")
             raise IntakeError(f"approved Forge transport hash mismatch: {source}")
         manifest = item.get("manifest") if isinstance(item.get("manifest"), dict) else {}
-        verification = verify_manifest_preconditions(manifest, root)
+        verification = _verify_transport_for_root(manifest, source, root)
         if verification.get("status") != "PASS":
             detail = "; ".join(
                 f"{x.get('field')}: expected {x.get('expected')} actual {x.get('actual') or '<missing>'}"

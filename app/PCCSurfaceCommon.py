@@ -390,12 +390,25 @@ class BackendClient:
                 self.provider_mode = "python"
                 return path
 
-        # Universal auto-adapter: consume the project's existing command contract/root tool
-        # instead of requiring every project to be rewritten to Cortex's Python provider first.
+        # Project-owned declared commands remain stronger than machine-local adapters.
         if self.contract.commands:
             bridge = Path(__file__).resolve().parent / "PCCAutoAdapter.py"
             if bridge.is_file():
                 self.provider_mode = "auto-contract"
+                return bridge
+
+        # Weak/legacy projects can be made executable by a generated ForgePY adapter
+        # without modifying the project source tree.
+        try:
+            from ForgeAdapterRegistry import resolve as resolve_forgepy_adapters
+            matches = resolve_forgepy_adapters(self.contract.project_id, self.contract.kind)
+        except Exception:
+            matches = []
+        if matches and isinstance(matches[0].get("capabilities"), dict) and matches[0]["capabilities"]:
+            bridge = Path(__file__).resolve().parent / "ForgeGeneratedAdapterProvider.py"
+            if bridge.is_file():
+                self.provider_mode = "forgepy-adapter"
+                self._generated_adapter = matches[0]
                 return bridge
         summary = discovery_summary(self.root)
         raise SurfaceError(
@@ -411,6 +424,9 @@ class BackendClient:
                 return str(self.script.relative_to(self.root))
             except ValueError:
                 return str(self.script)
+        if self.provider_mode == "forgepy-adapter":
+            adapter = getattr(self, "_generated_adapter", {}) or {}
+            return f"ForgePY adapter -> {Path(str(adapter.get('_path') or 'machine-local')).name}"
         discovery = self.contract.raw.get("_pccDiscovery") or {}
         source = str(discovery.get("source") or "auto-scan")
         declared = str(discovery.get("provider") or "").strip()
@@ -423,6 +439,12 @@ class BackendClient:
         if self.provider_mode == "python":
             return True
         from PCCAutoAdapter import ALIASES
+        if self.provider_mode == "forgepy-adapter":
+            if command == "status-json": return True
+            adapter = getattr(self, "_generated_adapter", {}) or {}
+            caps = {str(x).casefold() for x in (adapter.get("capabilities") or {}).keys()}
+            if command.casefold() in caps: return True
+            return any(alias.casefold() in caps for alias in ALIASES.get(command, ()))
         keys = {item.key.casefold() for item in self.contract.commands}
         if command.casefold() in keys:
             return True

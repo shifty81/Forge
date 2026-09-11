@@ -21,8 +21,8 @@ from ForgeGit import ensure, push_snapshot, verify, export_bundle, repository_pa
 
 class ForgePYF60R44Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, "0.4.45-F60R45")
-        self.assertEqual(BUILD, "FORGEPY-F60R45")
+        self.assertEqual(VERSION, "0.4.377-F60R377")
+        self.assertEqual(BUILD, "FORGEPY-F60R377")
 
     def test_roadmap_contains_twenty_completed_passes(self):
         text = (ROOT / "docs" / "NEXT_20_PASSES_F71_F90.md").read_text(encoding="utf-8")

@@ -1,5 +1,127 @@
 # Changelog
 
+## 0.4.377-F60R377 — dual .patch transport + modal ownership hotfix
+
+- `.patch` is now a semantic ForgePY patch transport, not an alias for ZIP.
+- Manifest-backed `forge.patch.v1` package patches remain supported unchanged.
+- Plain Git unified-diff `.patch` files are detected, context-checked with `git apply --check`, cataloged, approved, queued and applied through the same ForgePY patch workflow.
+- Check Downloads now gives raw unified diffs the active project as an explicit routing hint; discovery still never auto-applies them.
+- Unified diffs create recovery preimages and durable patch receipts.
+- Confirmation/text/download-choice modals remain topmost for their entire modal lifetime instead of demoting after 180 ms.
+
+## 0.4.376-F60R376 — project-refresh telemetry crash hotfix
+
+- Fixes the exact Windows startup crash captured by the F60R375 bootstrap logger.
+- `projects.refresh` performance metadata is now passed as metadata, not as the numeric threshold argument.
+- `ForgePerformance.record()` is hardened so a mapping passed in the third position is treated as metadata instead of raising `float(dict)`.
+- Adds regression coverage for the exact `TypeError: float() argument must be a string or a real number, not 'dict'` failure.
+- Retains the F60R375 bootstrap trace path so any subsequent startup problem remains observable.
+
+## 0.4.375-F60R375 — earliest-bootstrap diagnostics
+
+- Adds package-local diagnostics before any ForgePY application import.
+- Removes ForgeGui from ForgeStandalone module-level imports.
+- Adds durable phase markers through GUI creation/mainloop.
+- Adds ForgePYDebug.cmd, which always pauses and points to the bootstrap log.
+- Does not reintroduce the Tk startup splash.
+
+## 0.4.374-F60R374 — direct-launch rollback
+
+- Removes the temporary pre-GUI Tk startup/self-test window from normal ForgePY launch.
+- Normal startup now creates exactly one Tk root: the ForgePY main window.
+- Performs only non-visual Vault/first-run directory bootstrap before opening the GUI.
+- Restores the preferred VBS launcher to asynchronous hidden launch.
+- Keeps VerifyForgePY.cmd as the explicit deep self-test/quick-gate path.
+- Leaves ForgeStartup.py available for diagnostics/legacy compatibility but it is no longer part of normal startup.
+
+## 0.4.373-F60R373 — normal-launch / silent-exit hotfix
+
+- Normal ForgePY launch no longer requires a previously active project or folder-picker selection.
+- If activeProject is stale, ForgePY uses the most recently opened valid registered project.
+- If no usable registry project exists, ForgePY safely boots its own project contract and opens the Projects surface.
+- Normal `ForgePY.vbs` now waits invisibly and shows a startup-error dialog on nonzero exit instead of silently disappearing.
+- Unhandled Python startup exceptions are logged and surfaced with a visible diagnostic message.
+- Explicit `--choose` retains cancel-to-exit semantics.
+
+## 0.4.372-F60R372 — F408–F412 normalization tranche
+
+- F408: normalized GUI/diagnostic/console/verifier launcher semantics and exit-code propagation.
+- F409: startup checks honor returned `ok=False`, attempt safe repair, recheck, and block the main GUI when required authority remains failed.
+- F410: generated machine-local adapters can become execution authorities for otherwise weak projects without modifying project source.
+- F411: scanner activation performs safe metadata probes; `ForgeToolRuntime` is the sole execution authority.
+- F412: Artifact Central browsing uses its SQLite index, project refresh telemetry is reachable, and generated-state ignores are normalized.
+
+## 0.4.367-F60R367 — F308–F407 gap-closure tranche
+
+- Adds dynamic Tool Form models, version constraints, output capture and promotion approvals.
+- Adds bounded Vault text FTS, ownership scoring and non-mutating watch primitives.
+- Adds source conflict/branch/tag services, transactional restore, scheduler/job recovery and notifications.
+- Adds standalone EXE/signing/installer/self-update orchestration models with explicit approval gates.
+- Adds isolated plugin invocation, migration registry, performance trace, health/availability/compliance/help services.
+- Preserves the established GUI appearance and all non-destructive Vault safety rules.
+
+## 0.4.267-F60R267 — F208–F307 runtime integration tranche
+
+- Integrates previously disconnected activity/state/command/job/worker services.
+- Adds governed tool runtime, adapter resolution and approved plugin loading.
+- Adds Vault intelligence, verified backups, offline release bundles and certification/support services.
+- Preserves patch-only automatic movement and F60R67 Windows startup/native safety boundaries.
+- Includes cumulative patch notes covering F108 through F307.
+
+## 0.4.167-F60R167 — F108-F207 cumulative architecture/interface tranche
+
+- Implements the next 100 ForgePY passes from F108 through F207 as one cumulative source checkpoint.
+- Normalizes Workspace geometry and command taxonomy while preserving the dark/cyan visual identity.
+- Adds Vault search/classification/lineage models, typed tooling contracts, governed probes/execution policy, Artifact Central index, unified activity/receipts, project graph, state/debounce/console/pagination performance foundations.
+- Adds settings validation, security redaction, plugin/adapter SDKs, command bus, multi-project job queue, disabled-by-default automation, retention/backup/template/diagnostic/provenance/dependency/SBOM/environment/release models.
+- Adds standalone Nuitka build recipe and transactional self-update state-machine planning without claiming unperformed Windows binary certification.
+- Keeps automatic non-patch movement disabled and preserves F60R67 Python 3.14 tray/startup safety.
+
+## 0.4.67-F60R67 — Startup surface teardown hotfix
+
+- Fixes F60R66 leaving the completed startup/self-test surface packed above the main ForgePY GUI.
+- Destroys only the splash widgets, while preserving the shared Tk interpreter for the main application.
+- Keeps the Python 3.14 legacy tray safety policy and detached launcher behavior from F60R66.
+
+## 0.4.66-F60R66 — Windows splash handoff + native crash containment
+
+- Fixes F60R65's hidden-splash deadlock: a reused Tk root now quits the splash mainloop after withdraw, then becomes the main GUI root.
+- Disables the legacy raw-ctypes Shell_NotifyIcon tray implementation by default on Python 3.14+ after a host-native `__debugbreak` failure was reported.
+- Retains an explicit diagnostic opt-in through `FORGEPY_ENABLE_LEGACY_NATIVE_TRAY=1`.
+- Makes ForgePY.cmd prefer pythonw/pyw and detach, eliminating the persistent black console from the normal launcher path.
+- Keeps native crash diagnostics enabled.
+
+## 0.4.65-F60R65 — Windows native startup stability
+
+- Reuses one Tk interpreter from startup self-test through the main ForgePY window; no destroy/recreate boundary.
+- Stages tray, health, configured services and drive census after the main shell completes its first paint.
+- Adds persistent `faulthandler` native crash logs under the ForgePY data root.
+- Fully types remaining pointer-sensitive tray Win32 calls used by the ctypes message loop.
+- Adds an explicit `services.systemTray` switch plus `FORGEPY_DISABLE_TRAY=1` emergency override.
+- Does not change ForgePY's visual appearance.
+
+## 0.4.64-F60R64 — Startup splash completion hotfix
+
+- Fixes a startup-screen race where the completion token could be consumed before the minimum display interval elapsed, leaving the splash window open forever even after every startup phase showed PASS.
+- Persists the completed state across Tk polling ticks and closes the splash as soon as the minimum display interval has elapsed.
+- Ensures the completion token is emitted even if the startup worker exits through an exception path.
+- Shows `Ready` after successful startup checks.
+
+## 0.4.63-F60R63 — Non-destructive Vault intake safety
+
+- Automatic Vault/Downloads intake may move only patch transports.
+- Ordinary files are catalog/classification material only and remain in place.
+- Project activation hygiene no longer moves debug bundles, manual overwrite packages, or other non-patch files.
+- Fixes the Downloads watcher/manual picker race by resolving a moved patch through its immutable Vault catalog record.
+- Disables the legacy automatic non-patch archival setting by default and removes its normal GUI toggle.
+
+## 0.4.62-F60R62 — F91-F107 application/runtime normalization
+
+- Preserves the established ForgePY look while normalizing Workspace geometry and keeping the right context rail permanently visible.
+- Adds persistent workspace splitter state, lazy heavy-tab creation, shared event/worker infrastructure and startup performance plumbing.
+- Adds visible startup self-test, first-run D:\Vault initialization, bounded background drive census and conservative repair diagnostics.
+- Promotes tool discovery into a functional Tool Registry with capability activation, execution, generated adapters and Toolchain Doctor.
+
 ## 0.4.45-F60R45 — Source Control rail layout correction
 
 - Moves Actions to the far-left Source Control rail.

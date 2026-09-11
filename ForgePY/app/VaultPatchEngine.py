@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import stat
+import tempfile
+import uuid
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from VaultPaths import vault_root
+
+PATCH_ENGINE_VERSION = "FORGE-PATCH-0.3"
+SUPPORTED_SCHEMAS = {
+    "vault.patch.v1",
+    "forge.patch.v1",
+    "pcc.patch.v1",
+    "forge.test.patch.v1",  # retained for F01-F10 compatibility tests
+}
+
+
+class PatchError(RuntimeError):
+    pass
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def restart_marker_path() -> Path:
+    return vault_root() / "updates" / "restart-required.json"
+
+
+def _is_vault_application_root(root: Path, manifest: dict[str, Any]) -> bool:
+    target = str(manifest.get("project") or manifest.get("projectId") or manifest.get("project_id") or "").strip().casefold()
+    if target in {"vault", "vault-project-control-center", "vault-project-control-centre", "forgepy", "forge-py", "forge", "forge-project-control-center", "forge-project-control-centre"}:
+        return (root / "app" / "ForgePYStandalone.py").is_file() or (root / "app" / "ForgeStandalone.py").is_file() or (root / "app" / "VaultStandalone.py").is_file()
+    return False
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _safe_rel(raw: str) -> str:
+    value = raw.replace("\\", "/").strip()
+    p = PurePosixPath(value)
+    if not value or p.is_absolute() or re.match(r"^[A-Za-z]:", value) or any(x in {"", ".", ".."} for x in p.parts):
+        raise PatchError(f"unsafe patch path: {raw!r}")
+    return "/".join(p.parts)
+
+
+def _target(root: Path, rel: str) -> Path:
+    root = root.resolve()
+    target = (root / Path(rel)).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise PatchError(f"patch target escapes project root: {rel}") from exc
+    return target
+
+
+def _read_manifest(zf: zipfile.ZipFile) -> dict[str, Any]:
+    names = [name.replace("\\", "/") for name in zf.namelist()]
+    matches = [name for name in names if name.casefold() == "patch_manifest.json"]
+    if len(matches) != 1:
+        raise PatchError("patch requires exactly one top-level PATCH_MANIFEST.json")
+    if PurePosixPath(matches[0]).parent != PurePosixPath("."):
+        raise PatchError("PATCH_MANIFEST.json must be top-level")
+    try:
+        data = json.loads(zf.read(matches[0]).decode("utf-8-sig"))
+    except Exception as exc:
+        raise PatchError(f"invalid PATCH_MANIFEST.json: {exc}") from exc
+    if not isinstance(data, dict):
+        raise PatchError("PATCH_MANIFEST.json must be an object")
+    return data
+
+
+def _payload_name(zf: zipfile.ZipFile, rel: str) -> str:
+    names = {name.replace("\\", "/").casefold(): name for name in zf.namelist() if not name.endswith("/")}
+    for candidate in (f"payload/{rel}", rel):
+        hit = names.get(candidate.casefold())
+        if hit:
+            return hit
+    raise PatchError(f"missing payload for {rel}")
+
+
+def _normalize_files(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = manifest.get("files")
+    if not isinstance(rows, list) or not rows:
+        raise PatchError("universal Vault patch requires a non-empty files array")
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in rows:
+        if not isinstance(raw, dict):
+            raise PatchError("patch files entries must be objects")
+        rel = _safe_rel(str(raw.get("path") or raw.get("target") or ""))
+        folded = rel.casefold()
+        if folded in seen:
+            raise PatchError(f"duplicate patch target: {rel}")
+        seen.add(folded)
+        op = str(raw.get("operation") or raw.get("op") or "write").strip().casefold()
+        if op not in {"write", "replace", "add", "delete", "remove"}:
+            raise PatchError(f"unsupported operation {op!r} for {rel}")
+        out.append({
+            "path": rel,
+            "operation": "delete" if op in {"delete", "remove"} else "write",
+            "sha256": str(raw.get("sha256") or "").strip().casefold(),
+            "bytes": raw.get("bytes"),
+            "preSha256": str(raw.get("preSha256") or raw.get("beforeSha256") or raw.get("expectedSha256") or "").strip().casefold(),
+            "allowMissing": bool(raw.get("allowMissing", False)),
+        })
+    return out
+
+
+def can_apply_transport(path: Path) -> bool:
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            manifest = _read_manifest(zf)
+            schema = str(manifest.get("schema") or "").strip().casefold()
+            if schema in SUPPORTED_SCHEMAS:
+                _normalize_files(manifest)
+                return True
+            # Any manifest that explicitly requests the Vault universal engine is accepted.
+            engine = str(manifest.get("engine") or manifest.get("patchEngine") or "").strip().casefold()
+            if engine in {"vault", "vault-universal", "forge-universal"}:
+                _normalize_files(manifest)
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def validate_transport(path: Path, root: Path | None = None) -> dict[str, Any]:
+    path = path.expanduser().resolve()
+    with zipfile.ZipFile(path, "r") as zf:
+        manifest = _read_manifest(zf)
+        files = _normalize_files(manifest)
+        for row in files:
+            rel = row["path"]
+            if row["operation"] == "write":
+                payload = _payload_name(zf, rel)
+                info = zf.getinfo(payload)
+                mode = (info.external_attr >> 16) & 0xFFFF
+                if mode and (stat.S_ISLNK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode) or stat.S_ISFIFO(mode)):
+                    raise PatchError(f"non-regular payload: {payload}")
+                data = zf.read(payload)
+                digest = hashlib.sha256(data).hexdigest()
+                if row["sha256"] and digest != row["sha256"]:
+                    raise PatchError(f"payload hash mismatch: {rel}")
+                if row["bytes"] is not None and int(row["bytes"]) != len(data):
+                    raise PatchError(f"payload byte-size mismatch: {rel}")
+            if root is not None:
+                target = _target(root, rel)
+                if row["preSha256"]:
+                    if not target.is_file():
+                        raise PatchError(f"preimage required but missing: {rel}")
+                    if sha256_file(target) != row["preSha256"]:
+                        raise PatchError(f"preimage hash mismatch: {rel}")
+                if row["operation"] == "delete" and not target.exists() and not row["allowMissing"]:
+                    raise PatchError(f"delete target is missing: {rel}")
+    return {"manifest": manifest, "files": files, "sha256": sha256_file(path)}
+
+
+def _safe_project_name(root: Path, manifest: dict[str, Any]) -> str:
+    project = str(manifest.get("project") or manifest.get("projectId") or manifest.get("project_id") or root.name)
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", project).strip("-") or root.name
+
+
+def apply_transport(path: Path, root: Path) -> dict[str, Any]:
+    root = root.expanduser().resolve()
+    path = path.expanduser().resolve()
+    checked = validate_transport(path, root)
+    manifest = checked["manifest"]
+    patch_id = str(manifest.get("patchId") or manifest.get("patch_id") or path.stem).strip()
+    txid = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    project = _safe_project_name(root, manifest)
+    recovery = vault_root() / "recovery" / project / patch_id / txid
+    preimage = recovery / "preimage"
+    recovery.mkdir(parents=True, exist_ok=True)
+    preimage.mkdir(parents=True, exist_ok=True)
+
+    applied: list[dict[str, Any]] = []
+    backups: dict[str, Path] = {}
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            for row in checked["files"]:
+                rel = row["path"]
+                target = _target(root, rel)
+                existed = target.exists()
+                if existed:
+                    backup = preimage / Path(rel)
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    if target.is_dir():
+                        raise PatchError(f"file patch target is a directory: {rel}")
+                    shutil.copy2(target, backup)
+                    backups[rel] = backup
+                elif row["preSha256"]:
+                    raise PatchError(f"required preimage missing: {rel}")
+
+                if row["operation"] == "delete":
+                    target.unlink(missing_ok=row["allowMissing"])
+                else:
+                    member = _payload_name(zf, rel)
+                    data = zf.read(member)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    fd, tmp_name = tempfile.mkstemp(prefix=target.name + ".vault-", dir=str(target.parent))
+                    try:
+                        with os.fdopen(fd, "wb") as fh:
+                            fh.write(data)
+                            fh.flush()
+                            os.fsync(fh.fileno())
+                        os.replace(tmp_name, target)
+                    finally:
+                        try:
+                            os.unlink(tmp_name)
+                        except FileNotFoundError:
+                            pass
+                    if row["sha256"] and sha256_file(target) != row["sha256"]:
+                        raise PatchError(f"post-write verification failed: {rel}")
+                applied.append({"path": rel, "operation": row["operation"], "existed": existed})
+
+        receipt_dir = root / "artifacts" / "patches" / "receipts"
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        receipt = {
+            "schema": "vault.patch.receipt.v1",
+            "engineVersion": PATCH_ENGINE_VERSION,
+            "patchId": patch_id,
+            "title": str(manifest.get("title") or patch_id),
+            "project": project,
+            "status": "applied",
+            "transactionId": txid,
+            "transport": str(path),
+            "transportSha256": checked["sha256"],
+            "appliedUtc": utc_now(),
+            "files": applied,
+            "recovery": str(recovery),
+        }
+        receipt_path = receipt_dir / f"{patch_id}.json"
+        tmp = receipt_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, receipt_path)
+        (recovery / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if _is_vault_application_root(root, manifest):
+            marker = restart_marker_path()
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker_payload = {
+                "schema": "vault.restart-required.v1",
+                "patchId": patch_id,
+                "title": str(manifest.get("title") or patch_id),
+                "root": str(root),
+                "writtenUtc": utc_now(),
+            }
+            tmp_marker = marker.with_suffix(".json.tmp")
+            tmp_marker.write_text(json.dumps(marker_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            os.replace(tmp_marker, marker)
+            receipt["restartRequired"] = True
+        return receipt
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for row in reversed(applied):
+            rel = row["path"]
+            target = _target(root, rel)
+            backup = backups.get(rel)
+            try:
+                if backup and backup.is_file():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(backup, target)
+                elif not row["existed"]:
+                    target.unlink(missing_ok=True)
+            except Exception as rollback_exc:
+                rollback_errors.append(f"{rel}: {rollback_exc}")
+        failure = {
+            "schema": "vault.patch.failure.v1",
+            "engineVersion": PATCH_ENGINE_VERSION,
+            "patchId": patch_id,
+            "project": project,
+            "status": "rolled-back" if not rollback_errors else "rollback-attention",
+            "transactionId": txid,
+            "failedUtc": utc_now(),
+            "error": str(exc),
+            "rollbackErrors": rollback_errors,
+        }
+        (recovery / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        raise PatchError(str(exc)) from exc
+
+
+def apply_inbox(root: Path) -> dict[str, Any]:
+    root = root.expanduser().resolve()
+    inbox = root / "updates" / "inbox"
+    if not inbox.is_dir():
+        return {"applied": 0, "skipped": 0, "items": []}
+    applied: list[dict[str, Any]] = []
+    skipped = 0
+    transports = sorted({*inbox.glob("*.zip"), *inbox.glob("*.patch")}, key=lambda item: item.name.casefold())
+    for path in transports:
+        if not can_apply_transport(path):
+            skipped += 1
+            continue
+        receipt = apply_transport(path, root)
+        applied.append(receipt)
+        # The immutable/original transport remains in the global Vault queue/archive. The
+        # project inbox is merely a verified staging copy and can be consumed after success.
+        path.unlink(missing_ok=True)
+        Path(str(path) + ".sha256").unlink(missing_ok=True)
+    return {"applied": len(applied), "skipped": skipped, "items": applied}

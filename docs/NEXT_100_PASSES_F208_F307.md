@@ -1,0 +1,113 @@
+# ForgePY F208–F307 — Next 100 Passes
+
+Authority: `0.4.267-F60R267 / FORGEPY-F60R267`
+
+This tranche closes model-only/disconnected gaps found in the F60R167 audit. The existing dark/cyan GUI appearance is preserved. Windows-native certification remains a host test, not a fabricated claim.
+
+- **F208 — Runtime service hub**
+- **F209 — Operation lifecycle receipts**
+- **F210 — Activity/provenance integration**
+- **F211 — Shared state integration**
+- **F212 — Command Bus v2 metadata**
+- **F213 — Persistent Job Queue v2**
+- **F214 — Unified worker ownership**
+- **F215 — Lifecycle phase model**
+- **F216 — Runtime shutdown normalization**
+- **F217 — Self-test integrated-module coverage**
+- **F218 — Tool Contract v2**
+- **F219 — Typed parameter coercion**
+- **F220 — Project-confined path parameters**
+- **F221 — Governed Tool Runtime**
+- **F222 — Tool output byte limits**
+- **F223 — Tool timeout enforcement**
+- **F224 — Tool cancellation lane**
+- **F225 — Tool execution receipts**
+- **F226 — Tool activity integration**
+- **F227 — Tool UI routed through governed runtime**
+- **F228 — Adapter Registry**
+- **F229 — Adapter identity ranking**
+- **F230 — Project-kind adapter matching**
+- **F231 — Plugin approval state**
+- **F232 — Plugin runtime loader**
+- **F233 — Plugin permission handoff**
+- **F234 — Plugin command registration**
+- **F235 — Plugin fail-closed validation**
+- **F236 — Plugin discovery manifests**
+- **F237 — Extension runtime diagnostics foundation**
+- **F238 — Vault intelligence facets**
+- **F239 — Vault duplicate grouping**
+- **F240 — Vault ownership confidence**
+- **F241 — Vault classification summary**
+- **F242 — Vault search facets**
+- **F243 — Artifact index stale cleanup**
+- **F244 — Artifact category summary**
+- **F245 — Artifact incremental hygiene**
+- **F246 — Lineage intelligence normalization**
+- **F247 — Non-destructive Vault invariants**
+- **F248 — Source authority matrix**
+- **F249 — Safe branch-name normalization**
+- **F250 — Working/HEAD/GREEN comparison model**
+- **F251 — ForgeGit/GitHub divergence states**
+- **F252 — Source receipt normalization**
+- **F253 — Protected GREEN source semantics**
+- **F254 — Branch publication plan foundation**
+- **F255 — Restore-source plan foundation**
+- **F256 — Conflict state foundation**
+- **F257 — Source-control integration audit**
+- **F258 — Automation runtime evaluator**
+- **F259 — Automation global-disable gate**
+- **F260 — Automation condition evaluator**
+- **F261 — Automation confirmation semantics**
+- **F262 — Job-backed automation foundation**
+- **F263 — Automation activity receipts**
+- **F264 — Notification event contract**
+- **F265 — Multi-project queue persistence**
+- **F266 — Cancellation persistence**
+- **F267 — Per-project serialization hardening**
+- **F268 — Verified backup runtime**
+- **F269 — Backup manifest hashes**
+- **F270 — Backup verification**
+- **F271 — Restore preview**
+- **F272 — Database backup helper**
+- **F273 — Project recovery evidence**
+- **F274 — Settings recovery plan**
+- **F275 — Registry recovery plan**
+- **F276 — Disaster-drill evidence model**
+- **F277 — Recovery safety audit**
+- **F278 — Dependency inventory expansion**
+- **F279 — Lockfile discovery**
+- **F280 — CMake dependency presence**
+- **F281 — .NET dependency presence**
+- **F282 — Environment fingerprint integration**
+- **F283 — Reproducibility evidence foundation**
+- **F284 — Release pipeline service**
+- **F285 — Offline release bundles**
+- **F286 — Signing-readiness truth gate**
+- **F287 — Release-channel integrity**
+- **F288 — GUI RuntimeServices integration**
+- **F289 — GUI operation lifecycle tokens**
+- **F290 — Tool UI runtime integration**
+- **F291 — Tooling audit worker migration**
+- **F292 — Global tooling audit worker migration**
+- **F293 — Activity tail optimization**
+- **F294 — Runtime shutdown ownership**
+- **F295 — Background-service ownership audit**
+- **F296 — GUI thread fragmentation inventory**
+- **F297 — Performance integration gate**
+- **F298 — Certification service**
+- **F299 — Static certification report**
+- **F300 — Support bundle service**
+- **F301 — Secret-redacted support report**
+- **F302 — Settings Schema v3**
+- **F303 — First-run invariant plan**
+- **F304 — Standalone build recipe v2**
+- **F305 — Clean-PC truth boundary**
+- **F306 — Cumulative release-note authority**
+- **F307 — Whole-project post-pass gap audit**
+
+## Safety boundaries
+- Automatic non-patch file movement remains forbidden.
+- Dependency/toolchain installation remains operator-approved.
+- Plugins remain disabled unless explicitly enabled and approved.
+- Scheduled/event automation remains globally disabled unless explicitly enabled.
+- Windows one-file EXE, Defender/SmartScreen and self-replacing updater remain host-certification items.

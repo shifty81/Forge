@@ -1,0 +1,113 @@
+# ForgePY F308–F407 — Next 100 Passes
+
+Target authority: `0.4.367-F60R367 / FORGEPY-F60R367`
+
+This tranche ties off the remaining gaps after F307 while preserving the established GUI appearance and non-destructive Vault rules.
+
+- **F308 — GUI task registry**
+- **F309 — Shared TTL cache**
+- **F310 — Workspace metric authority**
+- **F311 — Project snapshot model**
+- **F312 — GUI task overlap guard**
+- **F313 — Cache invalidation policy**
+- **F314 — Workspace geometry math**
+- **F315 — State presentation normalization**
+- **F316 — Performance-safe view models**
+- **F317 — GUI foundation audit**
+- **F318 — Tool Form model**
+- **F319 — Typed field widgets**
+- **F320 — CLI argument serialization**
+- **F321 — Version-constraint parser**
+- **F322 — Tool version enforcement**
+- **F323 — Tool output capture**
+- **F324 — Artifact output classification**
+- **F325 — Promotion approval manager**
+- **F326 — Family/global promotion safety**
+- **F327 — Tool UX integration audit**
+- **F328 — Toolchain provider registry**
+- **F329 — Explicit install approval plans**
+- **F330 — Git install provider**
+- **F331 — GitHub CLI provider**
+- **F332 — Rust/CMake/Ninja providers**
+- **F333 — Node/.NET providers**
+- **F334 — Blender provider**
+- **F335 — Toolchain no-auto-install invariant**
+- **F336 — Adapter/toolchain crosscheck**
+- **F337 — Toolchain gap audit**
+- **F338 — Vault text FTS foundation**
+- **F339 — Safe text-type allowlist**
+- **F340 — Per-file content size cap**
+- **F341 — FTS fallback search**
+- **F342 — Ownership scoring**
+- **F343 — Ownership ambiguity state**
+- **F344 — Non-mutating Vault watcher snapshot**
+- **F345 — Vault watcher diff model**
+- **F346 — Content-index disabled-by-default gate**
+- **F347 — Vault intelligence audit**
+- **F348 — Git conflict parser**
+- **F349 — Conflict resolution plans**
+- **F350 — Branch create helper**
+- **F351 — Branch switch helper**
+- **F352 — Tag helper**
+- **F353 — Merge preview**
+- **F354 — Repository tree cache**
+- **F355 — Source divergence integration**
+- **F356 — No-force source policy audit**
+- **F357 — Source Control depth audit**
+- **F358 — Backup catalog**
+- **F359 — Backup manifest inspection**
+- **F360 — Restore transaction plan**
+- **F361 — Explicit restore approval**
+- **F362 — Restore staging**
+- **F363 — Restore rollback copy**
+- **F364 — Zip traversal protection**
+- **F365 — Recovery artifact catalog**
+- **F366 — Database/project recovery integration**
+- **F367 — Recovery safety audit**
+- **F368 — Scheduler model**
+- **F369 — Global scheduler disable gate**
+- **F370 — Minimum schedule interval**
+- **F371 — Persistent job interruption recovery**
+- **F372 — Notification center**
+- **F373 — Notification dedupe**
+- **F374 — Headless command runtime**
+- **F375 — Automation/manual parity**
+- **F376 — Job recovery audit**
+- **F377 — Automation safety audit**
+- **F378 — Standalone EXE build orchestrator**
+- **F379 — Explicit EXE build approval**
+- **F380 — Nuitka preflight enforcement**
+- **F381 — Signing plan**
+- **F382 — Operator certificate requirement**
+- **F383 — Installer manifest**
+- **F384 — External Vault preservation**
+- **F385 — Self-update staging**
+- **F386 — Self-update hash verification**
+- **F387 — Self-update promotion plan**
+- **F388 — Subprocess plugin host**
+- **F389 — Isolated Python plugin invocation**
+- **F390 — Plugin crash containment**
+- **F391 — Environment allowlist**
+- **F392 — Secret redaction v2**
+- **F393 — SQLite migration registry**
+- **F394 — Transactional migrations**
+- **F395 — Performance trace collector**
+- **F396 — Slow-operation classification**
+- **F397 — Security/performance audit**
+- **F398 — Command availability matrix**
+- **F399 — Adapter compliance audit**
+- **F400 — Health v3 aggregation**
+- **F401 — Help index**
+- **F402 — Documentation inventory**
+- **F403 — Project migration evidence**
+- **F404 — Cumulative patch-note authority**
+- **F405 — F60R267 prepass gap audit**
+- **F406 — F308-F407 postpass gap audit**
+- **F407 — F60R367 release checkpoint**
+
+## Non-negotiable safety boundaries
+- Vault content indexing and watcher work is observation-only; automatic non-patch movement remains forbidden.
+- Toolchain install plans require explicit approval; no dependency is silently installed.
+- Scheduler remains disabled by default and enforces a minimum interval.
+- Backup restore requires explicit approval and keeps a rollback copy.
+- Stable Windows EXE, signing, tray and self-replacement still require Windows-host certification.

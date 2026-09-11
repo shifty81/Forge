@@ -4,6 +4,7 @@ from __future__ import annotations
 import ctypes
 import os
 import queue
+import sys
 import threading
 from pathlib import Path
 from dataclasses import dataclass
@@ -44,7 +45,17 @@ DEFAULT_MENU: tuple[TrayCommand, ...] = (
 
 
 def supported() -> bool:
-    return os.name == "nt"
+    if os.name != "nt":
+        return False
+    if os.environ.get("FORGEPY_DISABLE_TRAY", "").strip().casefold() in {"1", "true", "yes", "on"}:
+        return False
+    # F60R65 still used a hand-written ctypes Shell_NotifyIcon callback window.
+    # On Python 3.14/64-bit Windows the host reported a native __debugbreak crash
+    # after the main GUI opened.  Keep this legacy implementation fail-closed
+    # until the packaged ForgePY.exe lane replaces it with a certified tray host.
+    if sys.version_info >= (3, 14):
+        return os.environ.get("FORGEPY_ENABLE_LEGACY_NATIVE_TRAY", "").strip().casefold() in {"1", "true", "yes", "on"}
+    return True
 
 
 class ForgeTray:
@@ -165,6 +176,12 @@ class ForgeTray:
         kernel32.GetModuleHandleW.restype = wintypes.HINSTANCE
         shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.c_void_p]
         shell32.Shell_NotifyIconW.restype = wintypes.BOOL
+        user32.RegisterWindowMessageW.argtypes = [wintypes.LPCWSTR]
+        user32.RegisterWindowMessageW.restype = wintypes.UINT
+        user32.AppendMenuW.argtypes = [wintypes.HMENU, wintypes.UINT, ctypes.c_size_t, wintypes.LPCWSTR]
+        user32.AppendMenuW.restype = wintypes.BOOL
+        user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user32.PostMessageW.restype = wintypes.BOOL
 
         WM_USER = 0x0400
         WM_TRAY = WM_USER + 41
@@ -332,6 +349,12 @@ class ForgeTray:
         self._ready.set()
         try:
             msg = wintypes.MSG()
+            user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+            user32.GetMessageW.restype = wintypes.BOOL
+            user32.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
+            user32.TranslateMessage.restype = wintypes.BOOL
+            user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
+            user32.DispatchMessageW.restype = LRESULT
             while not self._stop.is_set() and user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) > 0:
                 user32.TranslateMessage(ctypes.byref(msg))
                 user32.DispatchMessageW(ctypes.byref(msg))

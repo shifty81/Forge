@@ -23,3 +23,22 @@ Thumbs.db
 *_DebugBundle_*.zip
 *_RootPatch_*.zip
 *_UpdateKit.zip
+
+# ForgePY machine-local state
+.forge/
+hotfix-backups/
+forgepy.settings.json
+forge.settings.json
+vault.settings.json
+
+# Standalone / installer build outputs
+dist/
+build/
+*.build/
+*.dist/
+installer-staging/
+*.nuitka-crash-report.xml
+
+# Native crash diagnostics
+*.dmp
+*.mdmp

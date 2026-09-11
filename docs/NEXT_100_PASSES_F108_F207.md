@@ -1,0 +1,115 @@
+# ForgePY F108-F207 — 100-Pass Cumulative Tranche
+
+Authority: `0.4.167-F60R167 / FORGEPY-F60R167`
+
+This tranche deliberately preserves the current dark/cyan ForgePY visual language. Windows-native startup/tray behavior from F60R67 is not redesigned here; packaging/updater/native features are staged as contracts/build recipes until Windows-host certification.
+
+- **F108 — Workspace geometry authority**
+- **F109 — Permanent right operations rail normalization**
+- **F110 — Compact/adaptive header and quick actions**
+- **F111 — Universal Workspace command taxonomy**
+- **F112 — Dashboard/card/spacing normalization**
+- **F113 — Source Control visual repository tree polish**
+- **F114 — Source Control file/folder context actions**
+- **F115 — Branch workflow simplification**
+- **F116 — Branch graph/history metadata**
+- **F117 — ForgeGit visible terminology normalization**
+- **F118 — ForgeGit recovery center**
+- **F119 — GitHub remote workflow UX**
+- **F120 — Source authority matrix v2**
+- **F121 — Vault browser foundation**
+- **F122 — Vault classification views**
+- **F123 — Vault ownership and lineage model**
+- **F124 — Vault Unclassified work queue**
+- **F125 — Vault preview/inspector model**
+- **F126 — Vault search/query service**
+- **F127 — Vault non-destructive safety gate**
+- **F128 — Tool Registry UI model**
+- **F129 — Tool capability taxonomy**
+- **F130 — Tool readiness/dependency model**
+- **F131 — Governed tool probe service**
+- **F132 — Typed tool inputs/outputs**
+- **F133 — Generated adapter v2**
+- **F134 — Project/family/global tool promotion**
+- **F135 — Tool execution governance**
+- **F136 — Toolchain Doctor v2**
+- **F137 — Toolchain repair plans**
+- **F138 — Artifact Central index v2**
+- **F139 — Unified activity timeline**
+- **F140 — Universal receipt schema**
+- **F141 — Project registry/family cleanup model**
+- **F142 — Composite/nested project graph**
+- **F143 — Lazy UI construction audit**
+- **F144 — Shared project-state broker**
+- **F145 — Worker architecture consolidation foundation**
+- **F146 — Refresh/debounce coordinator**
+- **F147 — Console ring buffer/search model**
+- **F148 — Virtualized pagination primitives**
+- **F149 — Performance telemetry expansion**
+- **F150 — Startup pipeline v2 design**
+- **F151 — First-run experience model**
+- **F152 — Background Vault census/watcher contract**
+- **F153 — Repair Mode v2 model**
+- **F154 — Standalone ForgePY.exe build recipe**
+- **F155 — Transactional EXE self-update state machine**
+- **F156 — Clean-PC/portable certification matrix**
+- **F157 — ForgePY 1.0 readiness gate model**
+- **F158 — Settings schema v2 validation**
+- **F159 — Settings migration/unknown-key audit**
+- **F160 — Secrets/credentials boundary and redaction**
+- **F161 — Plugin contract v1**
+- **F162 — Plugin registry**
+- **F163 — Plugin permission model**
+- **F164 — Plugin health/validation model**
+- **F165 — Adapter SDK v1**
+- **F166 — Adapter validation**
+- **F167 — Adapter test-harness contract**
+- **F168 — Universal command bus**
+- **F169 — Job model**
+- **F170 — Multi-project job queue**
+- **F171 — Job cancellation**
+- **F172 — Per-project concurrency locks**
+- **F173 — Job receipt integration contract**
+- **F174 — Automation profile registry**
+- **F175 — Scheduled automation disabled-by-default contract**
+- **F176 — Automation condition-hook model**
+- **F177 — Notification/event model foundation**
+- **F178 — Artifact retention policy planning**
+- **F179 — Non-destructive cleanup planner**
+- **F180 — Cache policy model**
+- **F181 — Storage quota planning**
+- **F182 — Backup profile planning**
+- **F183 — Restore planner contract**
+- **F184 — Project template registry**
+- **F185 — New-project onboarding plans**
+- **F186 — Clone/adopt project workflow model**
+- **F187 — Project move/rebind planning**
+- **F188 — Project health v2 diagnostics model**
+- **F189 — Diagnostic bundle v2 model**
+- **F190 — Support report model**
+- **F191 — Provenance ledger**
+- **F192 — License/provenance audit hooks**
+- **F193 — Dependency inventory**
+- **F194 — CycloneDX-style SBOM export**
+- **F195 — Build environment fingerprints**
+- **F196 — Reproducibility receipt contract**
+- **F197 — Release channel model**
+- **F198 — Release manifest model**
+- **F199 — Signing-readiness contract**
+- **F200 — Update channel model**
+- **F201 — Offline update bundle model**
+- **F202 — Rollback-plan contract**
+- **F203 — Migration-plan contract**
+- **F204 — Disaster-recovery drill matrix**
+- **F205 — Release dashboard data model**
+- **F206 — Acceptance-gate model**
+- **F207 — Project-wide F108-F207 gap audit**
+
+## Runtime-certification boundary
+
+- GUI/data/model changes are implemented and statically/unit tested.
+- Raw Win32 tray remains fail-closed on Python 3.14+.
+- Automatic non-patch Vault movement remains forbidden.
+- One-file EXE build and self-replacing updater are implemented as build/state-machine contracts, not falsely certified as Windows binaries in this environment.
+- Filesystem scheduled automation remains disabled by default.
+
