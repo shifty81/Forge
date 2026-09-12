@@ -9,6 +9,7 @@ import tempfile
 import unittest
 import zipfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -57,7 +58,7 @@ def write_invalid_patch(path: Path) -> None:
     manifest = {
         "schema": "vault.patch.v2",
         "engine": "vault",
-        "createdUtc": "2026-09-10T00:00:00Z",
+        "createdUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "preconditions": {"projectBuild": "demo-build"},
         "project": "demo",
         "patchId": "bad patch id with spaces",

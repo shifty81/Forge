@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.390-F60R390 — embedded dialog completion
+
+- Removed the final four ForgePY-owned `Toplevel` surfaces from the live GUI.
+- Vault lineage, Artifact Central, Patch Review/Routing, and download-selection are now embedded action surfaces.
+- All native file/folder pickers are explicitly owned by the main ForgePY window.
+- Added regression coverage preventing reintroduction of unowned ForgePY popup windows.
+
 ## 0.4.389-F60R389 — unified GUI shell + command console
 
 - Normalized every top-level ForgePY workspace around one persistent operating shell: workspace rail, global quick actions, active workspace, persistent project console, and permanent health rail.

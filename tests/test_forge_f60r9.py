@@ -81,8 +81,8 @@ class ForgeF60R9Tests(unittest.TestCase):
         self.assertFalse(data["updates"]["downloadsAutoQueue"])
 
     def test_version_authority(self) -> None:
-        self.assertEqual(VERSION, "0.4.389-F60R389")
-        self.assertEqual(BUILD, "FORGEPY-F60R389")
+        self.assertEqual(VERSION, "0.4.390-F60R390")
+        self.assertEqual(BUILD, "FORGEPY-F60R390")
 
     def test_historical_named_root_patch_is_lineage_not_queue(self) -> None:
         with tempfile.TemporaryDirectory() as td:

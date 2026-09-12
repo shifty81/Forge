@@ -7,8 +7,8 @@ from ForgePYVersion import VERSION, BUILD, PRODUCT
 
 class ForgePYF60R12Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, '0.4.389-F60R389')
-        self.assertEqual(BUILD, 'FORGEPY-F60R389')
+        self.assertEqual(VERSION, '0.4.390-F60R390')
+        self.assertEqual(BUILD, 'FORGEPY-F60R390')
         self.assertEqual(PRODUCT, 'ForgePY')
     def test_canonical_root(self):
         for name in ('ForgePY.vbs','ForgePY.cmd','ForgePYConsole.cmd','VerifyForgePY.cmd','FORGEPY_PACKAGE_MANIFEST.json'):

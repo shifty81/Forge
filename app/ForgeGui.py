@@ -1290,8 +1290,7 @@ class ForgeGui:
         """Show probable project/version families without moving anything."""
         tk = self.tk
         groups = vault_drive_lineage_groups(self._vault_scan_root(), limit=1000)
-        dialog = tk.Toplevel(self.window); dialog.withdraw(); dialog.configure(bg=BG); dialog.overrideredirect(True); dialog.transient(self.window)
-        shell = tk.Frame(dialog, bg=PANEL, highlightthickness=1, highlightbackground=CYAN); shell.pack(fill="both", expand=True)
+        overlay,shell = self._embedded_action_shell("Vault Project Lineage", kind="info", width=980, height=610)
         tk.Label(shell, text="Vault Project Lineage", bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 13), anchor="w").pack(fill="x", padx=16, pady=(14,4))
         tk.Label(shell, text="Probable project families inferred from the drive catalog. Review only: ForgePY does not move or delete source automatically.", bg=PANEL, fg=MUTED, font=("Segoe UI",9), anchor="w").pack(fill="x", padx=16, pady=(0,8))
         frame=tk.Frame(shell,bg=PANEL); frame.pack(fill="both",expand=True,padx=16,pady=(0,8))
@@ -1312,10 +1311,10 @@ class ForgeGui:
             sel=tree.selection(); path=paths.get(sel[0]) if sel else None
             if path: open_path(path)
         self._button(actions,"Open Selected",reveal,primary=True,compact=True).pack(side="left")
-        self._button(actions,"Close",dialog.destroy,compact=True).pack(side="right")
+        self._button(actions,"Close",lambda:self._finish_embedded_action(overlay),compact=True).pack(side="right")
         if not groups:
             tree.insert("","end",text="No duplicate/version families detected yet",values=(0,"Run Scan Vault Drive first",""))
-        self._center_modal(dialog, 980, 610); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); tree.focus_force()
+        tree.focus_force()
 
     def _vault_scan_root(self) -> Path:
         summary = vault_drive_latest_summary()
@@ -1741,7 +1740,7 @@ class ForgeGui:
 
     def _vault_choose_home(self) -> None:
         current = str(vault_data_root())
-        chosen = self.filedialog.askdirectory(title="Choose ForgePY Home", initialdir=current if Path(current).exists() else None)
+        chosen = self.filedialog.askdirectory(parent=self.window, title="Choose ForgePY Home", initialdir=current if Path(current).exists() else None)
         if not chosen:
             return
         source = vault_data_root()
@@ -1767,7 +1766,7 @@ class ForgeGui:
 
     def _vault_choose_projects_root(self) -> None:
         current = vault_projects_root()
-        chosen = self.filedialog.askdirectory(title="Choose Default Projects Root", initialdir=str(current) if current.exists() else None)
+        chosen = self.filedialog.askdirectory(parent=self.window, title="Choose Default Projects Root", initialdir=str(current) if current.exists() else None)
         if not chosen:
             return
         target = Path(chosen).expanduser().resolve()
@@ -2111,7 +2110,7 @@ class ForgeGui:
             self._popup("Forgejo", str(exc), kind="warning")
 
     def _forgejo_choose_binary(self) -> None:
-        chosen = self.filedialog.askopenfilename(title="Select Forgejo Binary", filetypes=[("Forgejo", "forgejo.exe"), ("Executable", "*.exe"), ("All files", "*")])
+        chosen = self.filedialog.askopenfilename(parent=self.window, title="Select Forgejo Binary", filetypes=[("Forgejo", "forgejo.exe"), ("Executable", "*.exe"), ("All files", "*")])
         if not chosen:
             return
         settings = load_settings()
@@ -2276,7 +2275,7 @@ class ForgeGui:
             x, y = max(0, (sw - width) // 2), max(0, (sh - height) // 2)
         dialog.geometry(f"{width}x{height}+{x}+{y}")
 
-    def _embedded_action_shell(self,title:str,*,kind:str="info",width:int=570)->tuple[Any,Any]:
+    def _embedded_action_shell(self,title:str,*,kind:str="info",width:int=570,height:int=250)->tuple[Any,Any]:
         tk=self.tk
         if getattr(self,"_embedded_action_active",False):
             try:
@@ -2286,7 +2285,7 @@ class ForgeGui:
         self._embedded_action_active=True; host=getattr(self,"center_host",self.window)
         overlay=tk.Frame(host,bg="#050607"); overlay.place(x=0,y=0,relwidth=1,relheight=1); overlay.lift()
         accent=RED if kind=="error" else (YELLOW if kind=="warning" else (GREEN if kind=="success" else CYAN))
-        card=tk.Frame(overlay,bg=accent,padx=1,pady=1,width=width,height=250); card.place(relx=.5,rely=.44,anchor="center"); card.pack_propagate(False)
+        card=tk.Frame(overlay,bg=accent,padx=1,pady=1,width=width,height=height); card.place(relx=.5,rely=.5,anchor="center"); card.pack_propagate(False)
         shell=tk.Frame(card,bg=PANEL); shell.pack(fill="both",expand=True); tk.Frame(shell,bg=accent,height=4).pack(fill="x")
         tk.Label(shell,text=title,bg=PANEL,fg=TEXT,font=("Segoe UI Semibold",13),anchor="w").pack(fill="x",padx=18,pady=(16,6))
         self._embedded_action_overlay=overlay
@@ -3139,7 +3138,7 @@ class ForgeGui:
         webbrowser.open(url, new=2)
 
     def _register_project(self) -> None:
-        raw = self.filedialog.askdirectory(title="Register Project Root")
+        raw = self.filedialog.askdirectory(parent=self.window, title="Register Project Root")
         if not raw:
             return
         try:
@@ -4554,8 +4553,7 @@ class ForgeGui:
         """Browse ForgePY evidence/artifacts by project and category."""
         tk = self.tk
         root = artifact_central_root()
-        dialog = tk.Toplevel(self.window); dialog.withdraw(); dialog.configure(bg=BG); dialog.overrideredirect(True); dialog.transient(self.window)
-        shell = tk.Frame(dialog,bg=PANEL,highlightthickness=1,highlightbackground=CYAN); shell.pack(fill="both",expand=True)
+        overlay,shell = self._embedded_action_shell("Artifact Central", kind="info", width=1080, height=650)
         tk.Label(shell,text="Artifact Central",bg=PANEL,fg=TEXT,font=("Segoe UI Semibold",13),anchor="w").pack(fill="x",padx=16,pady=(14,4))
         tk.Label(shell,text="Durable per-project logs, reports, patch evidence, builds, packages and recovery artifacts.",bg=PANEL,fg=MUTED,font=("Segoe UI",9),anchor="w").pack(fill="x",padx=16,pady=(0,8))
         top=tk.Frame(shell,bg=PANEL); top.pack(fill="x",padx=16,pady=(0,8))
@@ -4601,7 +4599,7 @@ class ForgeGui:
                         self._append_log(f"[WARN] Artifact Central browse failed: {payload}\n","warn")
             except queue.Empty:
                 pass
-            if dialog.winfo_exists(): dialog.after(100,poll_browser)
+            if overlay.winfo_exists(): overlay.after(100,poll_browser)
 
         def refresh(_e=None, *, append: bool=False):
             if browser_busy["value"]: return
@@ -4638,20 +4636,14 @@ class ForgeGui:
         self._button(actions,"Open",open_sel,primary=True,compact=True).pack(side="left",padx=(0,5))
         self._button(actions,"Reveal",reveal_sel,compact=True).pack(side="left",padx=5)
         self._button(actions,"Patch Review",self._open_patch_review,compact=True).pack(side="left",padx=5)
-        self._button(actions,"Close",dialog.destroy,compact=True).pack(side="right")
+        self._button(actions,"Close",lambda:self._finish_embedded_action(overlay),compact=True).pack(side="right")
         tree.bind("<Double-1>",lambda _e:open_sel())
-        poll_browser(); refresh(); self._center_modal(dialog, 1080, 650); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); entry.focus_force()
+        poll_browser(); refresh(); entry.focus_force()
 
     def _open_patch_review(self) -> None:
         """Actionable global patch-review surface instead of a raw folder view."""
         tk = self.tk
-        dialog = tk.Toplevel(self.window)
-        dialog.withdraw()
-        dialog.configure(bg=BG)
-        dialog.overrideredirect(True)
-        dialog.transient(self.window)
-        shell = tk.Frame(dialog, bg=PANEL, highlightthickness=1, highlightbackground=CYAN)
-        shell.pack(fill="both", expand=True)
+        overlay,shell = self._embedded_action_shell("Patch Review / Routing", kind="info", width=1040, height=630)
         header = tk.Frame(shell, bg=PANEL)
         header.pack(fill="x", padx=16, pady=(13, 5))
         tk.Label(header, text="Patch Review / Routing", bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 13)).pack(side="left")
@@ -4728,7 +4720,7 @@ class ForgeGui:
                 refresh(); return
             self._append_log(f"[PASS] Review approved {approved.get('patch_id')} for {target}; explicit queue authority recorded.\n", "pass")
             if apply_now:
-                dialog.destroy()
+                self._finish_embedded_action(overlay)
                 if self._is_forgepy_root(root):
                     self.window.after(120, lambda target=root: self._start_forgepy_self_apply("review-apply", target_root=target))
                 else:
@@ -4789,9 +4781,9 @@ class ForgeGui:
         self._button(actions,"Ignore",ignore_selected,compact=True).pack(side="left",padx=5)
         self._button(actions,"Reveal",reveal_selected,compact=True).pack(side="left",padx=5)
         self._button(actions,"Refresh",refresh,compact=True).pack(side="left",padx=5)
-        self._button(actions,"Close",dialog.destroy,compact=True).pack(side="right")
+        self._button(actions,"Close",lambda:self._finish_embedded_action(overlay),compact=True).pack(side="right")
         refresh()
-        self._center_modal(dialog, 1040, 630); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); tree.focus_force()
+        tree.focus_force()
 
     def _check_downloads_now(self) -> None:
         """Run a user-requested Downloads scan without turning Downloads into execution authority."""
@@ -4816,15 +4808,8 @@ class ForgeGui:
         if len(items) == 1:
             return items[0]
         tk = self.tk
-        dialog = tk.Toplevel(self.window)
-        dialog.withdraw(); dialog.configure(bg=BG); dialog.overrideredirect(True); dialog.transient(self.window)
-        try:
-            dialog.attributes("-toolwindow", True); dialog.attributes("-topmost", True)
-        except Exception:
-            pass
+        overlay,shell = self._embedded_action_shell("Approve Downloaded Update", kind="info", width=760, height=390)
         result: list[dict[str, Any] | None] = [None]
-        outer = tk.Frame(dialog, bg=CYAN, padx=1, pady=1); outer.pack(fill="both", expand=True)
-        shell = tk.Frame(outer, bg=PANEL); shell.pack(fill="both", expand=True)
         tk.Label(shell, text="Approve Downloaded Update", bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 13), anchor="w").pack(fill="x", padx=18, pady=(16, 4))
         tk.Label(shell, text="Choose one compatible package. Nothing from Downloads executes until you approve it here.", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w").pack(fill="x", padx=18, pady=(0, 10))
         box = tk.Listbox(shell, bg=BG, fg=TEXT, selectbackground="#21404a", selectforeground=TEXT, bd=0, highlightthickness=1, highlightbackground=BORDER, font=("Consolas", 9), activestyle="none")
@@ -4835,9 +4820,7 @@ class ForgeGui:
         box.selection_set(0); box.activate(0)
         def close(value: dict[str, Any] | None) -> None:
             result[0] = value
-            try: dialog.grab_release()
-            except Exception: pass
-            dialog.destroy()
+            self._finish_embedded_action(overlay)
         def accept() -> None:
             selected = box.curselection()
             if selected:
@@ -4846,10 +4829,12 @@ class ForgeGui:
         self._button(actions, "Cancel", lambda: close(None), compact=True).pack(side="right", padx=(8, 0))
         self._button(actions, "Select", accept, primary=True, compact=True).pack(side="right")
         box.bind("<Double-Button-1>", lambda _e: accept())
-        dialog.bind("<Escape>", lambda _e: close(None)); dialog.bind("<Return>", lambda _e: accept())
-        dialog.protocol("WM_DELETE_WINDOW", lambda: close(None))
-        self._center_modal(dialog, 760, 390); self._round_window(dialog); dialog.deiconify(); dialog.lift(); dialog.grab_set(); box.focus_force()
-        self.window.wait_window(dialog)
+        shell.bind("<Escape>", lambda _e: close(None)); shell.bind("<Return>", lambda _e: accept()); box.focus_force()
+        done=tk.BooleanVar(master=self.window,value=False)
+        original_close=close
+        def close(value: dict[str, Any] | None) -> None:
+            original_close(value); done.set(True)
+        self.window.wait_variable(done)
         return result[0]
 
     def _approve_available_download(self, *, apply_after: bool = False) -> None:

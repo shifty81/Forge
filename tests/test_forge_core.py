@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zipfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1] / "app"
@@ -52,7 +53,7 @@ def make_patch(path: Path, *, project: str = "Demo", patch_id: str = "DEMO-001")
     manifest = {
         "schema": "vault.patch.v2",
         "engine": "vault",
-        "createdUtc": "2026-09-10T00:00:00Z",
+        "createdUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "preconditions": {"projectBuild": "demo-build"},
         "project": project,
         "patchId": patch_id,

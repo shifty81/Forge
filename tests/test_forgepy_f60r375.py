@@ -6,7 +6,7 @@ if str(APP) not in sys.path:sys.path.insert(0,str(APP))
 from ForgePYVersion import VERSION,BUILD
 class F60R375Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,'0.4.389-F60R389'); self.assertEqual(BUILD,'FORGEPY-F60R389')
+        self.assertEqual(VERSION,'0.4.390-F60R390'); self.assertEqual(BUILD,'FORGEPY-F60R390')
     def test_preimport_bootstrap_exists(self):
         src=(APP/'ForgePYBootstrap.py').read_text(encoding='utf-8')
         self.assertLess(src.index('initialize()'),src.index('import ForgeStandalone'))

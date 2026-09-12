@@ -11,8 +11,8 @@ if str(APP) not in sys.path: sys.path.insert(0,str(APP))
 class ForgeF60R7Tests(unittest.TestCase):
     def test_version_authority(self):
         from ForgeVersion import VERSION, BUILD
-        self.assertEqual(VERSION, "0.4.389-F60R389")
-        self.assertEqual(BUILD, "FORGEPY-F60R389")
+        self.assertEqual(VERSION, "0.4.390-F60R390")
+        self.assertEqual(BUILD, "FORGEPY-F60R390")
 
     def test_green_git_probes_are_no_window_and_cached(self):
         text=(APP/'ForgeGreen.py').read_text(encoding='utf-8')
@@ -45,8 +45,9 @@ class ForgeF60R7Tests(unittest.TestCase):
     def test_owned_text_prompts_replace_simpledialog_in_workflows(self):
         text=(APP/'ForgeGui.py').read_text(encoding='utf-8')
         self.assertIn('def _ask_text', text)
-        self.assertIn('dialog.transient(self.window)', text)
-        self.assertIn('dialog.grab_set()', text)
+        self.assertIn('def _embedded_action_shell', text)
+        self.assertIn('overlay.grab_set()', text)
+        self.assertNotIn('Toplevel(', text)
         self.assertNotIn('self.simpledialog.askstring', text)
 
 if __name__=='__main__': unittest.main()

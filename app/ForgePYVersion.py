@@ -1,4 +1,4 @@
 """Single visible ForgePY application version authority."""
-VERSION = "0.4.389-F60R389"
-BUILD = "FORGEPY-F60R389"
+VERSION = "0.4.390-F60R390"
+BUILD = "FORGEPY-F60R390"
 PRODUCT = "ForgePY"

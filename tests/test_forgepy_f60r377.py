@@ -10,7 +10,7 @@ from ForgePerformance import record
 
 PATCH='''diff --git a/hello.txt b/hello.txt\nindex ce01362..94954ab 100644\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-hello\n+hello forge\n'''
 class F60R377Tests(unittest.TestCase):
-    def test_identity(self):self.assertEqual((VERSION,BUILD),('0.4.389-F60R389','FORGEPY-F60R389'))
+    def test_identity(self):self.assertEqual((VERSION,BUILD),('0.4.390-F60R390','FORGEPY-F60R390'))
     def _repo(self):
         td=tempfile.TemporaryDirectory(); root=Path(td.name); subprocess.run(['git','init','-q',str(root)],check=True)
         subprocess.run(['git','-C',str(root),'config','user.email','forgepy@test.local'],check=True)
