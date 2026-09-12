@@ -18,8 +18,8 @@ from ForgePYVersion import VERSION, BUILD
 
 class ForgePYF60R22Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION, "0.4.390-F60R390")
-        self.assertEqual(BUILD, "FORGEPY-F60R390")
+        self.assertEqual(VERSION, "0.4.415-F60R415")
+        self.assertEqual(BUILD, "FORGEPY-F60R415")
 
     def test_canonical_patch_filename_contract(self):
         meta = parse_canonical_patch_filename("Cortex__20260910__1.2.3.patch")

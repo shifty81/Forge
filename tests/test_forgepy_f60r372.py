@@ -8,7 +8,7 @@ from ForgePYVersion import VERSION,BUILD
 import ForgeStartup
 from ForgeToolProbe import probe_command
 class Tests(unittest.TestCase):
-    def test_identity(self):self.assertEqual((VERSION,BUILD),('0.4.390-F60R390','FORGEPY-F60R390'))
+    def test_identity(self):self.assertEqual((VERSION,BUILD),('0.4.415-F60R415','FORGEPY-F60R415'))
     def test_launchers(self):
         cmd=(ROOT/'ForgePY.cmd').read_text(encoding='utf-8'); con=(ROOT/'ForgePYConsole.cmd').read_text(encoding='utf-8'); ver=(ROOT/'VerifyForgePY.cmd').read_text(encoding='utf-8')
         self.assertIn('python.exe "%FORGEPY_APP%" %*',cmd); self.assertNotIn('start ""',cmd); self.assertIn('--console',con); self.assertNotIn('call "%~dp0ForgePY.cmd"',con); self.assertIn('--self-test',ver); self.assertNotIn('call "%~dp0ForgePY.cmd"',ver)

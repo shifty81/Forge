@@ -8,7 +8,7 @@ from ForgePYVersion import VERSION, BUILD
 
 class ForgePYF60R65Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,'0.4.390-F60R390'); self.assertEqual(BUILD,'FORGEPY-F60R390')
+        self.assertEqual(VERSION,'0.4.415-F60R415'); self.assertEqual(BUILD,'FORGEPY-F60R415')
     def test_single_tk_root_contract(self):
         # F60R374 supersedes the temporary shared-splash-root approach: normal
         # startup now creates only the main ForgeGui Tk root.

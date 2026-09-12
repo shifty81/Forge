@@ -206,6 +206,9 @@ def self_test(root: Path | None = None) -> int:
         import ForgeAdapterCompliance  # noqa: F401
         import ForgeHealthV3  # noqa: F401
         import ForgeHelpIndex  # noqa: F401
+        import ForgeSimplifiedUX  # noqa: F401
+        import ForgeLocalSource  # noqa: F401
+        import ForgeCompatibilitySnapshot  # noqa: F401
         print("PASS forgepy-modules=loaded")
     except Exception as exc:
         print(f"FAIL universal-modules={exc}")

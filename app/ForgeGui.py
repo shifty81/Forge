@@ -5137,6 +5137,12 @@ class ForgeGui:
         return 0
 
 
+# F391-F415 keeps ForgeGui as the canonical application class and layers the
+# simplified operator contract over its existing patch/source/project authorities.
+from ForgeSimplifiedUX import install_forge_gui
+install_forge_gui(ForgeGui)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Universal ForgePY GUI")
     p.add_argument("--root")

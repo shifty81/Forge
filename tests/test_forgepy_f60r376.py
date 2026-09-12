@@ -13,8 +13,8 @@ from ForgePYVersion import VERSION, BUILD
 
 class F60R376Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,"0.4.390-F60R390")
-        self.assertEqual(BUILD,"FORGEPY-F60R390")
+        self.assertEqual(VERSION,"0.4.415-F60R415")
+        self.assertEqual(BUILD,"FORGEPY-F60R415")
 
     def test_perf_record_accepts_explicit_metadata(self):
         evt=record("projects.refresh",12.5,100.0,{"projects":9,"fullRescan":False})

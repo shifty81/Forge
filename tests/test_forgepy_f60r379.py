@@ -10,7 +10,7 @@ from ForgePYVersion import VERSION,BUILD
 
 class F60R379Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,'0.4.390-F60R390');self.assertEqual(BUILD,'FORGEPY-F60R390')
+        self.assertEqual(VERSION,'0.4.415-F60R415');self.assertEqual(BUILD,'FORGEPY-F60R415')
     def test_runtime_state_is_never_governed_package_content(self):
         for p in ('logs/bootstrap/forgepy-bootstrap-latest.log','artifacts/x.zip','updates/inbox/a.patch','.forge/state.json','forgepy.settings.json'):
             self.assertFalse(is_governed(p),p)

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.415-F60R415 — simplified operator workflow + automatic GREEN publication
+
+- Reworked the selected-project Dashboard around the normal `FULL GATE`, `BUILD`, `RUN`, and `CHECK FOR UPDATES` workflow; the old everyday `COMMIT + PUSH` action is hidden because GREEN now owns publication.
+- Added one simplified patch intake path for picker/Downloads/native Windows drag-and-drop, global registered-project target resolution, guarded apply, and automatic Full Gate chaining.
+- Added the Health-rail patch-folder intake control, compact quick/status bars, permanent selected-project Health behavior, dark scrollbars, and reclaimed the oversized ForgePY header space.
+- Reduced Source Control to **Local Source** and **GitHub** primary tabs with safe backup/restore and simple branch creation/switching.
+- A successful Full Gate automatically starts the existing GREEN-protected commit/push operation for the active branch; remote divergence remains fail-closed and never force-pushes.
+- Failed Full Gates generate the project debug handoff; the DEBUG control reveals the canonical bundle in Explorer for drag-to-ChatGPT handoff.
+- Project-specific command groups now surface only `VERIFIED` Tool Registry entries, preventing raw discovered scripts/executables from becoming random GUI commands.
+- Added Vault-side per-project ForgePY compatibility snapshots so adapters and patch contracts can be audited against the exact standalone ForgePY build without vendoring ForgePY into project repositories.
+- ForgePY Full Gate now refreshes its package manifest before certification; manifest generation preserves its timestamp when governed content is unchanged so no-op gates do not manufacture source changes.
+
 ## 0.4.390-F60R390 — embedded dialog completion
 
 - Removed the final four ForgePY-owned `Toplevel` surfaces from the live GUI.

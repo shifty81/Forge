@@ -18,7 +18,7 @@ from ForgeStandaloneBuild import preflight
 
 class F60R267Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,'0.4.390-F60R390'); self.assertEqual(BUILD,'FORGEPY-F60R390')
+        self.assertEqual(VERSION,'0.4.415-F60R415'); self.assertEqual(BUILD,'FORGEPY-F60R415')
     def test_command_bus_metadata_and_unregister(self):
         b=CommandBus(); b.register('x',lambda:4,category='test',mutates=True); self.assertEqual(b.execute('x').value,4)
         self.assertTrue(b.specs()[0].mutates); self.assertTrue(b.unregister('x')); self.assertFalse(b.execute('x').ok)

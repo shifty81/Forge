@@ -4,8 +4,8 @@
     "id": "forgepy",
     "name": "ForgePY",
     "kind": "python-application",
-    "version": "0.4.390-F60R390",
-    "build": "FORGEPY-F60R390"
+    "version": "0.4.415-F60R415",
+    "build": "FORGEPY-F60R415"
   },
   "root_control_center": {
     "launcher": "ForgePY.cmd"

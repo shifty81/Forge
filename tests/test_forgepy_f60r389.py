@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1];APP=ROOT/"app"
 if str(APP) not in sys.path:sys.path.insert(0,str(APP))
 from ForgePYVersion import VERSION,BUILD
 class F60R389Tests(unittest.TestCase):
- def test_identity(self):self.assertEqual(VERSION,"0.4.390-F60R390");self.assertEqual(BUILD,"FORGEPY-F60R390")
+ def test_identity(self):self.assertEqual(VERSION,"0.4.415-F60R415");self.assertEqual(BUILD,"FORGEPY-F60R415")
  def test_app_wide_console(self):
   s=(APP/"ForgeGui.py").read_text();shell=s[s.index("def _build_shell"):s.index("def _build_projects_tab")];self.assertIn("_build_global_console",shell);self.assertIn("global_workspace_panes",shell)
  def test_console_command_input(self):

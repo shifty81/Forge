@@ -36,8 +36,8 @@ def env(**values: str):
 
 class ForgePYF60R17Tests(unittest.TestCase):
     def test_identity(self) -> None:
-        self.assertEqual(VERSION, "0.4.390-F60R390")
-        self.assertEqual(BUILD, "FORGEPY-F60R390")
+        self.assertEqual(VERSION, "0.4.415-F60R415")
+        self.assertEqual(BUILD, "FORGEPY-F60R415")
         self.assertEqual(PRODUCT, "ForgePY")
 
     def test_canonical_brand_assets(self) -> None:

@@ -21,7 +21,7 @@ from ForgeCleanPcMatrix import scenarios
 
 class ForgePYF60R167Tests(unittest.TestCase):
     def test_identity(self):
-        self.assertEqual(VERSION,'0.4.390-F60R390'); self.assertEqual(BUILD,'FORGEPY-F60R390')
+        self.assertEqual(VERSION,'0.4.415-F60R415'); self.assertEqual(BUILD,'FORGEPY-F60R415')
     def test_command_taxonomy(self):
         self.assertEqual(category_for('gate.full'),'Test / Validation'); self.assertEqual(category_for('git.push'),'Source Control')
     def test_pagination(self):
