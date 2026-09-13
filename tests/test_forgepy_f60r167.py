@@ -51,7 +51,7 @@ class ForgePYF60R167Tests(unittest.TestCase):
     def test_clean_pc_matrix_has_offline_and_rollback(self):
         ids={x['id'] for x in scenarios()}; self.assertIn('offline',ids); self.assertIn('rollback',ids)
     def test_roadmap_has_exactly_100_passes(self):
-        text=(ROOT/'docs'/'NEXT_100_PASSES_F108_F207.md').read_text(encoding='utf-8')
+        text=(ROOT/'docs'/'history'/'passes'/'NEXT_100_PASSES_F108_F207.md').read_text(encoding='utf-8')
         self.assertEqual(sum(1 for i in range(108,208) if f'**F{i}' in text),100)
 
 if __name__=='__main__': unittest.main()

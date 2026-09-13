@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zipfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +57,7 @@ def make_patch(path: Path, *, patch_id: str = "DEMO-R8-001", project: str = "Dem
     manifest = {
         "schema": "forge.patch.v1",
         "engine": "forge-universal",
-        "createdUtc": "2026-09-10T04:45:00Z",
+        "createdUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "project": project,
         "patchId": patch_id,
         "preconditions": {"projectBuild": "demo-build"},

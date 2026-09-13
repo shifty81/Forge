@@ -28,6 +28,6 @@ class F60R375Tests(unittest.TestCase):
         self.assertIn('self.window.after(700, self._start_intake_watcher)',src)
         self.assertNotIn('\n        self._start_intake_watcher()\n',src[src.index('class ForgeGui'):src.index('    # ------------------------------------------------------------------\n    # Shell / styling')])
     def test_debug_launcher_always_pauses(self):
-        src=(ROOT/'ForgePYDebug.cmd').read_text(encoding='utf-8')
+        src=(ROOT/'compat'/'legacy-launchers'/'ForgePYDebug.cmd').read_text(encoding='utf-8')
         self.assertIn('pause',src.casefold()); self.assertIn('forgepy-bootstrap-latest.log',src)
 if __name__=='__main__':unittest.main()

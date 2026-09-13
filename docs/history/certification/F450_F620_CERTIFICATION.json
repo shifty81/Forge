@@ -1,0 +1,81 @@
+{
+  "candidateSafe": {
+    "doesNotReplace": [
+      "app/ForgeGui.py",
+      "app/ForgeSimplifiedUX.py",
+      "app/VaultIntake.py"
+    ]
+  },
+  "normalizationAudit": {
+    "checks": [
+      {
+        "detail": "Vault / Project / Workspace / Settings",
+        "name": "primary-navigation",
+        "ok": true
+      },
+      {
+        "detail": "embedded-console",
+        "name": "project-cli-mode",
+        "ok": true
+      },
+      {
+        "detail": "governed",
+        "name": "root-app-governed",
+        "ok": true
+      },
+      {
+        "detail": "legacy-mirror",
+        "name": "nested-mirror-excluded",
+        "ok": true
+      },
+      {
+        "detail": "runtime-transient",
+        "name": "runtime-output-excluded",
+        "ok": true
+      },
+      {
+        "detail": "{}",
+        "name": "protocol-alias-conflicts",
+        "ok": true
+      },
+      {
+        "detail": "static overlay proof",
+        "name": "no-implicit-patch-apply",
+        "ok": true
+      },
+      {
+        "detail": "canonical CLI route",
+        "name": "root-cli-routing",
+        "ok": true
+      },
+      {
+        "detail": "native lazy Workspace",
+        "name": "native-workspace",
+        "ok": true
+      },
+      {
+        "detail": "/opt/pyvenv/bin/python -m nuitka --standalone --enable-plugin=tk-inter --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=/mnt/data/ForgePY_F450_F620_CohesiveNormalization/assets/branding/ForgePY.ico --company-name=ForgePY --product-name=ForgePY --file-description=ForgePY Universal Project Operations --output-filename=ForgePY.exe --output-dir=/mnt/data/ForgePY_F450_F620_CohesiveNormalization/dist/nuitka /mnt/data/ForgePY_F450_F620_CohesiveNormalization/app/ForgePYBootstrap.py",
+        "name": "portable-executable",
+        "ok": true
+      }
+    ],
+    "failed": [],
+    "ok": true,
+    "schema": "forgepy.normalization-audit.v1",
+    "version": "FORGEPY-NORMALIZATION-AUDIT-1.0-F620"
+  },
+  "passes": "F450-F620",
+  "performanceAudit": {
+    "filesParsed": 48,
+    "findings": 30,
+    "high": 0,
+    "severityCounts": {
+      "INFO": 18,
+      "WARN": 12
+    }
+  },
+  "schema": "forgepy.cumulative-normalization-certification.v1",
+  "syntaxCompiled": 48,
+  "unitTestsRan": 75,
+  "unitTestsSkipped": 2
+}

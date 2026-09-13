@@ -26,7 +26,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "fast": ("gate.fast", "build.fast", "gate.quick", "build.quick"),
     "build": ("build.native", "build.debug", "build", "build.render", "build.headless"),
     "build-release": ("build.release", "build.native", "build"),
-    "launch-gui": ("run.game", "run.client", "run.editor", "run.runtime"),
+    "launch-gui": ("run.gui", "run.game", "run.client", "run.editor", "run.runtime", "run.default"),
     "patch-status": ("patch.status", "patch.preview"),
     "patch-apply": ("patch.apply",),
     "git-status": ("git.status", "project.status"),

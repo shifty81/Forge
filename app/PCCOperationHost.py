@@ -4,24 +4,25 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Sequence
 
 from PCCProjectDiscovery import discover_project_contract_data
 from PCCRepoHygiene import prepare
-from VaultIntake import reconcile_project, scan_roots, scan_downloads, stage_for_project
-from VaultPatchEngine import apply_inbox, apply_transport, can_apply_transport
+from ForgePYIntake import reconcile_project, scan_roots, stage_for_project
+from ForgePYPatchEngine import apply_transport, can_apply_transport
 from ForgeGreen import certify_green
 
-VERSION = "FORGE-OPERATION-HOST-0.9"
+VERSION = "FORGE-OPERATION-HOST-1.1-F571"
 
 CLEAN_OPERATIONS = {
     "full", "quick", "fast", "build", "build-release", "patch-apply", "self-test",
     "commit-green", "commit-push-green", "push", "git-pull",
     "debug-bundle", "doctor", "root-hygiene", "root-hygiene-fix",
 }
-PATCH_APPLY_OPERATIONS = {"full", "quick", "fast", "build", "build-release"}
+
+# Queued updates are never adopted by ordinary build/gate operations.
+AUTO_PATCH_OPERATIONS: set[str] = set()
 
 
 def _print_hygiene(label: str, root: Path) -> int:
@@ -33,13 +34,11 @@ def _print_hygiene(label: str, root: Path) -> int:
     moved = int(result.get("moved", 0) or 0)
     if moved:
         print(f"[PASS] {label} repository transport hygiene moved {moved} operational artifact(s).", flush=True)
-        for row in result.get("moves", []):
-            print(f"  MOVE {Path(row['source']).name} -> {row['destination']}", flush=True)
     else:
         print(f"[PASS] {label} repository transport hygiene clean.", flush=True)
     pending = result.get("pendingPatchTransports") or []
     if pending:
-        print(f"[INFO] {len(pending)} pending patch transport(s) preserved for Forge intake.", flush=True)
+        print(f"[INFO] {len(pending)} pending patch transport(s) preserved for ForgePY intake.", flush=True)
     return 0
 
 
@@ -47,7 +46,7 @@ def _run(argv: Sequence[str], root: Path) -> int:
     env = os.environ.copy()
     env["PCC_OPERATION_HOST_ACTIVE"] = "1"
     env["VAULT_OPERATION_HOST_ACTIVE"] = "1"
-    env["FORGE_OPERATION_HOST_ACTIVE"] = "1"  # F01-F10 compatibility
+    env["FORGE_OPERATION_HOST_ACTIVE"] = "1"
     env.setdefault("PYTHONUTF8", "1")
     env.setdefault("PYTHONIOENCODING", "utf-8")
     proc = subprocess.Popen(list(argv), cwd=str(root), stdin=subprocess.DEVNULL, env=env)
@@ -56,29 +55,33 @@ def _run(argv: Sequence[str], root: Path) -> int:
 
 def _provider_variant(child: Sequence[str], current_operation: str, replacement: str) -> list[str]:
     argv = list(child)
-    for index in range(min(6, len(argv))):
+    for index in range(min(8, len(argv))):
         if argv[index] == current_operation:
             argv[index] = replacement
             return argv
     raise RuntimeError(f"cannot derive provider operation {replacement!r} from child argv")
 
 
-def _project_has_patch_authority(root: Path) -> bool:
+def _project_command_keys(root: Path) -> set[str]:
     try:
         data = discover_project_contract_data(root)
     except Exception:
-        return False
-    keys = {str(item.get("key") or "").casefold() for item in data.get("commands", []) if isinstance(item, dict)}
-    return "patch.apply" in keys
+        return set()
+    return {str(item.get("key") or "").casefold() for item in data.get("commands", []) if isinstance(item, dict)}
+
+
+def _project_has_patch_authority(root: Path) -> bool:
+    keys = _project_command_keys(root)
+    return "patch.apply" in keys or "patch.apply-staged" in keys
+
+
+def _project_has_recovery_authority(root: Path) -> bool:
+    keys = _project_command_keys(root)
+    return bool(keys & {"recovery.restore", "recovery.undo-last", "patch.undo", "patch.rollback"})
 
 
 def _ingest_root_drop(root: Path) -> int:
-    """Promote completed *active-project root* transports before hygiene.
-
-    Downloads is a global asynchronous intake surface and must never make an unrelated
-    project's build/gate fail. Only malformed patch transports physically dropped into
-    the active project root are blocking for that operation.
-    """
+    """Project-root drop remains intake only; it may queue but does not apply."""
     try:
         result = scan_roots((root,), force_stable=True, remove_source=True, trusted_roots=(root,))
     except Exception as exc:
@@ -87,167 +90,216 @@ def _ingest_root_drop(root: Path) -> int:
     for item in result.get("ingested", []):
         state = str(item.get("state") or "").upper()
         if state == "QUEUED":
-            print(f"[PASS] Forge incoming.patch explicitly approved and queued {item.get('patch_id')}.", flush=True)
-        elif state == "LINEAGE":
-            print(f"[INFO] Forge archived non-canonical root transport {item.get('patch_id')} to Patch Lineage; it was not queued.", flush=True)
+            print(f"[PASS] Forge queued {item.get('patch_id')} for this project; source is unchanged.", flush=True)
         else:
             print(f"[INFO] Forge root intake cataloged {item.get('patch_id')} as {state or 'NONEXECUTABLE'}.", flush=True)
-    for item in result.get("skipped", []):
-        reason = str(item.get("reason") or "skipped")
-        if "already queued/applied" not in reason:
-            print(f"[INFO] Forge root-drop skipped {item.get('path')}: {reason}", flush=True)
     for item in result.get("errors", []):
         print(f"[FAIL] Forge active-root patch rejected {item.get('path')}: {item.get('error')}", flush=True)
     return 0 if not result.get("errors") else 1
 
 
-def _poll_downloads_nonblocking() -> None:
-    """Best-effort global Downloads intake. Rejections are review items, never gate failures."""
-    try:
-        result = scan_downloads(force_stable=False, remove_source=True)
-    except Exception as exc:
-        print(f"[WARN] Forge Downloads intake scan unavailable: {exc}", flush=True)
-        return
-    cataloged = len(result.get("ingested") or [])
-    rejected = len(result.get("errors") or [])
-    if cataloged:
-        print(f"[INFO] Forge Downloads intake cataloged {cataloged} patch transport(s); none were queued by discovery.", flush=True)
-    if rejected:
-        print(f"[WARN] Forge Downloads intake has {rejected} rejected/review transport(s); active project gate continues.", flush=True)
-
-
-def _universal_apply_staged(root: Path, staged: dict[str, object]) -> tuple[int, int]:
-    """Apply verified canonical transports directly from Artifact Central.
-
-    This keeps normal Forge updates out of project updates/inbox.  The compatibility
-    inbox is used only when a legacy project-native patch authority is required.
-    """
-    applied = 0
-    skipped = 0
+def _staged_sources(staged: dict[str, object]) -> tuple[list[Path], list[Path], list[str]]:
+    universal: list[Path] = []
+    native: list[Path] = []
+    errors: list[str] = []
     for row in list(staged.get("items") or []):
-        source = Path(str(row.get("source") or ""))
-        if not source.is_file() or not can_apply_transport(source):
-            skipped += 1
+        source = Path(str(row.get("source") or "")).expanduser()
+        if not source.is_file():
+            errors.append(f"staged transport is missing: {source}")
             continue
+        if can_apply_transport(source):
+            universal.append(source.resolve())
+        else:
+            native.append(source.resolve())
+    return universal, native, errors
+
+
+def _apply_universal_batch(root: Path, sources: list[Path], project_id: str) -> tuple[int, Path | None]:
+    from ForgePatchCheckpoint import create as create_checkpoint, mark as mark_checkpoint, restore as restore_checkpoint
+
+    try:
+        checkpoint_info = create_checkpoint(root, sources, project_id=project_id)
+        checkpoint = Path(str(checkpoint_info["path"]))
+        mark_checkpoint(checkpoint, "APPLYING")
+        print(
+            f"[PASS] Recovery checkpoint created before mutation: {checkpoint} "
+            f"({checkpoint_info.get('files', 0)} touched path(s)).",
+            flush=True,
+        )
+    except Exception as exc:
+        print(f"[FAIL] Apply Updates stopped before mutation because recovery checkpoint creation failed: {exc}", flush=True)
+        return 1, None
+
+    for source in sources:
         try:
             receipt = apply_transport(source, root)
-            print(f"[PASS] Forge universal patch engine applied {receipt.get('patchId') or source.name} transactionally from Artifact Central.", flush=True)
-            applied += 1
+            print(f"[PASS] ForgePY applied {receipt.get('patchId') or source.name} transactionally.", flush=True)
         except Exception as exc:
-            print(f"[FAIL] Forge universal patch engine failed and rolled back: {exc}", flush=True)
-            return 1, skipped
-    return 0, skipped
+            print(f"[FAIL] ForgePY patch engine failed: {exc}", flush=True)
+            try:
+                restored = restore_checkpoint(checkpoint)
+                if restored.get("ok"):
+                    print(f"[PASS] Entire update batch restored from checkpoint: {checkpoint}", flush=True)
+                else:
+                    print(f"[FAIL] Batch rollback needs attention: {restored.get('errors')}", flush=True)
+            except Exception as rollback_exc:
+                print(f"[FAIL] Batch rollback could not complete: {rollback_exc}", flush=True)
+            return 1, checkpoint
 
-def _apply_staged_updates(root: Path, operation: str, child: Sequence[str]) -> int:
+    mark_checkpoint(checkpoint, "APPLIED_AWAITING_GATE")
+    return 0, checkpoint
+
+
+def _apply_staged_updates(root: Path, operation: str, child: Sequence[str]) -> tuple[int, Path | None]:
     try:
         staged = stage_for_project(root, compatibility_inbox=False)
     except Exception as exc:
-        print(f"[FAIL] Forge could not validate approved patch queue: {exc}", flush=True)
-        return 1
+        print(f"[FAIL] ForgePY could not validate the approved patch queue: {exc}", flush=True)
+        return 1, None
+
     count = int(staged.get("staged", 0) or 0)
     if count == 0:
-        return 0
-    print(f"[INFO] Forge validated {count} explicitly approved patch(es) for the next {operation} operation.", flush=True)
+        print("[INFO] No approved updates are queued for this project.", flush=True)
+        return 0, None
 
-    # Canonical Forge/Vault patch schemas apply directly from Artifact Central.
-    # Only non-universal legacy transports are bridged into a project-native inbox.
-    rc, skipped = _universal_apply_staged(root, staged)
-    if rc != 0:
-        return rc
-    # Reconcile canonical transports before any legacy compatibility staging so
-    # a project-native inbox can never see and re-apply a package Forge already applied.
+    print(f"[INFO] Explicit Apply Updates selected: preflighting {count} queued patch(es) before mutation.", flush=True)
+    universal, native, errors = _staged_sources(staged)
+    if errors:
+        for error in errors:
+            print(f"[FAIL] {error}", flush=True)
+        print("[FAIL] No project source was changed.", flush=True)
+        return 1, None
+
+    # Never partially apply one authority and only then discover that a second
+    # authority cannot safely handle the rest of the same queue.
+    if universal and native:
+        print(
+            "[FAIL] The staged batch mixes ForgePY-universal and project-native transports. "
+            "Nothing was applied. Review/unstage the batch so one recovery authority owns the transaction.",
+            flush=True,
+        )
+        return 1, None
+
+    checkpoint: Path | None = None
+    if universal:
+        try:
+            project_id = str((discover_project_contract_data(root).get("project") or {}).get("id") or root.name)
+        except Exception:
+            project_id = root.name
+        rc, checkpoint = _apply_universal_batch(root, universal, project_id)
+        if rc != 0:
+            return rc, checkpoint
+    elif native:
+        if not _project_has_patch_authority(root):
+            print(
+                f"[FAIL] {len(native)} staged transport(s) require project-specific patch authority. "
+                "Nothing was applied.",
+                flush=True,
+            )
+            return 1, None
+        if not _project_has_recovery_authority(root):
+            print(
+                "[FAIL] Project-native patch authority has no declared recovery/rollback capability. "
+                "ForgePY will not mutate source without a recovery boundary.",
+                flush=True,
+            )
+            return 1, None
+        compat = stage_for_project(root, compatibility_inbox=True)
+        if int(compat.get("staged", 0) or 0) <= 0:
+            print("[FAIL] No compatibility transports were staged for the project-native authority.", flush=True)
+            return 1, None
+        print("[PASS] Project-native patch + recovery authority accepted the staged batch.", flush=True)
+        apply_child = _provider_variant(child, operation, "patch-apply")
+        rc = _run(apply_child, root)
+        if rc != 0:
+            return rc, None
+
     try:
         reconcile_project(root)
     except Exception as exc:
-        print(f"[WARN] Canonical patch applied, but early lineage reconciliation needs attention: {exc}", flush=True)
-    if skipped:
-        if not _project_has_patch_authority(root):
-            print(f"[FAIL] {skipped} approved transport(s) require a project-specific patch authority.", flush=True)
-            return 1
-        try:
-            compat = stage_for_project(root, compatibility_inbox=True)
-            apply_child = _provider_variant(child, operation, "patch-apply")
-        except Exception as exc:
-            print(f"[FAIL] Could not prepare project compatibility patch authority: {exc}", flush=True)
-            return 1
-        if int(compat.get("staged", 0) or 0) <= 0:
-            print("[FAIL] No compatibility transports were staged for the project-native patch authority.", flush=True)
-            return 1
-        rc = _run(apply_child, root)
-        if rc != 0:
-            print(f"[FAIL] Project patch authority rejected/failed approved patch(es), exit={rc}.", flush=True)
-            return rc
+        print(f"[WARN] Applied update reconciliation needs attention: {exc}", flush=True)
+    return 0, checkpoint
 
-    try:
-        reconciled = reconcile_project(root)
-        promoted = int(reconciled.get("reconciled", 0) or 0)
-        if promoted:
-            print(f"[PASS] Forge reconciled {promoted} applied patch(es) into durable Patch Lineage.", flush=True)
-    except Exception as exc:
-        print(f"[WARN] Patch applied, but Forge lineage reconciliation needs attention: {exc}", flush=True)
-    return 0
 
 def main(argv: Sequence[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Forge universal operation host")
+    ap = argparse.ArgumentParser(description="ForgePY universal operation host")
     ap.add_argument("--root", required=True)
     ap.add_argument("--operation", required=True)
     ap.add_argument("child", nargs=argparse.REMAINDER)
     ns = ap.parse_args(argv)
+
     root = Path(ns.root).expanduser().resolve()
     operation = str(ns.operation)
     child = list(ns.child)
     if child and child[0] == "--":
         child = child[1:]
     if not child:
-        print("[FAIL] Forge operation host received no provider command.", flush=True)
+        print("[FAIL] ForgePY operation host received no provider command.", flush=True)
         return 2
 
-    # Project operations inspect only the active project root.  Downloads/global intake is
-    # owned by the background/manual Vault intake service and is never polled, queued, staged
-    # or applied merely because a build/gate is running.
-    if operation in CLEAN_OPERATIONS or operation in PATCH_APPLY_OPERATIONS:
+    if operation in CLEAN_OPERATIONS:
         if _ingest_root_drop(root) != 0:
             return 1
-
-    do_clean = operation in CLEAN_OPERATIONS
-    if do_clean and _print_hygiene("Pre-operation", root) != 0:
-        return 1
+        if _print_hygiene("Pre-operation", root) != 0:
+            return 1
 
     print(f"[FORGE] Operation host {VERSION}: {operation}", flush=True)
     rc = 1
+    checkpoint: Path | None = None
     try:
         if operation == "patch-apply":
-            rc = _apply_staged_updates(root, operation, child)
+            rc, checkpoint = _apply_staged_updates(root, operation, child)
+            if rc == 0:
+                try:
+                    full_child = _provider_variant(child, operation, "full")
+                    print("[INFO] Updates applied; starting authoritative Full Gate.", flush=True)
+                    rc = _run(full_child, root)
+                except Exception as exc:
+                    print(f"[FAIL] Updates applied but Full Gate could not be derived: {exc}", flush=True)
+                    rc = 1
+                if rc != 0 and checkpoint is not None:
+                    try:
+                        from ForgePatchCheckpoint import mark
+                        mark(checkpoint, "GATE_FAILED_RECOVERY_AVAILABLE", detail="Authoritative Full Gate failed after update apply")
+                        print(f"[WARN] Failed updated state preserved. Recovery checkpoint: {checkpoint}", flush=True)
+                    except Exception as exc:
+                        print(f"[WARN] Could not annotate recovery checkpoint: {exc}", flush=True)
         else:
-            if operation in PATCH_APPLY_OPERATIONS:
-                patch_rc = _apply_staged_updates(root, operation, child)
-                if patch_rc != 0:
-                    return patch_rc
             rc = _run(child, root)
-
-        if rc == 0 and operation == "patch-apply":
-            try:
-                reconciled = reconcile_project(root)
-                promoted = int(reconciled.get("reconciled", 0) or 0)
-                if promoted:
-                    print(f"[PASS] Forge reconciled {promoted} applied patch(es) into the durable Library archive.", flush=True)
-            except Exception as exc:
-                print(f"[WARN] Patch applied, but Forge reconciliation needs attention: {exc}", flush=True)
     finally:
-        if do_clean:
+        if operation in CLEAN_OPERATIONS:
             clean_rc = _print_hygiene("Post-operation", root)
             if rc == 0 and clean_rc != 0:
                 rc = clean_rc
-    if rc == 0 and operation == "full":
+
+    if rc == 0 and operation in {"full", "patch-apply"}:
         try:
             green = certify_green(root, gate="full")
-            print(
-                f"[PASS] Forge GREEN authority recorded: {green.get('sourceFileCount', 0)} governed file(s) -> {green.get('path')}",
-                flush=True,
-            )
+            print(f"[PASS] ForgePY GREEN authority recorded: {green.get('path')}", flush=True)
+            if operation == "patch-apply" and checkpoint is not None:
+                try:
+                    from ForgePatchCheckpoint import mark
+                    mark(checkpoint, "GREEN", detail=str(green.get("path") or ""))
+                except Exception as exc:
+                    print(f"[WARN] GREEN passed but checkpoint state could not be finalized: {exc}", flush=True)
         except Exception as exc:
-            print(f"[FAIL] Full gate passed but Forge could not persist GREEN authority: {exc}", flush=True)
+            print(f"[FAIL] Gate passed but GREEN authority could not be persisted: {exc}", flush=True)
+            if operation == "patch-apply" and checkpoint is not None:
+                try:
+                    from ForgePatchCheckpoint import mark
+                    mark(checkpoint, "GATE_FAILED_RECOVERY_AVAILABLE", detail=f"GREEN persistence failed: {exc}")
+                except Exception:
+                    pass
             return 1
+    elif operation == "patch-apply" and checkpoint is not None:
+        try:
+            from ForgePatchCheckpoint import mark
+            # Preserve the failed post-apply state and checkpoint. Do not silently roll
+            # back a gate failure; operator/Cortex can inspect evidence and explicitly restore.
+            current = mark(checkpoint, "GATE_FAILED_RECOVERY_AVAILABLE", detail="Update apply did not certify GREEN")
+            del current
+        except Exception:
+            pass
     return rc
 
 

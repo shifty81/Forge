@@ -9,6 +9,7 @@ import tempfile
 import unittest
 import zipfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,7 +50,7 @@ def make_universal_patch(path: Path, *, project: str, patch_id: str, rel: str, b
     manifest = {
         "schema": "forge.patch.v1",
         "engine": "forge-universal",
-        "createdUtc": "2026-09-10T06:00:00Z",
+        "createdUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "preconditions": {"projectBuild": "demo-build"},
         "project": project,
         "patchId": patch_id,
@@ -107,7 +108,7 @@ class VaultCoreTests(unittest.TestCase):
             self.assertGreaterEqual(int(tooling.get("commandCount") or 0), 2)
             self.assertEqual((summary.get("projectDiscovery") or {}).get("kind"), "dotnet")
 
-    def test_root_drop_ingests_and_universal_engine_applies(self) -> None:
+    def test_root_drop_ingests_but_build_does_not_implicitly_apply(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             project = base / "Demo"; project.mkdir()
@@ -136,9 +137,9 @@ class VaultCoreTests(unittest.TestCase):
                     cwd=project, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=os.environ.copy(), check=False,
                 )
                 self.assertEqual(cp.returncode, 0, cp.stdout)
-                self.assertEqual(target.read_bytes(), after, cp.stdout)
+                self.assertEqual(target.read_bytes(), before, cp.stdout)
                 states = {x["patch_id"]: x["state"] for x in list_items()}
-                self.assertEqual(states.get("DEMO-VAULT-001"), "APPLIED", cp.stdout)
+                self.assertEqual(states.get("DEMO-VAULT-001"), "QUEUED", cp.stdout)
 
     def test_universal_patch_preimage_mismatch_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:

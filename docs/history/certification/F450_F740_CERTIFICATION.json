@@ -1,0 +1,143 @@
+{
+  "candidateSafe": {
+    "doesNotReplace": [
+      "app/ForgeGui.py",
+      "app/ForgeSimplifiedUX.py",
+      "app/VaultIntake.py"
+    ]
+  },
+  "certifiedBaseCompatibility": "0.4.415-F60R415",
+  "executableSystem": {
+    "applicationUpdate": ".forgeupdate application-image bundle",
+    "installer": "Inno Setup Standard/Portable selector",
+    "legacySingleExeUpdater": false,
+    "portableArtifact": "ZIP with .forgepy-portable + Data",
+    "projectSourcePatchLaneSeparate": true,
+    "runtime": "Nuitka standalone/onedir"
+  },
+  "normalizationAudit": {
+    "checks": [
+      {
+        "detail": "Vault / Project / Workspace / Settings",
+        "name": "primary-navigation",
+        "ok": true
+      },
+      {
+        "detail": "external-project-cli",
+        "name": "project-cli-mode",
+        "ok": true
+      },
+      {
+        "detail": "0.5.0-candidate.740 / FORGEPY-F740",
+        "name": "candidate-identity",
+        "ok": true
+      },
+      {
+        "detail": "['installed', 'portable']",
+        "name": "install-modes",
+        "ok": true
+      },
+      {
+        "detail": "separate application update lane",
+        "name": "self-maintenance-lane",
+        "ok": true
+      },
+      {
+        "detail": "Nuitka/portable/installer/update-bundle distribution lane",
+        "name": "executable-system",
+        "ok": true
+      },
+      {
+        "detail": "latest-request-wins app navigation",
+        "name": "navigation-runtime",
+        "ok": true
+      },
+      {
+        "detail": "legacy single-EXE updater disabled",
+        "name": "no-single-exe-updater",
+        "ok": true
+      },
+      {
+        "detail": "project command-center dashboard",
+        "name": "functional-dashboard",
+        "ok": true
+      },
+      {
+        "detail": "specialist Project pages are lazy",
+        "name": "lazy-project-pages",
+        "ok": true
+      },
+      {
+        "detail": "FORGEPY-LAYOUT-1.0-F630",
+        "name": "layout-policy",
+        "ok": true
+      },
+      {
+        "detail": "governed",
+        "name": "root-app-governed",
+        "ok": true
+      },
+      {
+        "detail": "legacy-mirror",
+        "name": "nested-mirror-excluded",
+        "ok": true
+      },
+      {
+        "detail": "runtime-transient",
+        "name": "runtime-output-excluded",
+        "ok": true
+      },
+      {
+        "detail": "{}",
+        "name": "protocol-alias-conflicts",
+        "ok": true
+      },
+      {
+        "detail": "static overlay proof",
+        "name": "no-implicit-patch-apply",
+        "ok": true
+      },
+      {
+        "detail": "canonical CLI route",
+        "name": "root-cli-routing",
+        "ok": true
+      },
+      {
+        "detail": "native lazy Workspace",
+        "name": "native-workspace",
+        "ok": true
+      },
+      {
+        "detail": "/opt/pyvenv/bin/python -m nuitka --standalone --enable-plugin=tk-inter --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=/mnt/data/ForgePY_F450_F740_ExecutableSystem/assets/branding/ForgePY.ico --company-name=ForgePY --product-name=ForgePY --file-description=ForgePY Universal Project Operations --file-version=0.5.0.740 --product-version=0.5.0.740 --output-filename=ForgePY.exe --output-dir=/mnt/data/ForgePY_F450_F740_ExecutableSystem/dist/nuitka --include-module=ForgeAdapterCompliance --include-module=ForgeApplicationIdentity --include-module=ForgeBackendCapabilityPatch --include-module=ForgeCommandAvailability --include-module=ForgeCommandBus --include-module=ForgeCortexBridge --include-module=ForgeDriveCensus --include-module=ForgeExeBuild --include-module=ForgeExecutableSystem --include-module=ForgeGreen --include-module=ForgeInstallerRuntime --include-module=ForgeInstallLayout --include-module=ForgeJobs --include-module=ForgeLayoutNormalization --include-module=ForgeLoadCoordinator --include-module=ForgeNavigationRuntime --include-module=ForgeNormalizationAudit --include-module=ForgeOperationEnvelope --include-module=ForgeOperationGuard --include-module=ForgePackagePolicy --include-module=ForgePatchCheckpoint --include-module=ForgePerformanceAudit --include-module=ForgePerformanceRuntime --include-module=ForgeProjectAudit --include-module=ForgeProjectDashboard --include-module=ForgeProjectIdentity --include-module=ForgeProjectInteractionPerformance --include-module=ForgeProjectProtocol --include-module=ForgeProjectSurface --include-module=ForgePYIntake --include-module=ForgeRuntimeCompatibility --include-module=ForgeRuntimeServices --include-module=ForgeSelfMaintenance --include-module=ForgeSelfMaintenanceUI --include-module=ForgeSelfUpdateRuntime --include-module=ForgeSourceAuthority --include-module=ForgeSourceTreePolicy --include-module=ForgeStandaloneBuild --include-module=ForgeStatusCache --include-module=ForgeUiWorkflowModel --include-module=ForgeUnifiedCli --include-module=ForgeUnifiedServices --include-module=ForgeUnifiedWorkflow --include-module=ForgeVaultWorkflow --include-module=ForgeWorkspacePerformance --include-module=ForgeWorkspaceSurface --include-module=PCCOperationHost /mnt/data/ForgePY_F450_F740_ExecutableSystem/app/ForgePYBootstrap.py",
+        "name": "portable-executable",
+        "ok": true
+      }
+    ],
+    "failed": [],
+    "ok": true,
+    "schema": "forgepy.normalization-audit.v1",
+    "version": "FORGEPY-NORMALIZATION-AUDIT-2.1-F740"
+  },
+  "passes": "F450-F740",
+  "performanceAudit": {
+    "filesParsed": 62,
+    "findings": 35,
+    "high": 0,
+    "severityCounts": {
+      "INFO": 20,
+      "WARN": 15
+    }
+  },
+  "responsiveness": {
+    "failedSurfaceBuild": "restore previous stable frame",
+    "quickbar": "atomic row swap",
+    "rapidNavigation": "latest-request-wins/debounced",
+    "telemetry": "navigation-commit + ui-event-loop-lag"
+  },
+  "schema": "forgepy.f740.certification.v1",
+  "syntaxCompiled": 62,
+  "unitTestsRan": 107,
+  "unitTestsSkipped": 2,
+  "visibleBuild": "FORGEPY-F740",
+  "visibleVersion": "0.5.0-candidate.740"
+}

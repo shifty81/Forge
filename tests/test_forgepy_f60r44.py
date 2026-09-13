@@ -25,7 +25,7 @@ class ForgePYF60R44Tests(unittest.TestCase):
         self.assertEqual(BUILD, "FORGEPY-F60R415")
 
     def test_roadmap_contains_twenty_completed_passes(self):
-        text = (ROOT / "docs" / "NEXT_20_PASSES_F71_F90.md").read_text(encoding="utf-8")
+        text = (ROOT / "docs" / "history" / "passes" / "NEXT_20_PASSES_F71_F90.md").read_text(encoding="utf-8")
         for number in range(71, 91):
             self.assertIn(f"F{number}", text)
         self.assertGreaterEqual(text.count("COMPLETE"), 20)
@@ -96,7 +96,7 @@ class ForgePYF60R44Tests(unittest.TestCase):
                     __import__('os').environ['FORGEPY_SETTINGS_PATH']=old
 
     def test_gap_audit_is_explicit_about_remaining_work(self):
-        text=(ROOT/"docs"/"F71_F90_GAP_AUDIT.md").read_text(encoding="utf-8")
+        text=(ROOT/"docs"/"history"/"passes"/"F71_F90_GAP_AUDIT.md").read_text(encoding="utf-8")
         for gap in ("Native Windows drag/drop intake", "Incremental D:\\ watcher", "Visual conflict resolver", "Release installer/signing"):
             self.assertIn(gap,text)
 

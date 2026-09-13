@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-import shutil
-import subprocess
-import threading
+import hashlib, json, os, shutil, subprocess, threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from VaultPaths import ensure_artifact_project_tree
+from ForgePackagePolicy import is_governed
 
-FORGE_GREEN_VERSION = "FORGE-GREEN-0.4.7"
-
+FORGE_GREEN_VERSION = "FORGE-GREEN-0.5-F620"
 _GREEN_CACHE_LOCK = threading.Lock()
 _GREEN_CACHE: dict[str, tuple[tuple[object, ...], str, int]] = {}
+
+
+def _git_binary() -> str:
+    try:
+        from ForgeStatusCache import git_binary
+        value = git_binary()
+        if value:
+            return value
+    except Exception:
+        pass
+    return shutil.which("git") or ""
+
 
 def _quiet_startupinfo() -> subprocess.STARTUPINFO | None:
     if os.name != "nt":
@@ -26,11 +33,15 @@ def _quiet_startupinfo() -> subprocess.STARTUPINFO | None:
     info.wShowWindow = int(getattr(subprocess, "SW_HIDE", 0))
     return info
 
+
 def _quiet_flags() -> int:
     return int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
 
+
 def _git_probe(root: Path, *args: str, timeout: float = 20.0, binary: bool = False) -> subprocess.CompletedProcess:
-    git = shutil.which("git") or "git"
+    git = _git_binary()
+    if not git:
+        return subprocess.CompletedProcess([], 127, stdout=b"" if binary else "")
     return subprocess.run(
         [git, "-C", str(root), *args], cwd=str(root),
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -38,52 +49,14 @@ def _git_probe(root: Path, *args: str, timeout: float = 20.0, binary: bool = Fal
         timeout=timeout, check=False, creationflags=_quiet_flags(), startupinfo=_quiet_startupinfo(),
     )
 
-def _green_cache_token(root: Path, marker: Path) -> tuple[object, ...]:
-    """Cheap-but-content-sensitive invalidation token for governed-source hashing.
-
-    Git status itself is much cheaper than re-hashing an entire repository.  For dirty or
-    untracked paths we also include each reported path's mtime/size, so edits invalidate the
-    cached fingerprint even when the porcelain status text (for example ``?? source.py``)
-    does not change.
-    """
-    try:
-        marker_mtime = marker.stat().st_mtime_ns
-    except OSError:
-        marker_mtime = 0
-    if (root / ".git").exists() and shutil.which("git"):
-        status = _git_probe(root, "status", "--porcelain=v1", "--untracked-files=all", "-z", timeout=30, binary=True)
-        head = _git_probe(root, "rev-parse", "HEAD", timeout=15)
-        raw = status.stdout if isinstance(status.stdout, (bytes, bytearray)) else b""
-        path_stats: list[tuple[bytes, int, int]] = []
-        for record in bytes(raw).split(b"\0"):
-            if not record:
-                continue
-            candidate = record[3:] if len(record) >= 4 and record[2:3] == b" " else record
-            if not candidate:
-                continue
-            try:
-                rel = candidate.decode("utf-8", errors="surrogateescape")
-                st = (root / rel).stat()
-                path_stats.append((candidate, int(st.st_mtime_ns), int(st.st_size)))
-            except OSError:
-                path_stats.append((candidate, 0, 0))
-        return (
-            marker_mtime,
-            status.returncode, bytes(raw), tuple(path_stats),
-            head.returncode, head.stdout if isinstance(head.stdout, str) else b"",
-        )
-    # Non-Git projects do not have a cheap reliable invalidation token.  Avoid caching
-    # their source fingerprint rather than risk reporting stale GREEN state.
-    return (marker_mtime, object())
-
 
 def _project_id(root: Path) -> str:
     path = root / "project.control.json"
     if path.is_file():
         try:
             data = json.loads(path.read_text(encoding="utf-8-sig"))
-            project = data.get("project") if isinstance(data, dict) else {}
-            value = str((project or {}).get("id") or "").strip()
+            project = (data.get("project") or {}) if isinstance(data, dict) else {}
+            value = str(project.get("id") or "").strip()
             if value:
                 return value
         except Exception:
@@ -98,9 +71,45 @@ def marker_path(root: Path) -> Path:
     return reports / "last-green-quality-gate.json"
 
 
+def _green_cache_token(root: Path, marker: Path) -> tuple[object, ...]:
+    try:
+        marker_mtime = marker.stat().st_mtime_ns
+    except OSError:
+        marker_mtime = 0
+    if not (root / ".git").exists() or not _git_binary():
+        return (marker_mtime, object())
+    try:
+        status = _git_probe(root, "status", "--porcelain=v1", "--untracked-files=all", "-z", timeout=30, binary=True)
+        head = _git_probe(root, "rev-parse", "HEAD", timeout=15)
+    except Exception:
+        return (marker_mtime, object())
+    raw = status.stdout if isinstance(status.stdout, (bytes, bytearray)) else b""
+    governed_stats: list[tuple[bytes, int, int]] = []
+    for record in bytes(raw).split(b"\0"):
+        if not record:
+            continue
+        candidate = record[3:] if len(record) >= 4 and record[2:3] == b" " else record
+        if not candidate:
+            continue
+        try:
+            rel = candidate.decode("utf-8", errors="surrogateescape").replace("\\", "/")
+        except Exception:
+            continue
+        if not is_governed(rel):
+            continue
+        try:
+            st = (root / rel).stat()
+            governed_stats.append((candidate, int(st.st_mtime_ns), int(st.st_size)))
+        except OSError:
+            governed_stats.append((candidate, 0, 0))
+    return (
+        marker_mtime, status.returncode, tuple(governed_stats),
+        head.returncode, head.stdout if isinstance(head.stdout, str) else b"",
+    )
+
+
 def _git_file_list(root: Path) -> list[Path] | None:
-    git = shutil.which("git")
-    if not git or not (root / ".git").exists():
+    if not _git_binary() or not (root / ".git").exists():
         return None
     try:
         cp = _git_probe(root, "ls-files", "-co", "--exclude-standard", "-z", timeout=60, binary=True)
@@ -112,7 +121,9 @@ def _git_file_list(root: Path) -> list[Path] | None:
     for raw in cp.stdout.split(b"\0"):
         if not raw:
             continue
-        rel = raw.decode("utf-8", errors="surrogateescape")
+        rel = raw.decode("utf-8", errors="surrogateescape").replace("\\", "/")
+        if not is_governed(rel):
+            continue
         path = root / rel
         if path.is_file():
             out.append(path)
@@ -120,19 +131,37 @@ def _git_file_list(root: Path) -> list[Path] | None:
 
 
 def _walk_file_list(root: Path) -> list[Path]:
-    excluded_dirs = {
-        ".git", "target", "build", "builds", "bin", "obj", "node_modules", "__pycache__",
-        "artifacts", "logs", ".venv", "venv", ".idea", ".vs",
+    skip_anywhere = {
+        ".git", "__pycache__", "target", "build", "builds", "bin", "obj", "node_modules",
+        ".venv", "venv", ".cache", ".pytest_cache", ".idea", ".vs", "artifacts", "logs",
     }
     out: list[Path] = []
     for current, dirs, files in os.walk(root):
         current_path = Path(current)
-        dirs[:] = [d for d in dirs if d.casefold() not in excluded_dirs]
+        kept = []
+        for d in dirs:
+            rel = (current_path / d).relative_to(root).as_posix()
+            if d.casefold() in skip_anywhere or not is_governed(rel):
+                continue
+            kept.append(d)
+        dirs[:] = kept
         for name in files:
             path = current_path / name
-            if path.is_file():
+            try:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if is_governed(rel) and path.is_file():
                 out.append(path)
     return out
+
+
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def governed_source_fingerprint(root: Path) -> tuple[str, int]:
@@ -140,30 +169,28 @@ def governed_source_fingerprint(root: Path) -> tuple[str, int]:
     files = _git_file_list(root)
     if files is None:
         files = _walk_file_list(root)
-    rows: list[bytes] = []
+    h = hashlib.sha256()
     count = 0
     for path in sorted(files, key=lambda p: p.relative_to(root).as_posix().casefold()):
         try:
             rel = path.relative_to(root).as_posix()
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if not is_governed(rel):
+                continue
             size = path.stat().st_size
+            digest = _file_sha256(path)
         except (OSError, ValueError):
             continue
-        rows.append(f"{rel}\t{size}\t{digest}\n".encode("utf-8", errors="surrogateescape"))
+        h.update(f"{rel}\t{size}\t{digest}\n".encode("utf-8", errors="surrogateescape"))
         count += 1
-    h = hashlib.sha256()
-    for row in rows:
-        h.update(row)
     return h.hexdigest(), count
 
 
 def _git_text(root: Path, *args: str) -> str:
-    git = shutil.which("git")
-    if not git or not (root / ".git").exists():
+    if not _git_binary() or not (root / ".git").exists():
         return ""
     try:
         cp = _git_probe(root, *args, timeout=15)
-        return cp.stdout.strip() if cp.returncode == 0 else ""
+        return cp.stdout.strip() if cp.returncode == 0 and isinstance(cp.stdout, str) else ""
     except Exception:
         return ""
 
@@ -224,9 +251,9 @@ def green_status(root: Path) -> tuple[bool, bool, str, dict[str, Any] | None]:
     with _GREEN_CACHE_LOCK:
         cached = _GREEN_CACHE.get(key)
     if cached is not None and cached[0] == token:
-        current, _count = cached[1], cached[2]
+        current = cached[1]
     else:
-        current, _count = governed_source_fingerprint(root)
+        current, count = governed_source_fingerprint(root)
         with _GREEN_CACHE_LOCK:
-            _GREEN_CACHE[key] = (token, current, _count)
+            _GREEN_CACHE[key] = (token, current, count)
     return marker, current.lower() == expected, str(path), data

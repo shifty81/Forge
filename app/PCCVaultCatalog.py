@@ -182,13 +182,16 @@ def _sha256(path: Path) -> str:
 
 def _cached_hashes(root: Path) -> dict[str, tuple[int, int, str]]:
     key = project_key(root)
+    db: sqlite3.Connection | None = None
     try:
         db = _connect()
         rows = db.execute("SELECT rel_path,size,mtime_ns,sha256 FROM files WHERE project_key=? AND sha256<>''", (key,)).fetchall()
-        db.close()
         return {str(rel): (int(size), int(mtime), str(digest)) for rel, size, mtime, digest in rows}
     except Exception:
         return {}
+    finally:
+        if db is not None:
+            db.close()
 
 
 def _environment_inventory(root: Path) -> dict[str, Any]:
@@ -435,15 +438,18 @@ def latest_summary(root: Path) -> dict[str, Any] | None:
 
 def catalog_record(root: Path, rel_path: str) -> dict[str, Any] | None:
     key = project_key(root)
+    db: sqlite3.Connection | None = None
     try:
         db = _connect()
         row = db.execute(
             "SELECT rel_path,size,mtime_ns,classification,extension,sha256,json_valid,note FROM files WHERE project_key=? AND rel_path=?",
             (key, rel_path),
         ).fetchone()
-        db.close()
     except Exception:
         return None
+    finally:
+        if db is not None:
+            db.close()
     if not row:
         return None
     return {
@@ -455,15 +461,18 @@ def catalog_record(root: Path, rel_path: str) -> dict[str, Any] | None:
 def search_catalog(root: Path, query: str, limit: int = 500) -> list[dict[str, Any]]:
     key = project_key(root)
     term = f"%{query.strip()}%"
+    db: sqlite3.Connection | None = None
     try:
         db = _connect()
         rows = db.execute(
             "SELECT rel_path,size,classification,extension,sha256 FROM files WHERE project_key=? AND rel_path LIKE ? ORDER BY rel_path LIMIT ?",
             (key, term, int(limit)),
         ).fetchall()
-        db.close()
     except Exception:
         return []
+    finally:
+        if db is not None:
+            db.close()
     return [
         {"relPath": row[0], "bytes": int(row[1]), "classification": row[2], "extension": row[3], "sha256": row[4]}
         for row in rows

@@ -25,7 +25,7 @@ class ForgePYF60R12Tests(unittest.TestCase):
         self.assertTrue((ROOT/'Forge.vbs').is_file())
     def test_legacy_material_moved(self):
         self.assertTrue((ROOT/'compat'/'legacy-launchers'/'ProjectControlCenter.cmd').is_file())
-        self.assertTrue((ROOT/'docs'/'history'/'README_STANDALONE.md').is_file())
+        self.assertTrue((ROOT/'docs'/'history'/'legacy-pcc'/'README_STANDALONE.md').is_file())
         self.assertTrue((ROOT/'archive'/'releases'/'Forge_0.4.11-F60R11_UpdateKit.zip').is_file())
 
 if __name__=='__main__': unittest.main()

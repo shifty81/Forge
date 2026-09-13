@@ -54,6 +54,6 @@ class F60R267Tests(unittest.TestCase):
         rows=q.snapshot(); self.assertEqual(rows[0]['result'],7); self.assertIn('cancelRequested',rows[0])
         q.shutdown()
     def test_next_100_document_has_exactly_100_passes(self):
-        text=(ROOT/'docs'/'NEXT_100_PASSES_F208_F307.md').read_text(encoding='utf-8')
+        text=(ROOT/'docs'/'history'/'passes'/'NEXT_100_PASSES_F208_F307.md').read_text(encoding='utf-8')
         self.assertEqual(sum(1 for i in range(208,308) if f'**F{i}' in text),100)
 if __name__=='__main__':unittest.main()

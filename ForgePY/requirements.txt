@@ -1,7 +1,0 @@
-# Vault core has no mandatory third-party pip packages.
-# Runtime requirement: Python 3.11+ with Tkinter.
-# Optional, feature-gated components are managed from Settings > Components / IDE:
-#   pywebview  - Monaco pop-out host
-#   watchfiles - event-driven filesystem watcher
-#   tree-sitter - source parsing/indexing
-#   psutil     - process/system health

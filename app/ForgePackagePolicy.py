@@ -3,35 +3,45 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
-PACKAGE_POLICY_VERSION = "FORGEPY-PACKAGE-POLICY-1.0"
-
-# These are machine/runtime state. They are intentionally never part of a
-# distributable package diff or a ForgePY self-update preimage contract.
+PACKAGE_POLICY_VERSION = "FORGEPY-PACKAGE-POLICY-1.8-F777"
 TRANSIENT_TOP_LEVEL = {
     ".git", ".forge", "__pycache__", "logs", "artifacts", "updates",
-    "hotfix-backups", "dist", "build", "installer-staging",
+    "hotfix-backups", "dist", "build", "builds", "target", "bin", "obj",
+    "node_modules", ".venv", "venv", ".cache", ".pytest_cache", ".idea", ".vs",
+    "installer-staging",
 }
+# Historical in-repository copy. Root app/ is the only source authority.
+LEGACY_MIRROR_TOP_LEVEL = {"forgepy"}
+TRANSIENT_EXACT_PATHS = {"native/forge-rs/Cargo.lock"}
 TRANSIENT_FILE_NAMES = {
     "forgepy.settings.json", "forge.settings.json", "vault.settings.json",
 }
 TRANSIENT_SUFFIXES = {".pyc", ".pyo", ".dmp", ".mdmp"}
+# Build/cache folders that are always transient, including inside the Rust successor lane.
+TRANSIENT_ANYWHERE = {"__pycache__", ".pytest_cache", ".cache", "target", "node_modules", ".venv", "venv"}
 
 
 def normalize_rel(path: str | Path) -> str:
-    raw=str(path).replace("\\", "/").strip("/")
+    raw = str(path).replace("\\", "/").strip("/")
     if not raw:
         return ""
-    p=PurePosixPath(raw)
+    p = PurePosixPath(raw)
     return "/".join(p.parts)
 
 
 def classification(path: str | Path) -> str:
-    rel=normalize_rel(path)
+    rel = normalize_rel(path)
     if not rel:
         return "invalid"
-    p=PurePosixPath(rel)
-    folded=[part.casefold() for part in p.parts]
+    if rel.casefold() in {x.casefold() for x in TRANSIENT_EXACT_PATHS}:
+        return "runtime-transient"
+    p = PurePosixPath(rel)
+    folded = [part.casefold() for part in p.parts]
+    if folded and folded[0] in LEGACY_MIRROR_TOP_LEVEL:
+        return "legacy-mirror"
     if folded and folded[0] in {x.casefold() for x in TRANSIENT_TOP_LEVEL}:
+        return "runtime-transient"
+    if any(part in TRANSIENT_ANYWHERE for part in folded):
         return "runtime-transient"
     if p.name.casefold() in {x.casefold() for x in TRANSIENT_FILE_NAMES}:
         return "machine-local"

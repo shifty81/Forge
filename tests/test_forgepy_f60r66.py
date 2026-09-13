@@ -39,11 +39,14 @@ class ForgePYF60R66Tests(unittest.TestCase):
             os.environ.pop("FORGEPY_DISABLE_TRAY", None)
             self.assertTrue(VaultTray.supported())
 
-    def test_normal_cmd_is_foreground_diagnostic_after_f408_normalization(self):
+    def test_normal_launcher_is_no_console_and_debug_is_explicit(self):
         src = (ROOT / "ForgePY.cmd").read_text(encoding="utf-8")
-        self.assertIn('python.exe "%FORGEPY_APP%" %*', src)
-        self.assertNotIn('start ""', src)
-        self.assertNotIn("pythonw.exe", src)
+        dbg = (ROOT / "ForgePY-Debug.cmd").read_text(encoding="utf-8")
+        self.assertIn("ForgePY.vbs", src)
+        self.assertIn('start "" /b wscript.exe', src)
+        self.assertNotIn('python.exe "%FORGEPY_APP%" %*', src)
+        self.assertIn('python.exe "%FORGEPY_APP%" %*', dbg)
+        self.assertIn("pause", dbg.casefold())
         self.assertTrue((ROOT / "ForgePY.vbs").is_file())
 
 

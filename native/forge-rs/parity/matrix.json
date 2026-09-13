@@ -1,0 +1,31 @@
+{
+  "schema": "forge.native.parity.v1",
+  "candidate": "FORGEPY-F777",
+  "nativeBuild": "FORGE-NATIVE-GUI-WAVE2-0.5.0-F776",
+  "phase": "SHADOW",
+  "pythonAuthority": true,
+  "takeoverReady": false,
+  "rows": [
+    {"capability":"application-identity","state":"PASS","note":"native identity and authority phase modeled"},
+    {"capability":"project-contract","state":"DIFFERENT","note":"bounded native probe; full semantic JSON authority remains Python-owned"},
+    {"capability":"project-branding","state":"PASS","note":"bounded project icon/name probe modeled"},
+    {"capability":"project-intelligence","state":"DIFFERENT","note":"bounded zero-tooling census, build-system/language/nested-root detection and operation candidates implemented; durable profile authority pending"},
+    {"capability":"toolchain-intelligence","state":"DIFFERENT","note":"native PATH probes cover Git/Rust/Python/CMake/.NET/Node/JVM/Godot families; direct inferred execution pending"},
+    {"capability":"path-confinement","state":"PASS","note":"project-relative escape rejection modeled"},
+    {"capability":"event-protocol","state":"PASS","note":"versioned line-safe request/event protocol modeled"},
+    {"capability":"operation-envelope","state":"PASS","note":"queued/running/cancelling/terminal state model present"},
+    {"capability":"single-flight-jobs","state":"PASS","note":"one-active-job queue and stop semantics modeled"},
+    {"capability":"operation-queue-ui","state":"PASS","note":"active/pending/last-run widget with pending cancellation and duplicate coalescing"},
+    {"capability":"process-tree-host","state":"DIFFERENT","note":"streaming and cancellation implemented; direct inferred-command certification pending"},
+    {"capability":"transaction-journal","state":"DIFFERENT","note":"checkpoint/rollback implemented; production patch parity pending"},
+    {"capability":"settings-path-authority","state":"DIFFERENT","note":"Vault/registry path snapshot modeled; full settings schema pending"},
+    {"capability":"stdio-ipc","state":"DIFFERENT","note":"native stdio server implemented; host bridge certification pending"},
+    {"capability":"parity-evidence","state":"PASS","note":"atomic evidence receipt writer implemented"},
+    {"capability":"native-shell-model","state":"PASS","note":"primary surfaces/project branding shell model shared by graphical native host"},
+    {"capability":"dock-widget-system","state":"PASS","note":"semantic widgets, layout presets, layout lock, persistence, split/tab/resize/undock model implemented"},
+    {"capability":"foreground-operation-queue","state":"DIFFERENT","note":"native queue streams governed Python PCC operations; direct inferred-operation execution pending"},
+    {"capability":"embedded-native-console","state":"PASS","note":"native console/composer/Send/Stop and streamed operation output implemented"},
+    {"capability":"catalog-storage","state":"MISSING","note":"SQLite/WAL catalog remains next backend authority wave"},
+    {"capability":"native-gui","state":"DIFFERENT","note":"polished eframe/egui ForgePY shell implemented; visual/runtime parity and backend takeover pending"}
+  ]
+}

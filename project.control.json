@@ -5,7 +5,10 @@
     "name": "ForgePY",
     "kind": "python-application",
     "version": "0.4.415-F60R415",
-    "build": "FORGEPY-F60R415"
+    "build": "FORGEPY-F60R415",
+    "icon": "assets/branding/ForgePY.png",
+    "candidateVersion": "0.5.0-candidate.777",
+    "candidateBuild": "FORGEPY-F777"
   },
   "root_control_center": {
     "launcher": "ForgePY.cmd"
@@ -77,6 +80,124 @@
       "args": [
         "app/ForgePYStandalone.py",
         "--self-test"
+      ]
+    },
+    {
+      "key": "audit.rust-migration",
+      "label": "Rust Successor Status",
+      "category": "audit",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "status",
+        "--root",
+        "{root}"
+      ]
+    },
+    {
+      "key": "build.rust-forge",
+      "label": "Build Rust Successor",
+      "category": "build",
+      "risk": "write",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "build",
+        "--root",
+        "{root}"
+      ],
+      "mutates": true
+    },
+    {
+      "key": "test.rust-forge",
+      "label": "Test Rust Successor",
+      "category": "test",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "test",
+        "--root",
+        "{root}"
+      ]
+    },
+    {
+      "key": "run.rust-forge",
+      "label": "Run Rust Successor",
+      "category": "run",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "run",
+        "--root",
+        "{root}"
+      ]
+    },
+    {
+      "key": "audit.rust-parity",
+      "label": "Rust Parity Matrix",
+      "category": "audit",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "parity",
+        "--root",
+        "{root}"
+      ]
+    },
+    {
+      "key": "gate.rust-shadow",
+      "label": "Rust SHADOW Gate",
+      "category": "gate",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "gate",
+        "--root",
+        "{root}"
+      ]
+    },
+    {
+      "key": "audit.rust-evidence",
+      "label": "Rust Evidence Receipt",
+      "category": "audit",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "evidence",
+        "--root",
+        "{root}"
+      ]
+    },
+    {
+      "key": "audit.rust-shell",
+      "label": "Rust Shell Model",
+      "category": "audit",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "shell-model",
+        "--root",
+        "{root}"
+      ]
+    },
+    {
+      "key": "audit.rust-intelligence",
+      "label": "Rust Project Intelligence",
+      "category": "audit",
+      "risk": "read",
+      "program": "python",
+      "args": [
+        "tools/rust/ForgeRustLane.py",
+        "intelligence",
+        "--root",
+        "{root}"
       ]
     }
   ],

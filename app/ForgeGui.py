@@ -55,6 +55,7 @@ from ForgePYIntake import (
     approve_available_globally as vault_approve_available_globally,
     approve_manual_patch_for_project as vault_approve_manual_patch_for_project,
     resolve_patch_target as vault_resolve_patch_target,
+    retain_already_applied_patch as vault_retain_already_applied_patch,
     counts_for_project as vault_update_counts_for_project,
     stage_for_project as vault_stage_for_project,
     reconcile_project as vault_reconcile_project,
@@ -164,6 +165,8 @@ class ForgeGui:
         self._active_proc: subprocess.Popen[str] | None = None
         self._active_command = ""
         self._runtime_operation_token = ""
+        self._operation_cancel = threading.Event()
+        self._cancel_requested = False
         self._last_status: dict[str, Any] = {}
         self._page_frames: dict[str, Any] = {}
         self._page_bodies: dict[str, Any] = {}
@@ -386,8 +389,6 @@ class ForgeGui:
         bar.pack(fill="x", padx=10, pady=(8, 5))
         tk.Label(bar, text="PROJECT CONSOLE", bg=PANEL, fg=CYAN, font=("Segoe UI Semibold", 9)).pack(side="left")
         tk.Label(bar, text=GUI_VERSION, bg=PANEL, fg=MUTED, font=("Consolas", 7)).pack(side="left", padx=(7, 0))
-        self.console_job_label = tk.Label(bar, text="Idle", bg=PANEL, fg=MUTED, font=("Segoe UI", 8))
-        self.console_job_label.pack(side="left", padx=(9, 0))
         self._button(bar, "Copy All", lambda: self._copy_all(self.console_text), compact=True).pack(side="right", padx=(5, 0))
         self._button(bar, "Copy Sel", lambda: self._copy_selection(self.console_text), compact=True).pack(side="right", padx=(5, 0))
         self._button(bar, "Clear", self._clear_log, compact=True).pack(side="right", padx=(5, 0))
@@ -421,7 +422,10 @@ class ForgeGui:
         self.console_command_entry.bind("<Control-space>", lambda _e: self._console_show_suggestions(force_all=True))
         self.console_command_entry.bind("<Escape>", lambda _e: self._console_hide_suggestions())
         self._button(command_row, "Commands", lambda: self._console_show_suggestions(force_all=True), compact=True).pack(side="right", padx=4, pady=3)
-        self._button(command_row, "Run", self._console_execute_entry, primary=True, compact=True).pack(side="right", padx=(4, 3), pady=3)
+        self.stop_btn = self._button(command_row, "Stop", self._stop_active, compact=True, danger=True)
+        self.stop_btn.configure(state="disabled")
+        self.stop_btn.pack(side="right", padx=4, pady=3)
+        self._button(command_row, "Send", self._console_execute_entry, primary=True, compact=True).pack(side="right", padx=(4, 3), pady=3)
         self._refresh_console_command_catalog()
 
     def _build_global_statusbar(self, parent: Any) -> None:
@@ -430,7 +434,15 @@ class ForgeGui:
         statusbar.pack(fill="x", side="bottom", padx=10, pady=(0, 5))
         statusbar.pack_propagate(False)
         self.footer = tk.Label(statusbar, text="[Status:Loading]", bg="#07090b", fg=CYAN, font=("Consolas", 8), anchor="w")
-        self.footer.pack(fill="both", padx=10)
+        self.footer.pack(side="left", fill="x", expand=True, padx=(10, 6))
+        try:
+            from ForgeApplicationIdentity import DISPLAY_VERSION, DISPLAY_BUILD
+            identity = f"ForgePY {DISPLAY_VERSION} · {DISPLAY_BUILD}"
+        except Exception:
+            identity = f"ForgePY {FORGE_VERSION}"
+        tk.Label(statusbar, text=identity, bg="#07090b", fg=MUTED, font=("Consolas", 8)).pack(side="right", padx=(8, 10))
+        self._forge_status_last_run = tk.Label(statusbar, text="Last: —", bg="#07090b", fg=MUTED, font=("Consolas", 8), anchor="e")
+        self._forge_status_last_run.pack(side="right", padx=(6, 0))
 
     def _set_global_shell_sash(self) -> None:
         panes = getattr(self, "global_workspace_panes", None)
@@ -533,7 +545,6 @@ class ForgeGui:
         tk.Frame(nav,bg=BORDER,height=1).pack(fill="x",padx=10,pady=(10,8))
         self.operation_label=tk.Label(nav,text="Idle",bg=PANEL,fg=MUTED,font=("Segoe UI",8),wraplength=132,justify="left")
         self.operation_label.pack(anchor="w",padx=12,pady=(0,5))
-        self.stop_btn=self._button(nav,"Stop Active Job",self._stop_active,compact=True,danger=True); self.stop_btn.configure(state="disabled")
 
         center=self._panel(panes)
         self.content=tk.Frame(center,bg=PANEL); self.content.pack(fill="both",expand=True,padx=13,pady=12)
@@ -2457,9 +2468,18 @@ class ForgeGui:
         identity.pack(fill="x", pady=(0, 10))
         body = self.tk.Frame(identity, bg=PANEL)
         body.pack(fill="x", padx=12, pady=(0, 10))
+        try:
+            from ForgeApplicationIdentity import DISPLAY_VERSION, DISPLAY_BUILD
+            display_identity = f"{DISPLAY_VERSION} / {DISPLAY_BUILD}"
+        except Exception:
+            display_identity = FORGE_VERSION
         self.forgepy_self_status = self.tk.Label(
             body,
-            text=f"Version : {FORGE_VERSION}\nRoot    : {Path(__file__).resolve().parents[1]}\nUpdate  : Downloads → verify → approve → transactional self-apply → restart → gate\nConsole : embedded Project Console only",
+            text=(f"Candidate : {display_identity}\n"
+                  f"Certified : {FORGE_VERSION}\n"
+                  f"Root      : {Path(__file__).resolve().parents[1]}\n"
+                  "Update    : Downloads → verify → approve → transactional self-apply → restart → gate\n"
+                  "Console   : embedded Project Console only"),
             bg=PANEL, fg=TEXT, font=("Consolas", 9), anchor="w", justify="left",
         )
         self.forgepy_self_status.pack(fill="x")
@@ -2480,6 +2500,26 @@ class ForgeGui:
         self._button(row2, "Source Control", lambda: self._show_page("Source Control"), compact=True).pack(side="left", padx=6)
         self._button(row2, "Artifact Central", self._open_artifact_central_browser, compact=True).pack(side="left", padx=6)
         self._button(row2, "Vault Catalog", lambda: self._show_app_tab("Vault"), compact=True).pack(side="left", padx=6)
+
+        native = self._panel(parent, "Forge Native Rust Migration · SHADOW")
+        native.pack(fill="x", pady=(0, 10))
+        native_body = self.tk.Frame(native, bg=PANEL)
+        native_body.pack(fill="x", padx=12, pady=(0, 10))
+        self.tk.Label(
+            native_body,
+            text=("ForgePY remains production authority. The Rust successor is certified side-by-side until parity and explicit takeover.\n"
+                  "F753 wave: callback-safe completion, events/IPC, single-flight jobs, streamed process host, rollback journal, project/settings probes, evidence receipts, shell model."),
+            bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", anchor="w", wraplength=720,
+        ).pack(fill="x", pady=(0, 8))
+        native_row = self.tk.Frame(native_body, bg=PANEL)
+        native_row.pack(fill="x")
+        self._button(native_row, "Rust Status", lambda: self._start_command("audit.rust-migration"), primary=True, compact=True).pack(side="left", padx=(0, 6))
+        self._button(native_row, "Parity Matrix", lambda: self._start_command("audit.rust-parity"), compact=True).pack(side="left", padx=6)
+        self._button(native_row, "Evidence", lambda: self._start_command("audit.rust-evidence"), compact=True).pack(side="left", padx=6)
+        self._button(native_row, "Shell Model", lambda: self._start_command("audit.rust-shell"), compact=True).pack(side="left", padx=6)
+        self._button(native_row, "Rust SHADOW Gate", lambda: self._start_command("gate.rust-shadow"), compact=True).pack(side="left", padx=6)
+        self._button(native_row, "Build Native", lambda: self._start_command("build.rust-forge"), compact=True).pack(side="left", padx=6)
+        self._button(native_row, "Run Native", lambda: self._start_command("run.rust-forge"), compact=True).pack(side="left", padx=6)
 
         note = self._panel(parent, "Self-Hosted Contract")
         note.pack(fill="both", expand=True)
@@ -2736,7 +2776,7 @@ class ForgeGui:
             return
         self._busy = True
         self.operation_label.configure(text="Running: build-all", fg=CYAN)
-        self.console_job_label.configure(text="Running: build-all", fg=CYAN)
+        self._set_operation_status("Running: build-all", CYAN)
         self._append_log("\n=== START UNIVERSAL BUILD MATRIX ===\n", "info")
 
         def emit(text: str) -> None:
@@ -3347,7 +3387,7 @@ class ForgeGui:
         elif key=="updates":self._apply_updates()
         elif key=="debug":self._start_command("debug-bundle",extra)
         elif key in {"commit-push","commit+push"}:self._commit_push_green()
-        elif key=="stop":self._stop_active()
+        elif key in {"stop", "cancel", "interrupt"} or (key == "stop" and extra and str(extra[0]).casefold() == "job"): self._stop_active()
         else:
             available={str(item.key).casefold():str(item.key) for item in self.contract.commands}; resolved=available.get(key)
             if resolved:self._start_command(resolved,extra,label=resolved)
@@ -3443,10 +3483,7 @@ class ForgeGui:
             "Provider   : Needs standardized machine provider",
             f"Detail     : {self.backend_error or 'No provider detected'}",
         ]
-        self.summary_text.configure(state="normal")
-        self.summary_text.delete("1.0", "end")
-        self.summary_text.insert("1.0", "\n".join(lines))
-        self.summary_text.configure(state="disabled")
+        self._set_summary_text(lines)
         self.footer.configure(text="[Provider:Needs Adapter]", fg=YELLOW)
         self.refresh_btn.configure(state="normal")
 
@@ -3532,10 +3569,7 @@ class ForgeGui:
             f"Runtime    : {binaries.get('gui') or 'Not built / not reported'}",
             f"Active log : {(status.get('session') or {}).get('log') or '<not reported>'}",
         ]
-        self.summary_text.configure(state="normal")
-        self.summary_text.delete("1.0", "end")
-        self.summary_text.insert("1.0", "\n".join(lines))
-        self.summary_text.configure(state="disabled")
+        self._set_summary_text(lines)
 
         self.footer.configure(
             text="[" + "] [".join([f"Git:{git_text}", f"GREEN:{green_text}", f"Updates:{upd_text}", f"Hygiene:{'Clean' if hygiene.get('clean', True) else 'WARN'}"]) + "]",
@@ -3566,11 +3600,10 @@ class ForgeGui:
         self._busy = True
         self._active_command = label
         self._runtime_operation_token = self._runtime.operation_started(self.contract.project_id, label, lane="forgepy")
-        self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
-        self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
+        self._operation_cancel.clear()
+        self._cancel_requested = False
+        self._set_operation_status(f"Running: {label}", CYAN)
         self.stop_btn.configure(state="normal")
-        if not self.stop_btn.winfo_ismapped():
-            self.stop_btn.pack(fill="x", padx=10, pady=(3, 8))
         self.refresh_btn.configure(state="disabled")
         self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {label} ===\n", "info")
         self._append_log("[ProcessHost] Forge-owned embedded command capture ON.\n", "info")
@@ -3587,6 +3620,8 @@ class ForgeGui:
                     text=True, encoding="utf-8", errors="replace", creationflags=flags, env=child_env,
                 )
                 self._active_proc = proc
+                if self._operation_cancel.is_set():
+                    terminate_process_tree(proc)
                 assert proc.stdout is not None
                 batch: list[str] = []
                 batch_bytes = 0
@@ -3657,6 +3692,31 @@ class ForgeGui:
             return
         self._start_builtin_source("set-remote", [remote_name.strip(), url.strip()])
 
+    def _set_operation_status(self, text: str, color: str, *, last_run: bool = False) -> None:
+        """Update running state without duplicating Last Run in the console header."""
+        try:
+            self.operation_label.configure(text=text, fg=color)
+        except Exception:
+            pass
+        if last_run:
+            try:
+                self._forge_status_last_run.configure(text=text, fg=color)
+            except Exception:
+                pass
+
+    def _set_summary_text(self, lines: Sequence[str]) -> None:
+        """Best-effort compatibility update for the legacy Dashboard summary widget."""
+        widget = getattr(self, "summary_text", None)
+        if widget is None:
+            return
+        try:
+            widget.configure(state="normal")
+            widget.delete("1.0", "end")
+            widget.insert("1.0", "\n".join(map(str, lines)))
+            widget.configure(state="disabled")
+        except Exception:
+            pass
+
     def _start_command(self, command: str, extra: Sequence[str] = (), *, label: str | None = None) -> None:
         if self.backend is None:
             self._popup("ForgePY", "ForgePY could not bind an executable operation provider for this project.", kind="warning")
@@ -3679,12 +3739,11 @@ class ForgeGui:
             self.console_text.focus_set()
         self._busy = True
         self._active_command = label or command
+        self._operation_cancel.clear()
+        self._cancel_requested = False
         self._runtime_operation_token = self._runtime.operation_started(self.contract.project_id, self._active_command, lane="project")
-        self.operation_label.configure(text=f"Running: {self._active_command}", fg=CYAN)
-        self.console_job_label.configure(text=f"Running: {self._active_command}", fg=CYAN)
+        self._set_operation_status(f"Running: {self._active_command}", CYAN)
         self.stop_btn.configure(state="normal")
-        if not self.stop_btn.winfo_ismapped():
-            self.stop_btn.pack(fill="x", padx=10, pady=(3, 8))
         self.refresh_btn.configure(state="disabled")
         self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {self._active_command} ===\n", "info")
         self._append_log("[ProcessHost] Embedded capture ON / hidden inherited console + universal repo hygiene.\n", "info")
@@ -3697,6 +3756,8 @@ class ForgeGui:
                     raise SurfaceError("Vault project provider became unavailable.")
                 proc = backend.popen(command, extra)
                 self._active_proc = proc
+                if self._operation_cancel.is_set():
+                    terminate_process_tree(proc)
                 assert proc.stdout is not None
                 batch: list[str] = []
                 batch_bytes = 0
@@ -3717,12 +3778,16 @@ class ForgeGui:
         threading.Thread(target=work, daemon=True).start()
 
     def _stop_active(self) -> None:
+        if not self._busy and not (self._active_proc and self._active_proc.poll() is None):
+            return
+        self._cancel_requested = True
+        self._operation_cancel.set()
+        self._set_operation_status(f"Stopping: {self._active_command or 'active job'}", YELLOW)
+        self.stop_btn.configure(state="disabled")
+        self._append_log("[STOP] Cancellation requested by operator.\n", "warn")
         proc = self._active_proc
         if proc and proc.poll() is None:
-            self.operation_label.configure(text=f"Stopping: {self._active_command}", fg=YELLOW)
-            self.console_job_label.configure(text=f"Stopping: {self._active_command}", fg=YELLOW)
-            terminate_process_tree(proc)
-            self._append_log("Cancellation requested by operator.\n", "warn")
+            threading.Thread(target=terminate_process_tree, args=(proc,), daemon=True, name="ForgePYStopJob").start()
 
     def _drain_events(self) -> None:
         started = time.monotonic()
@@ -3745,13 +3810,14 @@ class ForgeGui:
                     self._active_proc = None
                     self._busy = False
                     self.stop_btn.configure(state="disabled")
-                    self.stop_btn.pack_forget()
-                    color = GREEN if rc == 0 else RED
-                    state = "PASS" if rc == 0 else f"FAIL ({rc})"
-                    self.operation_label.configure(text=f"Last: {command} {state}", fg=color)
-                    self.console_job_label.configure(text=f"Last: {command} {state}", fg=color)
-                    self._append_log(f"=== END {command}: {state} ===\n", "pass" if rc == 0 else "fail")
+                    cancelled = bool(self._cancel_requested or self._operation_cancel.is_set())
+                    color = YELLOW if cancelled else (GREEN if rc == 0 else RED)
+                    state = "STOPPED" if cancelled else ("PASS" if rc == 0 else f"FAIL ({rc})")
+                    self._set_operation_status(f"Last: {command} {state}", color, last_run=True)
+                    self._append_log(f"=== END {command}: {state} ===\n", "warn" if cancelled else ("pass" if rc == 0 else "fail"))
                     self.footer.configure(text=f"[Last:{command}] [{state}]", fg=color)
+                    self._cancel_requested = False
+                    self._operation_cancel.clear()
                     self._refresh_status_async()
                     if str(command).startswith("forgejo-"):
                         self._refresh_forgejo_status_async()
@@ -3769,10 +3835,9 @@ class ForgeGui:
                         self._runtime_operation_token=""
                     self._busy = False
                     self._active_proc = None
-                    self.stop_btn.configure(state="disabled"); self.stop_btn.pack_forget()
+                    self.stop_btn.configure(state="disabled")
                     applied = int((result or {}).get("applied",0) or 0)
-                    self.operation_label.configure(text=f"Last: {label} PASS", fg=GREEN)
-                    self.console_job_label.configure(text=f"Last: {label} PASS", fg=GREEN)
+                    self._set_operation_status(f"Last: {label} PASS", GREEN, last_run=True)
                     self.footer.configure(text=f"[Last:{label}] [PASS]", fg=GREEN)
                     self._append_log(f"=== END {label}: PASS ({applied} update(s) applied) ===\n","pass")
                     self._refresh_status_async()
@@ -3780,6 +3845,17 @@ class ForgeGui:
                         gate = (result or {}).get("gate") or {}
                         if gate.get("ran"):
                             self._append_log(f"[PASS] Target Full Gate completed for {target}.\n", "pass")
+                elif kind == "universal-project-apply-cancelled":
+                    label, target = payload
+                    self._busy = False
+                    self._active_proc = None
+                    self.stop_btn.configure(state="disabled")
+                    self._set_operation_status(f"Last: {label} STOPPED", YELLOW, last_run=True)
+                    self.footer.configure(text=f"[Last:{label}] [STOPPED]", fg=YELLOW)
+                    self._append_log(f"=== END {label}: STOPPED by operator ===\n", "warn")
+                    self._cancel_requested = False
+                    self._operation_cancel.clear()
+                    self._refresh_status_async()
                 elif kind == "universal-project-apply-error":
                     label, target, detail = payload
                     if self._runtime_operation_token:
@@ -3788,11 +3864,12 @@ class ForgeGui:
                         self._runtime_operation_token=""
                     self._busy = False
                     self._active_proc = None
-                    self.stop_btn.configure(state="disabled"); self.stop_btn.pack_forget()
-                    self.operation_label.configure(text=f"Last: {label} FAIL", fg=RED)
-                    self.console_job_label.configure(text=f"Last: {label} FAIL", fg=RED)
+                    self.stop_btn.configure(state="disabled")
+                    self._set_operation_status(f"Last: {label} FAIL", RED, last_run=True)
                     self.footer.configure(text=f"[Last:{label}] [FAIL]", fg=RED)
                     self._append_log(f"[FAIL] Universal patch apply: {detail}\n","fail")
+                    self._cancel_requested = False
+                    self._operation_cancel.clear()
                     self._popup("ForgePY Patch Apply Failed",str(detail),kind="error")
                     self._refresh_status_async()
                 elif kind == "forgepy-self-apply-done":
@@ -3804,14 +3881,23 @@ class ForgeGui:
                     self._busy = False
                     self._active_proc = None
                     self.stop_btn.configure(state="disabled")
-                    self.stop_btn.pack_forget()
                     applied = int((result or {}).get("applied", 0) or 0)
-                    self.operation_label.configure(text=f"Last: {label} PASS", fg=GREEN)
-                    self.console_job_label.configure(text=f"Last: {label} PASS", fg=GREEN)
+                    self._set_operation_status(f"Last: {label} PASS", GREEN, last_run=True)
                     self.footer.configure(text=f"[Last:{label}] [PASS]", fg=GREEN)
                     self._append_log(f"=== END {label}: PASS ({applied} ForgePY update(s) applied) ===\n", "pass")
                     self._refresh_status_async()
                     self._offer_restart_if_updated()
+                elif kind == "forgepy-self-apply-cancelled":
+                    label = str(payload)
+                    self._busy = False
+                    self._active_proc = None
+                    self.stop_btn.configure(state="disabled")
+                    self._set_operation_status(f"Last: {label} STOPPED", YELLOW, last_run=True)
+                    self.footer.configure(text=f"[Last:{label}] [STOPPED]", fg=YELLOW)
+                    self._append_log(f"=== END {label}: STOPPED by operator ===\n", "warn")
+                    self._cancel_requested = False
+                    self._operation_cancel.clear()
+                    self._refresh_status_async()
                 elif kind == "forgepy-self-apply-error":
                     label, detail = payload
                     if self._runtime_operation_token:
@@ -3821,11 +3907,11 @@ class ForgeGui:
                     self._busy = False
                     self._active_proc = None
                     self.stop_btn.configure(state="disabled")
-                    self.stop_btn.pack_forget()
-                    self.operation_label.configure(text=f"Last: {label} FAIL", fg=RED)
-                    self.console_job_label.configure(text=f"Last: {label} FAIL", fg=RED)
+                    self._set_operation_status(f"Last: {label} FAIL", RED, last_run=True)
                     self.footer.configure(text=f"[Last:{label}] [FAIL]", fg=RED)
                     self._append_log(f"[FAIL] ForgePY self-update: {detail}\n", "fail")
+                    self._cancel_requested = False
+                    self._operation_cancel.clear()
                     self._popup("ForgePY Self Update Failed", str(detail), kind="error")
                     self._refresh_status_async()
                 elif kind == "command-error":
@@ -3837,10 +3923,10 @@ class ForgeGui:
                     self._active_proc = None
                     self._busy = False
                     self.stop_btn.configure(state="disabled")
-                    self.stop_btn.pack_forget()
-                    self.operation_label.configure(text=f"Last: {command} FAIL", fg=RED)
-                    self.console_job_label.configure(text=f"Last: {command} FAIL", fg=RED)
+                    self._set_operation_status(f"Last: {command} FAIL", RED, last_run=True)
                     self._append_log(f"ERROR: {detail}\n", "fail")
+                    self._cancel_requested = False
+                    self._operation_cancel.clear()
                     self._popup("Vault Command Failed", detail, kind="error")
                     self._refresh_status_async()
                 elif kind == "github-clone-done":
@@ -3996,10 +4082,24 @@ class ForgeGui:
                         grouped[str(item.get("target_project") or "unassigned")] = grouped.get(str(item.get("target_project") or "unassigned"), 0) + 1
                     summary = ", ".join(f"{name}: {count}" for name,count in sorted(grouped.items())) or "none"
                     self._append_log(f"[INFO] Downloads check complete: {len(available)} newly cataloged, {len(compatible)} compatible candidate(s) across registered projects ({summary}), {len(waiting)} still stabilizing.\n", "info")
+                    try:
+                        queued_items = [item for item in vault_list_intake_items() if str(item.get("state") or "").upper() == "QUEUED"]
+                    except Exception:
+                        queued_items = []
+                    active_name = str(getattr(self, "_active_command", "") or "")
+                    active_update = bool(getattr(self, "_busy", False)) and any(token in active_name.casefold() for token in ("apply", "update", "review"))
+                    restart_pending = restart_marker_path().is_file()
                     if compatible:
                         self._popup("Downloaded Patch Candidate", f"{len(compatible)} compatible downloaded patch candidate(s) are ready across registered projects.\n\nTargets: {summary}\n\nApproval follows the patch target, not the project currently selected in ForgePY.", kind="success")
                     elif waiting:
                         self._popup("Downloads Still Stabilizing", "Forge sees a candidate file that is still changing or too new. Wait a few seconds and use Check Downloads again. It will not be executed while incomplete.", kind="info")
+                    elif restart_pending:
+                        self._popup("Update Applied — Restart Pending", "An approved ForgePY update has already been applied and is waiting for restart. There is no additional Downloads candidate to approve.", kind="success")
+                    elif active_update:
+                        self._popup("Update In Progress", f"{active_name or 'An approved update'} is already being processed. Downloads contains no additional compatible candidate.", kind="info")
+                    elif queued_items:
+                        targets = sorted({str(item.get("target_project") or "unassigned") for item in queued_items})
+                        self._popup("Approved Update Queued", f"{len(queued_items)} approved update(s) are already queued for: {', '.join(targets)}. Downloads contains no additional compatible candidate.", kind="info")
                     else:
                         self._popup("Downloads Checked", "No uniquely compatible downloaded patch candidate is currently available for any registered project.", kind="info")
                     self._refresh_status_async()
@@ -4011,7 +4111,23 @@ class ForgeGui:
                     self._download_approval_busy = False
                     source_raw, resolution = payload
                     source = Path(str(source_raw)).expanduser().resolve()
-                    if str((resolution or {}).get("status") or "") != "RESOLVED":
+                    resolution_status = str((resolution or {}).get("status") or "").upper()
+                    if resolution_status == "ALREADY_TARGET":
+                        target_root = Path(str(resolution.get("targetRoot") or "")).expanduser().resolve()
+                        target_name = str(resolution.get("targetName") or resolution.get("targetProject") or target_root.name)
+                        target_state = resolution.get("targetSatisfaction") if isinstance(resolution.get("targetSatisfaction"), dict) else {}
+                        target_decl = target_state.get("target") if isinstance(target_state.get("target"), dict) else {}
+                        target_build = str(target_decl.get("projectBuild") or target_decl.get("projectVersion") or "the patch target")
+                        self._append_log(f"[PASS] Patch already applied: {source.name} -> {target_name} ({target_build}); no source changes required. Retaining transport as applied lineage.\n", "pass")
+                        def retain_already_applied() -> None:
+                            try:
+                                item = vault_retain_already_applied_patch(source, resolution)
+                                self._event_q.put(("manual-patch-already-applied-retained", (item, target_name, target_build)))
+                            except Exception as exc:
+                                self._event_q.put(("manual-patch-already-applied-retain-error", (str(exc), target_name, target_build)))
+                        threading.Thread(target=retain_already_applied, daemon=True, name="ForgeAlreadyAppliedPatchRetain").start()
+                        return
+                    if resolution_status != "RESOLVED":
                         detail = str((resolution or {}).get("reason") or "Patch target could not be resolved uniquely.")
                         self._append_log(f"[WARN] Patch target resolution requires review: {source.name}: {detail}\n", "warn")
                         self._popup("Patch Target Requires Review", detail + "\n\nForgePY will not guess which project to modify.", kind="warning")
@@ -4037,6 +4153,17 @@ class ForgeGui:
                         except Exception as exc:
                             self._event_q.put(("manual-patch-error", str(exc)))
                     threading.Thread(target=approve_manual_target, daemon=True, name="ForgeManualPatchApproveResolved").start()
+                elif kind == "manual-patch-already-applied-retained":
+                    self._download_approval_busy = False
+                    item, target_name, target_build = payload
+                    self._append_log(f"[PASS] Already-applied transport retained as Patch Lineage for {target_name}: {item.get('vault_path') or item.get('patch_id') or 'recorded'}.\n", "pass")
+                    self._popup("Patch Already Applied", f"{target_name} is already at {target_build}.\n\nNo files were modified. The selected transport was retained as applied Patch Lineage.", kind="info")
+                    self._refresh_status_async()
+                elif kind == "manual-patch-already-applied-retain-error":
+                    self._download_approval_busy = False
+                    error, target_name, target_build = payload
+                    self._append_log(f"[WARN] {target_name} is already at {target_build}, but the transport could not be retained as lineage: {error}\n", "warn")
+                    self._popup("Patch Already Applied", f"{target_name} is already at {target_build}.\n\nNo files were modified. ForgePY could not retain the selected transport as lineage:\n{error}", kind="info")
                 elif kind == "manual-patch-approved":
                     self._download_approval_busy = False
                     approved, target_root_raw, target_name = payload
@@ -4086,14 +4213,12 @@ class ForgeGui:
                     skipped = int(result.get("skipped") or 0)
                     color = GREEN if failed == 0 else RED
                     state = "PASS" if failed == 0 else "FAIL"
-                    self.operation_label.configure(text=f"Last: build-all {state}", fg=color)
-                    self.console_job_label.configure(text=f"Last: build-all {state}", fg=color)
+                    self._set_operation_status(f"Last: build-all {state}", color, last_run=True)
                     self._append_log(f"=== END UNIVERSAL BUILD MATRIX: {passed} PASS / {failed} FAIL / {skipped} SKIP ===\n", "pass" if failed == 0 else "fail")
                     self._refresh_projects()
                 elif kind == "universal-build-error":
                     self._busy = False
-                    self.operation_label.configure(text="Last: build-all FAIL", fg=RED)
-                    self.console_job_label.configure(text="Last: build-all FAIL", fg=RED)
+                    self._set_operation_status("Last: build-all FAIL", RED, last_run=True)
                     self._append_log(f"[FAIL] Universal build matrix: {payload}\n", "fail")
                     self._popup("Build All Failed", str(payload), kind="error")
                 elif kind == "tooling-activated":
@@ -4789,6 +4914,11 @@ class ForgeGui:
         """Run a user-requested Downloads scan without turning Downloads into execution authority."""
         if self._download_approval_busy:
             return
+        active_name = str(getattr(self, "_active_command", "") or "")
+        if bool(getattr(self, "_busy", False)) and any(token in active_name.casefold() for token in ("apply", "update", "review")):
+            self._append_log(f"[INFO] Downloads scan skipped while {active_name or 'approved update'} is active; no second intake action was started.\n", "info")
+            self._popup("Update In Progress", f"{active_name or 'An approved update'} is already being processed. Wait for it to finish before scanning Downloads again.", kind="info")
+            return
         self._download_approval_busy = True
         self._append_log("[INFO] Checking Downloads for stable Forge patch transports…\n", "info")
 
@@ -4949,8 +5079,10 @@ class ForgeGui:
             target_contract = None
             target_project_id = target.name
         self._runtime_operation_token = self._runtime.operation_started(target_project_id,label,lane="patch")
-        self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
-        self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
+        self._operation_cancel.clear()
+        self._cancel_requested = False
+        self._set_operation_status(f"Running: {label}", CYAN)
+        self.stop_btn.configure(state="normal")
         self.footer.configure(text=f"[Job:Running] [{label}]", fg=CYAN)
         self.refresh_btn.configure(state="disabled")
         self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {label} ===\n", "info")
@@ -4964,6 +5096,9 @@ class ForgeGui:
                     raise RuntimeError("No explicitly approved universal update is currently queued for this project.")
                 receipts=[]
                 for row in rows:
+                    if self._operation_cancel.is_set():
+                        self._event_q.put(("universal-project-apply-cancelled", (label, target)))
+                        return
                     source=Path(str(row.get("source") or ""))
                     if not source.is_file():
                         raise RuntimeError(f"Approved patch transport is missing: {source}")
@@ -4979,11 +5114,18 @@ class ForgeGui:
                             gate["ran"] = True
                             self._event_q.put(("universal-build-log", f"[INFO] Running target Full Gate without changing active ForgePY project: {target}\n"))
                             proc = backend.popen("full")
+                            self._active_proc = proc
+                            if self._operation_cancel.is_set():
+                                terminate_process_tree(proc)
                             assert proc.stdout is not None
                             for line in proc.stdout:
                                 self._event_q.put(("universal-build-log", line))
                             rc = proc.wait()
+                            self._active_proc = None
                             gate["returncode"] = rc
+                            if self._operation_cancel.is_set():
+                                self._event_q.put(("universal-project-apply-cancelled", (label, target)))
+                                return
                             if rc != 0:
                                 raise RuntimeError(f"Target project Full Gate failed with exit {rc}: {target}")
                         else:
@@ -5013,8 +5155,10 @@ class ForgeGui:
         except Exception:
             target_project_id = target.name
         self._runtime_operation_token = self._runtime.operation_started(target_project_id,label,lane="patch")
-        self.operation_label.configure(text=f"Running: {label}", fg=CYAN)
-        self.console_job_label.configure(text=f"Running: {label}", fg=CYAN)
+        self._operation_cancel.clear()
+        self._cancel_requested = False
+        self._set_operation_status(f"Running: {label}", CYAN)
+        self.stop_btn.configure(state="normal")
         self.footer.configure(text=f"[Job:Running] [{label}]", fg=CYAN)
         self.refresh_btn.configure(state="disabled")
         self._append_log(f"\n=== {datetime.now().strftime('%H:%M:%S')} START {label} ===\n", "info")
@@ -5050,6 +5194,9 @@ class ForgeGui:
                 if not safe_rows:
                     raise RuntimeError("No safe approved ForgePY update remains queued after self-update preflight.")
                 for row in safe_rows:
+                    if self._operation_cancel.is_set():
+                        self._event_q.put(("forgepy-self-apply-cancelled", label))
+                        return
                     source = Path(str(row.get("source") or ""))
                     receipt = vault_apply_transport(source, target)
                     receipts.append(receipt)

@@ -135,7 +135,7 @@ class ForgePYF60R17Tests(unittest.TestCase):
                 self.assertEqual(refs.returncode, 0, refs.stdout)
 
     def test_roadmap_records_next_twenty(self) -> None:
-        text = (ROOT / "docs" / "NEXT_20_PASSES_F61_F80.md").read_text(encoding="utf-8")
+        text = (ROOT / "docs" / "history" / "passes" / "NEXT_20_PASSES_F61_F80.md").read_text(encoding="utf-8")
         for pass_id in ("F61", "F65", "F66", "F80"):
             self.assertIn(pass_id, text)
 

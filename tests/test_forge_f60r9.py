@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zipfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +61,7 @@ def make_patch(path: Path, *, patch_id: str, build: str = "B2", schema: str = "f
     manifest = {
         "schema": schema,
         "engine": "forge-universal",
-        "createdUtc": "2026-09-10T10:00:00Z",
+        "createdUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "project": project,
         "patchId": patch_id,
         "preconditions": {"projectBuild": build},
@@ -127,7 +128,7 @@ class ForgeF60R9Tests(unittest.TestCase):
             with env(FORGE_PROJECT_REGISTRY=str(base / "registry.json"), FORGE_VAULT_ROOT=str(base / "Vault"), FORGE_ARTIFACT_CENTRAL_ROOT=str(base / "Artifacts"), FORGE_INTAKE_PATHS=str(downloads)):
                 ProjectRegistry().register(project, make_active=True)
                 result = scan_downloads(force_stable=True, remove_source=True)
-                self.assertEqual(result["ingested"][0]["state"], "LINEAGE", result)
+                self.assertEqual(result["ingested"][0]["state"], "REVIEW", result)
                 self.assertEqual(counts_for_project("demo", "Demo"), (0, 0))
                 self.assertEqual(available_for_project(project), [])
                 self.assertIn("base-mismatch", result["ingested"][0]["vault_path"].replace("\\", "/"))

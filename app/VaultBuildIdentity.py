@@ -40,6 +40,11 @@ def build_identity(root: Path) -> dict[str, Any]:
         "projectName": root.name,
         "projectVersion": "",
         "projectBuild": "",
+        "certifiedProjectVersion": "",
+        "certifiedProjectBuild": "",
+        "candidateProjectVersion": "",
+        "candidateProjectBuild": "",
+        "identityPhase": "certified",
         "gitCommit": _git(root, "rev-parse", "HEAD"),
         "gitBranch": _git(root, "branch", "--show-current"),
         "greenId": "",
@@ -51,11 +56,30 @@ def build_identity(root: Path) -> dict[str, Any]:
     if project:
         identity["projectId"] = str(project.get("id") or identity["projectId"])
         identity["projectName"] = str(project.get("name") or identity["projectName"])
-        identity["projectVersion"] = str(project.get("version") or project.get("release") or "")
-        identity["projectBuild"] = str(project.get("build") or project.get("buildId") or "")
 
-    # Forge's own source has a direct version/build authority. VaultVersion is a
-    # compatibility fallback for installations created before the Forge rename.
+        certified_version = str(project.get("version") or project.get("release") or "")
+        certified_build = str(project.get("build") or project.get("buildId") or "")
+        candidate_version = str(project.get("candidateVersion") or "")
+        candidate_build = str(project.get("candidateBuild") or "")
+
+        identity["certifiedProjectVersion"] = certified_version
+        identity["certifiedProjectBuild"] = certified_build
+        identity["candidateProjectVersion"] = candidate_version
+        identity["candidateProjectBuild"] = candidate_build
+        identity["identityPhase"] = "candidate" if (candidate_version or candidate_build) else "certified"
+
+        # Routing and patch preconditions must follow the source tree that is actually
+        # present.  ForgePY keeps the last promoted GREEN identity alongside a newer
+        # candidate identity; using the certified donor build here made every normal
+        # F7xx -> F7xx+1 update look incompatible even though the GUI correctly showed
+        # the candidate build.
+        identity["projectVersion"] = candidate_version or certified_version
+        identity["projectBuild"] = candidate_build or certified_build
+
+    # Forge's legacy version module represents the last promoted/certified donor.
+    # Preserve it as certified evidence, but never overwrite an explicit candidate
+    # identity from project.control.json. VaultVersion remains a compatibility fallback
+    # for installations created before the Forge rename.
     for version_name in ("ForgePYVersion.py", "ForgeVersion.py", "VaultVersion.py"):
         version_file = root / "app" / version_name
         if not version_file.is_file():
@@ -72,9 +96,17 @@ def build_identity(root: Path) -> dict[str, Any]:
             finally:
                 if added and sys.path and sys.path[0] == app_path:
                     sys.path.pop(0)
-            identity["projectVersion"] = str(ns.get("VERSION") or identity["projectVersion"])
-            identity["projectBuild"] = str(ns.get("BUILD") or identity["projectBuild"])
-            if ns.get("VERSION") or ns.get("BUILD"):
+            legacy_version = str(ns.get("VERSION") or "")
+            legacy_build = str(ns.get("BUILD") or "")
+            if legacy_version and not identity.get("certifiedProjectVersion"):
+                identity["certifiedProjectVersion"] = legacy_version
+            if legacy_build and not identity.get("certifiedProjectBuild"):
+                identity["certifiedProjectBuild"] = legacy_build
+            if not identity.get("projectVersion"):
+                identity["projectVersion"] = legacy_version
+            if not identity.get("projectBuild"):
+                identity["projectBuild"] = legacy_build
+            if legacy_version or legacy_build:
                 break
         except Exception:
             continue

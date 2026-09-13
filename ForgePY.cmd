@@ -2,22 +2,29 @@
 setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul 2>nul
 set "FORGEPY_HOME=%~dp0"
+set "FORGEPY_VBS=%FORGEPY_HOME%ForgePY.vbs"
 set "FORGEPY_APP=%FORGEPY_HOME%app\ForgePYBootstrap.py"
-rem Foreground diagnostic launcher. ForgePY.vbs is the preferred no-console GUI launcher.
-where python.exe >nul 2>nul
-if not errorlevel 1 (
-  python.exe "%FORGEPY_APP%" %*
-  set "RC=%ERRORLEVEL%"
-  if not "%RC%"=="0" (echo. & echo [FAIL] ForgePY exited with code %RC%. & echo Bootstrap log: "%FORGEPY_HOME%logs\bootstrap\forgepy-bootstrap-latest.log" & pause)
-  exit /b %RC%
+
+rem Normal ForgePY launch is GUI-only. Project/build/runtime output belongs in the
+rem embedded Project Console. ForgePY-Debug.cmd is the explicit foreground lane.
+if exist "%FORGEPY_VBS%" (
+  start "" /b wscript.exe "%FORGEPY_VBS%" %*
+  exit /b 0
 )
-where py.exe >nul 2>nul
+
+where pythonw.exe >nul 2>nul
 if not errorlevel 1 (
-  py.exe -3 "%FORGEPY_APP%" %*
-  set "RC=%ERRORLEVEL%"
-  if not "%RC%"=="0" (echo. & echo [FAIL] ForgePY exited with code %RC%. & echo Bootstrap log: "%FORGEPY_HOME%logs\bootstrap\forgepy-bootstrap-latest.log" & pause)
-  exit /b %RC%
+  start "" /b pythonw.exe "%FORGEPY_APP%" %*
+  exit /b 0
 )
-echo [FAIL] ForgePY requires Python 3.11 or newer with Tkinter.
-pause
+
+where pyw.exe >nul 2>nul
+if not errorlevel 1 (
+  start "" /b pyw.exe -3 "%FORGEPY_APP%" %*
+  exit /b 0
+)
+
+echo [FAIL] ForgePY could not locate its no-console GUI launcher.
+echo Bootstrap log: "%FORGEPY_HOME%logs\bootstrap\forgepy-bootstrap-latest.log"
+echo Use ForgePY-Debug.cmd for foreground diagnostics.
 exit /b 1

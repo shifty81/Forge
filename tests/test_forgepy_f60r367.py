@@ -38,10 +38,14 @@ class F60R367Tests(unittest.TestCase):
     def test_redaction(self):
         self.assertNotIn('abc123',redact('token=abc123'));self.assertNotIn('TOKEN', ' '.join(safe_env({'PATH':'x','TOKEN':'secret'}).keys()))
     def test_migrations(self):
-        db=sqlite3.connect(':memory:');m=Migration(1,'a',lambda d:d.execute('CREATE TABLE x(v INTEGER)'));self.assertEqual(apply_all(db,[m]),[1]);self.assertEqual(current(db),1)
+        db=sqlite3.connect(':memory:')
+        try:
+            m=Migration(1,'a',lambda d:d.execute('CREATE TABLE x(v INTEGER)'));self.assertEqual(apply_all(db,[m]),[1]);self.assertEqual(current(db),1)
+        finally:
+            db.close()
     def test_health(self):self.assertEqual(aggregate({'a':'PASS','b':'WARN'})['overall'],'WARN')
     def test_workspace_metrics(self):self.assertGreater(WorkspaceMetrics().normalized(1920)['controls'],0)
     def test_command_availability(self):self.assertTrue(matrix([{'key':'x','requires':['git']}],{'git'})[0]['available'])
     def test_next_100_has_exactly_100(self):
-        text=(ROOT/'docs'/'NEXT_100_PASSES_F308_F407.md').read_text(encoding='utf-8');self.assertEqual(sum(1 for i in range(308,408) if f'**F{i}' in text),100)
+        text=(ROOT/'docs'/'history'/'passes'/'NEXT_100_PASSES_F308_F407.md').read_text(encoding='utf-8');self.assertEqual(sum(1 for i in range(308,408) if f'**F{i}' in text),100)
 if __name__=='__main__':unittest.main()

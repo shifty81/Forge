@@ -1,0 +1,39 @@
+{
+  "schema": "forgepy.cumulative-overwrite-repair.v1",
+  "name": "F416-F441 cumulative overwrite repair",
+  "base": "F415 repaired GREEN source",
+  "files": {
+    "README_FIRST.txt": {
+      "bytes": 1481,
+      "sha256": "54863c6a888df83621b2818d7155a54d135a97ca26e31bc559d097712138d185"
+    },
+    "RUN_REPAIR.cmd": {
+      "bytes": 359,
+      "sha256": "411f048389de248d5c9dbbc419a6caaa944a4b20e3de8ad4673d93ebf4e59c9a"
+    },
+    "Repair-ForgePY-F416-F441-Cumulative.ps1": {
+      "bytes": 4528,
+      "sha256": "f50bdc241f066a91dd37eb4dff637a8b750df5c6761d5124d2bb4f80bfe40cd5"
+    },
+    "overwrite_source/app/ForgeF440Normalization.py": {
+      "bytes": 93922,
+      "sha256": "4cc88a1d978bc7e4c8f98958901f3c1e459bedc3edb50901cabf01935691814f"
+    },
+    "overwrite_source/app/ForgeProviderProtocol.py": {
+      "bytes": 4931,
+      "sha256": "e425f00f5287f4a22567815b1fc691cea907b34ead7a326fcfd1be3dde6f289f"
+    },
+    "overwrite_source/app/ForgeSimplifiedUX.py": {
+      "bytes": 73264,
+      "sha256": "d3c96d30facbf6d4fa1bc931cdfb9a24d310672ae595df489fa86d2f56b986f5"
+    },
+    "overwrite_source/tests/test_forgepy_f416_f440_normalization.py": {
+      "bytes": 5657,
+      "sha256": "2858511432532b07733d9c1cf8367c558229634bb09dfbdf2245c344e84d75ae"
+    },
+    "reference/ForgePY__20260912__F416-F441-CUMULATIVE_FROM_F415-REPAIRED.patch.txt": {
+      "bytes": 107689,
+      "sha256": "5cc0b56ee9bc7096faf261c06829f62b3a1d7b8a4dc6db6c387914b6a60dfd96"
+    }
+  }
+}

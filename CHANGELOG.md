@@ -1,4 +1,92 @@
-# Changelog
+## FORGEPY-F777 — Update-State / Windows Gate Stabilization
+
+- Treat the Rust SHADOW `Cargo.lock` as runtime-transient even after Cargo materializes it; Windows Full Gate no longer fails merely because the file exists.
+- Repair ForgePY fallback debug-bundle creation by importing its required `re`, `shutil`, and `zipfile` stdlib modules.
+- Make Check Downloads aware of approved/queued/in-progress/applied updates so it no longer says “no candidate” while `review-apply` is actively installing one.
+- Preserve F776 native GUI/intelligence implementation unchanged; this pass hardens Python governance around the live Windows update cycle.
+
+## FORGEPY-F776 — Native GUI Wave 2: Docking Polish + Project Intelligence
+
+- F767-F776 prioritizes the Rust application itself: semantic dock widgets, Forge/Operations/Intelligence layout presets, layout lock/persistence, visible foreground queue management, and project-aware quickbar refinements.
+- Adds a bounded native zero-tooling Project Intelligence census that detects build-system markers, languages, nested project roots and safe inferred operation candidates without requiring PCC scripts or Forge metadata.
+- Adds native Toolchain Intelligence for Git, Rust, Python, CMake/Ninja, MSBuild/.NET, Node/npm, JVM/Gradle/Maven and Godot.
+- Adds a Project Intelligence widget and headless `--intelligence-json` audit surface; inferred operations remain evidence-only until direct execution policy is certified.
+- Native quickbar Run now routes through the governed `launch-gui` alias and the donor adapter recognizes `run.gui`, `run.game`, `run.client`, `run.editor`, `run.runtime`, and `run.default`.
+- Candidate advances to `0.5.0-candidate.776 / FORGEPY-F776`; native GUI build advances to `FORGE-NATIVE-GUI-WAVE2-0.5.0-F776`. Python ForgePY remains operational/recovery authority.
+
+## FORGEPY-F766 — Candidate Routing Authority + F765 Compile Repair
+
+- Fixed patch target routing so ForgePY candidate builds use `project.candidateBuild` / `candidateVersion` as the live source identity while preserving F60R415 as certified donor evidence.
+- Prevents valid F764 -> F765+ updates from being rejected merely because legacy `ForgePYVersion.py` still records the last promoted GREEN baseline.
+- Carries forward the egui 0.36 Windows theme API repair from F765 (`style_of` / `set_style_of`).
+- Adds explicit candidate/certified identity fields to build identity diagnostics and regression coverage for next-candidate patch preconditions.
+- Candidate advanced to `0.5.0-candidate.766 / FORGEPY-F766`; native GUI build is `FORGE-NATIVE-GUI-WAVE1-0.4.2-F766`.
+
+## FORGEPY-F765 — egui 0.36 Windows Compile Repair
+
+- Fixed the first real Windows Native GUI compile failure discovered by the Rust SHADOW Gate.
+- ForgePY had pinned `egui/eframe 0.36.2` but still used the pre-0.36 `Context::style()` / `Context::set_style()` API.
+- Native theme installation now forces `Theme::Dark`, reads with `style_of(Theme::Dark)`, and writes with `set_style_of(Theme::Dark, ...)`.
+- Added a regression test that rejects the obsolete Context styling calls so this exact failure cannot return.
+- Candidate advanced to `0.5.0-candidate.765 / FORGEPY-F765`; native GUI build is `FORGE-NATIVE-GUI-WAVE1-0.4.1-F765`.
+- Windows Rust SHADOW Gate remains the authoritative native compiler/runtime certification boundary.
+
+## FORGEPY-F764 — Native GUI Wave 1
+
+- F755-F764 establishes the real Rust desktop ForgePY shell using pinned eframe/egui + egui_dock.
+- Recreates the current ForgePY chrome: project-aware quickbar, Vault/Project/Workspace/Settings rail, docked workspace, Forge Console, Health rail, and status bar.
+- Adds a persistent polished docking/widget system with draggable/resizable/closable/undockable tabs and a resettable default layout.
+- Adds a native single-flight foreground operation queue with project/root binding, duplicate coalescing, streamed PCC output, Send/Stop console controls, and process-tree cancellation.
+- `Run Native` now launches the graphical Rust application detached after a successful build instead of running a headless print-and-exit executable.
+- Python ForgePY remains operational authority; native GUI, queue bridge, process host, transactions, catalog, and settings advance only through parity certification.
+- Candidate advanced to `0.5.0-candidate.764 / FORGEPY-F764`; native build is `FORGE-NATIVE-GUI-WAVE1-0.4-F764`.
+
+## FORGEPY-F754 — Already-target patch routing
+
+- Added explicit `ALREADY_TARGET` classification for cumulative patches whose declared target identity and target file hashes are already fully satisfied.
+- Manual selection of an already-applied patch now reports an informational **Patch Already Applied** state instead of **Patch Target Requires Review**.
+- Already-applied transports are retained as inert `already-applied` Patch Lineage without modifying project source or creating a pending update.
+- Added target-satisfaction regression coverage and advanced the Python application candidate to `0.5.0-candidate.754 / FORGEPY-F754`.
+
+## 0.5.0-candidate.753 — native migration wave 1 (F744-F753)
+
+- Fixes the post-GREEN callback bridge signature regression seen on the Windows F742 Full Gate.
+- Adds generation-deduped GREEN publication receipts and deterministic SQLite exception-path closure.
+- Expands Forge Native with versioned events, streamed process execution/cancellation, single-flight jobs, bounded project/settings probes, rollback journaling, stdio IPC, parity evidence, and a project-aware shell model.
+- Keeps Rust SHADOW/fail-closed; Python ForgePY remains operational authority.
+- Adds F744-F753 regression coverage and Dashboard Evidence/Shell Model actions.
+
+# ForgePY Changelog
+
+## 0.5.0-candidate.743 — native Rust foundation + shadow certification
+
+- Replaces the one-file Rust bootstrap with a governed dependency-free native foundation for identity/authority phase, contract probing, path confinement, operation/cancellation state, transaction/checkpoint state, and parity/takeover modeling.
+- Adds native `--probe`, `--self-test`, and `--parity-json` execution surfaces.
+- Expands the ForgePY-owned Rust lane with status/check/test/build/run/probe/parity/gate operations.
+- Makes the Python Full Gate certify the Rust SHADOW lane whenever Cargo/rustc are present; absence is a visible non-fatal skip while Python remains production authority.
+- Adds a Forge Native Rust Migration panel to the ForgePY self Dashboard and separates candidate identity from the certified donor baseline.
+- Explicitly declares ForgePY's project icon in `project.control.json` while retaining the project-aware F742 quickbar identity resolver.
+- Preserves the F742 blank-Dashboard repair and post-DONE GREEN/debug scheduling fixes.
+- Adds F743 native-foundation regression coverage and keeps takeover fail-closed.
+
+## 0.5.0-candidate.742 — Dashboard + Gate Completion Ordering
+
+- Fixed blank ForgePY self Dashboard caused by lazy page-key mismatch.
+- Serialized GREEN publication and failure-debug handoff behind GUI consumption of the Full Gate completion event.
+- Added Full Gate generation guards so stale callbacks cannot collide with a newer run.
+- Added F742 regression coverage.
+
+## 0.5.0-candidate.741 — source/root normalization + cancellable console operations
+
+- Normalizes the uploaded F740 candidate into one canonical source tree and removes the nested legacy `ForgePY/` mirror from the clean source snapshot.
+- Cleans the repository root of one-time overwrite/repair payloads, runtime logs/artifacts/backups, bytecode, and obsolete repository-replacement publishing helpers while retaining useful repair provenance under `docs/history/repair-kits/`.
+- Reorganizes documentation into current, architecture, guides, integrations, and historical evidence with `docs/README.md` as the index.
+- Fixes the live Tk callback regression where status rendering referenced the retired `summary_text` Dashboard widget.
+- Collapses duplicate Stop controls into one `Stop` button beside the console Run/Send control and moves `Last Run` to the bottom status bar.
+- Adds cooperative cancellation/process-tree termination for foreground console/PCC operations and the universal Apply + Full Gate lane; cancellation is reported as `STOPPED`.
+- Adds Full Gate source-authority auditing, fixes the completed-job future retention race, and migrates stale overlay/timestamp tests to the current patch safety contracts without relaxing fail-closed behavior.
+- Existing integrated regression suite passes 385/385 before the new root-structure regression coverage is added.
+- F60R415 remains the last committed Windows-certified baseline; F741 remains a candidate pending Windows-native Full Gate/runtime certification.
 
 ## 0.4.415-F60R415 — simplified operator workflow + automatic GREEN publication
 
@@ -398,3 +486,11 @@
 - Only deliberate active-project root drops auto-enter the executable `QUEUED` state.
 - Root-drop intake now explicitly marks the active project root as trusted.
 - GUI/manual intake distinguishes queued root patches, available downloads, review transports, ordinary artifacts, and blocking trusted-root errors.
+
+## 0.5.0-candidate.742 — Dashboard/gate ordering + project identity + Rust successor bootstrap
+
+- Repairs the ForgePY-self Dashboard lazy-page resolution so the selected ForgePY project does not display an empty center surface.
+- Moves GREEN publication and failed-gate diagnostics behind authoritative GUI job-slot release, preventing late `Another ForgePY job is already running` popups.
+- Makes the Project/Workspace quickbar project-aware with a bounded project-icon resolver and a visible project identity label.
+- Adds the governed `native/forge-rs` Rust successor bootstrap and ForgePY-owned Rust status/build/test/run command lane while retaining Python ForgePY as operational authority until parity certification.
+- Extends package hygiene so nested Rust `target/` and other cache folders remain runtime-transient rather than governed source.

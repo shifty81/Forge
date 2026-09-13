@@ -42,3 +42,9 @@ installer-staging/
 # Native crash diagnostics
 *.dmp
 *.mdmp
+
+# Rust successor build output
+target/
+
+# Rust SHADOW dependency lock is machine-generated until native GUI dependency graph is Windows-certified
+native/forge-rs/Cargo.lock

@@ -1,6 +1,7 @@
 # ForgePY
 
-**Current certified development build:** `0.4.415-F60R415` (`FORGEPY-F60R415`)
+**Current certified baseline:** `0.4.415-F60R415` (`FORGEPY-F60R415`)  
+**Current integrated candidate:** `0.5.0-candidate.777` (`FORGEPY-F777`)
 
 ForgePY is the standalone, local-first universal project operations application. It discovers a project's own CLI/PCC authority and provides the common GUI for build, run, quality gates, logs, updates, GitHub + ForgeGit source control, Artifact Central, Vault storage, diagnostics, and project tooling. Projects remain independently buildable without ForgePY.
 
@@ -12,7 +13,6 @@ The installation root is now intentionally ForgePY-centered:
 - `ForgePY.cmd` — diagnostic/console-visible launcher.
 - `ForgePYConsole.cmd` — emergency console surface.
 - `VerifyForgePY.cmd` — self-test + quick quality gate.
-- `PublishForgePYRepository.cmd/.ps1` — repository publishing helpers.
 - `FORGEPY_PACKAGE_MANIFEST.json` — release package authority.
 - `project.control.json` — ForgePY's own project contract.
 
@@ -37,7 +37,9 @@ ForgePY can register itself as a project and update through the same validated p
 
 ## Development
 
-Run `VerifyForgePY.cmd` for the quick gate or `python tools/ForgePYGate.py full` for the complete self-hosted gate. Historical PCC/Vault bootstrap material is retained under `docs/history/` and `reference/` for provenance only.
+Run `VerifyForgePY.cmd` for the quick gate or `python tools/ForgePYGate.py full` for the complete self-hosted gate. Start with [`docs/README.md`](docs/README.md) for the documentation map. The repository root is source-authoritative and must not contain a nested `ForgePY/` source mirror, live runtime artifacts, or one-time repair payloads.
+
+Forge Native lives under `native/forge-rs` as the Rust successor. It is currently a **SHADOW** implementation and is built/certified by ForgePY; it is not permitted to replace Python ForgePY until parity/takeover certification is explicitly complete. See [`docs/current/RUST_MIGRATION.md`](docs/current/RUST_MIGRATION.md).
 
 
 ## Vault drive catalog

@@ -233,6 +233,64 @@ def _safe_project_name(root: Path, manifest: dict[str, Any]) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", project).strip("-") or root.name
 
 
+
+def target_satisfaction(path: Path, root: Path) -> dict[str, Any]:
+    """Return whether a manifest-backed transport is already fully materialized.
+
+    This is intentionally target-oriented rather than preimage-oriented.  It lets
+    intake distinguish an already-installed cumulative patch from a genuinely
+    incompatible patch without weakening normal precondition checks.
+    """
+    path = path.expanduser().resolve()
+    root = root.expanduser().resolve()
+    if is_unified_diff(path):
+        return {"status": "UNKNOWN", "reason": "unified diffs do not carry authoritative target hashes", "satisfied": 0, "total": 0}
+    try:
+        checked = validate_transport(path, None)
+    except Exception as exc:
+        return {"status": "INVALID", "reason": str(exc), "satisfied": 0, "total": 0}
+    manifest = checked.get("manifest") if isinstance(checked.get("manifest"), dict) else {}
+    rows = checked.get("files") if isinstance(checked.get("files"), list) else []
+    satisfied = 0
+    unsatisfied: list[str] = []
+    for row in rows:
+        rel = str(row.get("path") or "")
+        try:
+            target = _target(root, rel)
+            ok = _row_already_satisfied(target, row)
+        except Exception:
+            ok = False
+        if ok:
+            satisfied += 1
+        else:
+            unsatisfied.append(rel)
+
+    target_decl = manifest.get("target") if isinstance(manifest.get("target"), dict) else {}
+    try:
+        from ForgeProjectIdentity import resolve as resolve_project_identity
+        live = resolve_project_identity(root)
+    except Exception:
+        from VaultBuildIdentity import build_identity
+        live = build_identity(root)
+    expected_build = str(target_decl.get("projectBuild") or target_decl.get("build") or target_decl.get("buildId") or "").strip()
+    expected_version = str(target_decl.get("projectVersion") or target_decl.get("version") or target_decl.get("targetVersion") or "").strip()
+    actual_build = str(live.get("projectBuild") or "").strip()
+    actual_version = str(live.get("projectVersion") or "").strip()
+    identity_match = (not expected_build or actual_build == expected_build) and (not expected_version or actual_version == expected_version)
+    all_files = bool(rows) and satisfied == len(rows)
+    # A zero-row metadata-only transport may still be recognized by exact target identity.
+    fully_satisfied = (all_files and identity_match) or (not rows and identity_match and bool(expected_build or expected_version))
+    return {
+        "status": "ALREADY_TARGET" if fully_satisfied else "NOT_TARGET",
+        "reason": "all target files and declared target identity are already satisfied" if fully_satisfied else "target payload is not fully materialized",
+        "satisfied": satisfied,
+        "total": len(rows),
+        "unsatisfied": unsatisfied[:32],
+        "target": target_decl,
+        "identity": live,
+        "identityMatch": identity_match,
+    }
+
 def apply_transport(path: Path, root: Path) -> dict[str, Any]:
     root = root.expanduser().resolve()
     path = path.expanduser().resolve()

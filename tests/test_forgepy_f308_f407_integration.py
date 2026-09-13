@@ -12,5 +12,5 @@ class IntegrationTests(unittest.TestCase):
     def test_content_index_defaults_off(self):
         s=(ROOT/'app'/'VaultSettings.py').read_text(encoding='utf-8');self.assertIn('"contentIndexEnabled": False',s)
     def test_cumulative_notes_cover_108_407(self):
-        s=(ROOT/'docs'/'CUMULATIVE_PATCH_NOTES_F108_F407.md').read_text(encoding='utf-8');self.assertIn('F108–F307',s);self.assertIn('F308–F407',s)
+        s=(ROOT/'docs'/'history'/'passes'/'CUMULATIVE_PATCH_NOTES_F108_F407.md').read_text(encoding='utf-8');self.assertIn('F108–F307',s);self.assertIn('F308–F407',s)
 if __name__=='__main__':unittest.main()

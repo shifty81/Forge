@@ -1,0 +1,569 @@
+{
+  "candidateSafe": {
+    "doesNotReplace": [
+      "app/ForgeGui.py",
+      "app/ForgeSimplifiedUX.py",
+      "app/VaultIntake.py"
+    ]
+  },
+  "certification": {
+    "candidateSafe": {
+      "doesNotReplace": [
+        "app/ForgeGui.py",
+        "app/ForgeSimplifiedUX.py",
+        "app/VaultIntake.py"
+      ]
+    },
+    "certifiedBaseCompatibility": "0.4.415-F60R415",
+    "functionalChanges": {
+      "dashboard": "project command center",
+      "forgepySelfMaintenance": "separate queue/stage/directory-promotion lane",
+      "installModes": [
+        "installed-appdata",
+        "portable-data-folder"
+      ],
+      "performance": "surface-once normalization + async project open + coordinated scans",
+      "projectPages": "lazy specialist-page construction",
+      "projectVersionStatus": "bounded project identity resolver",
+      "runtimeIdentity": "candidate version propagated to live GUI globals",
+      "workspace": "native editor + quick open + project overview + lazy files"
+    },
+    "normalizationAudit": {
+      "checks": [
+        {
+          "detail": "Vault / Project / Workspace / Settings",
+          "name": "primary-navigation",
+          "ok": true
+        },
+        {
+          "detail": "external-project-cli",
+          "name": "project-cli-mode",
+          "ok": true
+        },
+        {
+          "detail": "0.5.0-candidate.700 / FORGEPY-F700",
+          "name": "candidate-identity",
+          "ok": true
+        },
+        {
+          "detail": "['installed', 'portable']",
+          "name": "install-modes",
+          "ok": true
+        },
+        {
+          "detail": "separate application update lane",
+          "name": "self-maintenance-lane",
+          "ok": true
+        },
+        {
+          "detail": "project command-center dashboard",
+          "name": "functional-dashboard",
+          "ok": true
+        },
+        {
+          "detail": "specialist Project pages are lazy",
+          "name": "lazy-project-pages",
+          "ok": true
+        },
+        {
+          "detail": "FORGEPY-LAYOUT-1.0-F630",
+          "name": "layout-policy",
+          "ok": true
+        },
+        {
+          "detail": "governed",
+          "name": "root-app-governed",
+          "ok": true
+        },
+        {
+          "detail": "legacy-mirror",
+          "name": "nested-mirror-excluded",
+          "ok": true
+        },
+        {
+          "detail": "runtime-transient",
+          "name": "runtime-output-excluded",
+          "ok": true
+        },
+        {
+          "detail": "{}",
+          "name": "protocol-alias-conflicts",
+          "ok": true
+        },
+        {
+          "detail": "static overlay proof",
+          "name": "no-implicit-patch-apply",
+          "ok": true
+        },
+        {
+          "detail": "canonical CLI route",
+          "name": "root-cli-routing",
+          "ok": true
+        },
+        {
+          "detail": "native lazy Workspace",
+          "name": "native-workspace",
+          "ok": true
+        },
+        {
+          "detail": "/opt/pyvenv/bin/python -m nuitka --standalone --enable-plugin=tk-inter --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=/mnt/data/ForgePY_F450_F700_ProductNormalization/assets/branding/ForgePY.ico --company-name=ForgePY --product-name=ForgePY --file-description=ForgePY Universal Project Operations --output-filename=ForgePY.exe --output-dir=/mnt/data/ForgePY_F450_F700_ProductNormalization/dist/nuitka /mnt/data/ForgePY_F450_F700_ProductNormalization/app/ForgePYBootstrap.py",
+          "name": "portable-executable",
+          "ok": true
+        }
+      ],
+      "failed": [],
+      "ok": true,
+      "schema": "forgepy.normalization-audit.v1",
+      "version": "FORGEPY-NORMALIZATION-AUDIT-2.0-F700"
+    },
+    "passes": "F450-F700",
+    "performanceAudit": {
+      "filesParsed": 59,
+      "findings": 31,
+      "high": 0,
+      "severityCounts": {
+        "INFO": 19,
+        "WARN": 12
+      }
+    },
+    "schema": "forgepy.f700.certification.v1",
+    "syntaxCompiled": 59,
+    "unitTestsRan": 95,
+    "unitTestsSkipped": 2,
+    "visibleBuild": "FORGEPY-F700",
+    "visibleVersion": "0.5.0-candidate.700"
+  },
+  "deployment": "extract directly over ForgePY root; overwrite matching files; no installer",
+  "files": [
+    {
+      "bytes": 798,
+      "path": "Forge.cmd",
+      "sha256": "0f14c235799ecd61fe8548a2d9b95940995938f309489a13b384f6a8ee382eca"
+    },
+    {
+      "bytes": 900,
+      "path": "app/ForgeAdapterCompliance.py",
+      "sha256": "5c36dd80639eb3dcf438b5a46518ae7371c39779ac0599c8221074ac274301dd"
+    },
+    {
+      "bytes": 2597,
+      "path": "app/ForgeApplicationIdentity.py",
+      "sha256": "bfc33099eca1c19194f226438d80f66c77ad927e617a2880b6ef8df8d7a25596"
+    },
+    {
+      "bytes": 2946,
+      "path": "app/ForgeBackendCapabilityPatch.py",
+      "sha256": "ceaa8d5f2b50eec42b0c028f032c647a41d3f28bd91c1ca59e606bf95afc9337"
+    },
+    {
+      "bytes": 1050,
+      "path": "app/ForgeCommandAvailability.py",
+      "sha256": "be737ed6402a03095b562150f7c2eafdb931453eea6c07c3b849d5982e468152"
+    },
+    {
+      "bytes": 4069,
+      "path": "app/ForgeCommandBus.py",
+      "sha256": "8a78ffc6c817c0691306e61cb0d690a567cb49d659d3b05dc88e68b9806b387b"
+    },
+    {
+      "bytes": 973,
+      "path": "app/ForgeCortexBridge.py",
+      "sha256": "63c03b24cb0a6e9ac6ef5ad79f821d12929886a4b2a9cef55762b847e758e678"
+    },
+    {
+      "bytes": 2726,
+      "path": "app/ForgeDriveCensus.py",
+      "sha256": "a97ce915c33410c5de08f7d08ce395533f435e34d960dde20f1f937ba1a6e246"
+    },
+    {
+      "bytes": 2540,
+      "path": "app/ForgeExeBuild.py",
+      "sha256": "5660b9c8e6b4e73ca9f10505bee2eefc28ada414be0927c54cc1773f90528d4c"
+    },
+    {
+      "bytes": 9083,
+      "path": "app/ForgeGreen.py",
+      "sha256": "56be4916381918d0e0422a9db1c105261a307494f349ad8f63cbf1877906ca7b"
+    },
+    {
+      "bytes": 1813,
+      "path": "app/ForgeInstallLayout.py",
+      "sha256": "3849ffe7d1928d5cad5241ea9c4d54714e632107e26ffb995220dcf476e3d072"
+    },
+    {
+      "bytes": 3215,
+      "path": "app/ForgeInstallerRuntime.py",
+      "sha256": "54791017c72b049d9f683e4ca0d89639eaf7f51d02351a0e087ac83595ffe025"
+    },
+    {
+      "bytes": 4931,
+      "path": "app/ForgeJobs.py",
+      "sha256": "3d7b64d955551474d28048fdb30c651f6dfb5e788b00d88b7a8ba7bbe5b4d4e3"
+    },
+    {
+      "bytes": 5038,
+      "path": "app/ForgeLayoutNormalization.py",
+      "sha256": "2ac2313f8576a99c460d857d9a1a9f314ffe406d387b2ae9e41f223925afe6c4"
+    },
+    {
+      "bytes": 4913,
+      "path": "app/ForgeLoadCoordinator.py",
+      "sha256": "875e818472ff52cd7a178e6aecc8ea47db57464b825903c19c56504b819ee029"
+    },
+    {
+      "bytes": 4037,
+      "path": "app/ForgeNormalizationAudit.py",
+      "sha256": "52526fd5fdf9161b393f2f91b5cb823e0eabbe746df0b8325441178e3b3d3213"
+    },
+    {
+      "bytes": 3142,
+      "path": "app/ForgeOperationEnvelope.py",
+      "sha256": "c5bc48e4324af69d3b002ea900e80ba57db5169191ea8be0bac0210d77d90ee6"
+    },
+    {
+      "bytes": 2196,
+      "path": "app/ForgeOperationGuard.py",
+      "sha256": "01d28cac268fb23adfd8011c4abc4e3f27cc0f5a0a538f58be34f66436e4bb7c"
+    },
+    {
+      "bytes": 12428,
+      "path": "app/ForgePYIntake.py",
+      "sha256": "a8e51ba561ce81bd9bec25b5a48e3a70f65a9fd9919b5950844e98eea3b34983"
+    },
+    {
+      "bytes": 1817,
+      "path": "app/ForgePackagePolicy.py",
+      "sha256": "ede1d491bafa4ba162a5ebebaa150a08fbbdcd57225be297e00c10f16686e8f1"
+    },
+    {
+      "bytes": 7617,
+      "path": "app/ForgePatchCheckpoint.py",
+      "sha256": "1154814701440e1a8766309bfb12f952aed330635e9762d712633d8260c3c412"
+    },
+    {
+      "bytes": 10111,
+      "path": "app/ForgePerformanceAudit.py",
+      "sha256": "3e1fabf39f1abe7e42ea1875bf7dbb89db6225c1d2f48cdbed682887a4dbd3c3"
+    },
+    {
+      "bytes": 8800,
+      "path": "app/ForgePerformanceRuntime.py",
+      "sha256": "1452c65c9b5bcef9e8deffe6b9b42cd7a1148261c139edc7b5b1c6fc5b85be9a"
+    },
+    {
+      "bytes": 11757,
+      "path": "app/ForgeProjectAudit.py",
+      "sha256": "369e209f2886a3c97423fedb1c6c74c678dd7f629760f18359be1583015ac4eb"
+    },
+    {
+      "bytes": 8594,
+      "path": "app/ForgeProjectDashboard.py",
+      "sha256": "facc3517c4761d61efb9f5beb1f28b620c89d1b355a831d5cfc1ffa0a6f812ed"
+    },
+    {
+      "bytes": 3506,
+      "path": "app/ForgeProjectIdentity.py",
+      "sha256": "897c4af416c45c4fce41731b826b6b71e4bb77a594d071282e879e5fef24d20a"
+    },
+    {
+      "bytes": 24581,
+      "path": "app/ForgeProjectInteractionPerformance.py",
+      "sha256": "b5d6f37e3f666cd98821fa67c2dd46e265b7080a14c3e666ef02a6374f0e667b"
+    },
+    {
+      "bytes": 9716,
+      "path": "app/ForgeProjectProtocol.py",
+      "sha256": "274783d10e0ebc32e7748a32cef131223fb319a3c6c8d8b75eadeac2ae4538c8"
+    },
+    {
+      "bytes": 3674,
+      "path": "app/ForgeProjectSurface.py",
+      "sha256": "abd30e168d3f2063f88671ee98ddeffd5bbe3afbc8317758e3dabbf25abcaaf7"
+    },
+    {
+      "bytes": 8218,
+      "path": "app/ForgeRuntimeCompatibility.py",
+      "sha256": "cdb1ff58c0314618712b174e5773fde2f1abbf1157baccbc3243e87881c7db45"
+    },
+    {
+      "bytes": 5675,
+      "path": "app/ForgeRuntimeServices.py",
+      "sha256": "a829b1c8f504d0a2220bf021cc3bbcb6c3728f01e2f03aad4f109119e4683e37"
+    },
+    {
+      "bytes": 4607,
+      "path": "app/ForgeSelfMaintenance.py",
+      "sha256": "fa781d36e9b5876811dd3249439587decd0dff71d7f15d9ee177a326bbf15931"
+    },
+    {
+      "bytes": 6092,
+      "path": "app/ForgeSelfMaintenanceUI.py",
+      "sha256": "afd64558137f79d627c7bba6fd4cccbdc6dbacc220764671e406ee3a690941a1"
+    },
+    {
+      "bytes": 2651,
+      "path": "app/ForgeSelfUpdateRuntime.py",
+      "sha256": "5f007e32615222a4412de933aeba994ad50bc5b3d7f533238e4a3f8e55bb2423"
+    },
+    {
+      "bytes": 999,
+      "path": "app/ForgeSourceAuthority.py",
+      "sha256": "6c54d2dd4d2584582e3e00c5cee4bbb263327ee27355b55af545eee39af7b1fd"
+    },
+    {
+      "bytes": 2202,
+      "path": "app/ForgeSourceTreePolicy.py",
+      "sha256": "c849c9ba960ee08f3ec0a4940d82674fa7c39363eff584786a93cbf30474c9d8"
+    },
+    {
+      "bytes": 2497,
+      "path": "app/ForgeStandaloneBuild.py",
+      "sha256": "ace0c8636fa9458d049779e200e34b2db2ac6cc23f0b3b877befff3114f21b44"
+    },
+    {
+      "bytes": 17821,
+      "path": "app/ForgeStatusCache.py",
+      "sha256": "26d94d3c5e7621001265c62281931287c3527661e5f5483750701745a3106b1f"
+    },
+    {
+      "bytes": 3363,
+      "path": "app/ForgeUiWorkflowModel.py",
+      "sha256": "10204b60b7d314d4850413380a64c101fafca0c478c735d82aabed98d999a784"
+    },
+    {
+      "bytes": 7112,
+      "path": "app/ForgeUnifiedCli.py",
+      "sha256": "3778c81f8be0074c5720f484db7de68c1a10595d3302887639e13c16f0a9e7ea"
+    },
+    {
+      "bytes": 6003,
+      "path": "app/ForgeUnifiedServices.py",
+      "sha256": "41488a4625d8cb31775598356ae322ae2c274dfcdf229d50c2690f1938275951"
+    },
+    {
+      "bytes": 40492,
+      "path": "app/ForgeUnifiedWorkflow.py",
+      "sha256": "35b1e0051fbafca359f8e18a02e76368c266c8f3ccb2e5b12356984f29f40f3a"
+    },
+    {
+      "bytes": 2867,
+      "path": "app/ForgeVaultWorkflow.py",
+      "sha256": "c2e24a70cf55bf8df39b4d0093f43d9ce2e606a48962dd0c1be33c805305ead9"
+    },
+    {
+      "bytes": 1061,
+      "path": "app/ForgeWorkspacePerformance.py",
+      "sha256": "99942e65ff59135cc26982d01d810e1c24eb3ad2cd75c9246b4f6431d2da86ba"
+    },
+    {
+      "bytes": 18929,
+      "path": "app/ForgeWorkspaceSurface.py",
+      "sha256": "18d90f139bda4f27755a0facd3e63926a8ac1ec82b09a263d35e98a201ffb639"
+    },
+    {
+      "bytes": 13119,
+      "path": "app/PCCOperationHost.py",
+      "sha256": "8f5c3b8b6a33b373bc3f5de6cc21a2b02ca1c690f7f6448d50ce18c2a716188d"
+    },
+    {
+      "bytes": 1205,
+      "path": "docs/F450_F455_OVERLAY_MANIFEST.json",
+      "sha256": "2e16696c5d640fbec86f7998baf9d22e35491c77f77c45989ae5d08e6fb1d69a"
+    },
+    {
+      "bytes": 1153,
+      "path": "docs/F450_F455_STABILIZATION_AND_RESPONSIVENESS.md",
+      "sha256": "e720327ca77b89145191f1f49576f7844f2ff0e934ba23d920324a4cec630d42"
+    },
+    {
+      "bytes": 7452,
+      "path": "docs/F450_F485_OVERLAY_MANIFEST.json",
+      "sha256": "16d34f3814a962c5ca7379010e5feb7fe846d7a973fb8d96e6ccee9c979cb62f"
+    },
+    {
+      "bytes": 8834,
+      "path": "docs/F450_F500_OVERLAY_MANIFEST.json",
+      "sha256": "5686fba910f88bde2ae169bae2df904ad6dcf226c9f5706a58822f1492f447ee"
+    },
+    {
+      "bytes": 9754,
+      "path": "docs/F450_F510_OVERLAY_MANIFEST.json",
+      "sha256": "751eeee913f92a38ed9364e67ba71d6122fbf4dad6b1bdba01e5714aeddae883"
+    },
+    {
+      "bytes": 10963,
+      "path": "docs/F450_F520_OVERLAY_MANIFEST.json",
+      "sha256": "6b8a7ed7abc152abd893fa38d46301a93a511770522a6398a45758d146973a3f"
+    },
+    {
+      "bytes": 8547,
+      "path": "docs/F450_F560_OVERLAY_MANIFEST.json",
+      "sha256": "e1151f723f2ed174642d62d4ef899f5a00b5aa4f77e9b1950a172ff97d700228"
+    },
+    {
+      "bytes": 2286,
+      "path": "docs/F450_F620_CERTIFICATION.json",
+      "sha256": "c1dcfc6054a73c0d07a949afdfc0cd0252a222689d8df3aa89bf8518d2e394a7"
+    },
+    {
+      "bytes": 14067,
+      "path": "docs/F450_F620_OVERLAY_MANIFEST.json",
+      "sha256": "f8b0a5bf53239651c5dc4ea1c882a95b73647f71be430aca4b4557aa2552903f"
+    },
+    {
+      "bytes": 2774,
+      "path": "docs/F450_F630_CERTIFICATION.json",
+      "sha256": "d31b4dacc1cbfa85f7b6f483dc621dd49c19751085f55df8710f14f266d3ce64"
+    },
+    {
+      "bytes": 15255,
+      "path": "docs/F450_F630_OVERLAY_MANIFEST.json",
+      "sha256": "73547b7b107db8f3367e31dba5b452f9b0a5f9de6aed382486d8002d073cbd6d"
+    },
+    {
+      "bytes": 3747,
+      "path": "docs/F450_F700_CERTIFICATION.json",
+      "sha256": "0840b11cba696a05ed5edf0a5bc122fb6f24bfa02dcd2107d78ed39d6b55eb40"
+    },
+    {
+      "bytes": 3696,
+      "path": "docs/F456_F485_UNIFIED_WORKFLOW.md",
+      "sha256": "6a6757e8b455e3697de06fa4c38132cd1804d077ad2fc5088bd525190eef4378"
+    },
+    {
+      "bytes": 2466,
+      "path": "docs/F486_F500_VAULT_WORKFLOW_NORMALIZATION.md",
+      "sha256": "8aaa9f10535ca1c97b95bd3840aec8c4817327849284804e7abd901670cca7a0"
+    },
+    {
+      "bytes": 1467,
+      "path": "docs/F501_F510_WORKSPACE_RESPONSIVENESS.md",
+      "sha256": "4171969342b432386b2e47761d64c8bcfff86f352c4f3a68cf363d0cfba927fd"
+    },
+    {
+      "bytes": 1264,
+      "path": "docs/F511_F520_WORKSPACE_INSTANT_OPEN.md",
+      "sha256": "e10b2f86e0bfacd3994dbf247307e3c43cfb914291031656a493b598fd25558e"
+    },
+    {
+      "bytes": 5361,
+      "path": "docs/F521_F560_PERFORMANCE_RELIABILITY_AUDIT.md",
+      "sha256": "dd4268d2833c101d1b272bfa9c0c23392dbcd6a346549fa372a71be1ec502b3f"
+    },
+    {
+      "bytes": 5310,
+      "path": "docs/F576_F620_COHESIVE_WORKFLOW_NORMALIZATION.md",
+      "sha256": "b0d08f2821fc0c4ebbe519b333332c51b054d648db2692e3b249002b2c72fd56"
+    },
+    {
+      "bytes": 1846,
+      "path": "docs/F576_F620_ISSUE_MATRIX.json",
+      "sha256": "1110ecd296e04f502735d16ee6a15a07e4835b51b01af1840cb40c9d75fa5234"
+    },
+    {
+      "bytes": 1371,
+      "path": "docs/F621_F630_CONSOLE_AND_PANEL_ALIGNMENT.md",
+      "sha256": "89d6437f53d1412b6d660b70856cbbfcc48201d461d8c741af06e9f3c69b8ebb"
+    },
+    {
+      "bytes": 3288,
+      "path": "docs/F631_F700_PRODUCT_NORMALIZATION.md",
+      "sha256": "dcfddc781a61fa4e5908434cfc0e7d66d68710f62645a44f5f9b34307e4c9803"
+    },
+    {
+      "bytes": 2129,
+      "path": "tests/test_forgepy_f450_f455_stabilization.py",
+      "sha256": "0ea7e2032cb0d66c873ea706179f6725c3515e3a93bc79515c5dbd8828c66254"
+    },
+    {
+      "bytes": 3770,
+      "path": "tests/test_forgepy_f456_f485_unified_workflow.py",
+      "sha256": "2dec3cea5df02a0cf2670614843675b2ad9810b12bb49693e66dcc0591ef9db8"
+    },
+    {
+      "bytes": 2361,
+      "path": "tests/test_forgepy_f486_f500_vault_workflow.py",
+      "sha256": "e1de812ba733f2a17f2f7a0e87662c5b816c063a92990789c26f2fc3afd5da16"
+    },
+    {
+      "bytes": 2126,
+      "path": "tests/test_forgepy_f501_f510_workspace_responsiveness.py",
+      "sha256": "e97ee0e179368d37ad1ebf842778ca53e8411debf0c1197fdcebdb7725035455"
+    },
+    {
+      "bytes": 2255,
+      "path": "tests/test_forgepy_f511_f520_workspace_instant_open.py",
+      "sha256": "491e05ba19cb2c3be90afb39053354b5d6a4900208688b5a5d8812ec8c98eaf7"
+    },
+    {
+      "bytes": 6444,
+      "path": "tests/test_forgepy_f521_f560_performance_reliability.py",
+      "sha256": "c08c31bca743a3d486bf819469c704639e93c57311dd9f36f27b10e8a1dac54b"
+    },
+    {
+      "bytes": 6961,
+      "path": "tests/test_forgepy_f561_f575_correctness_hardening.py",
+      "sha256": "1f200000b6df2201b40e009fbe7ed76a8f8d8576c93f7fa792532011b6daf90e"
+    },
+    {
+      "bytes": 4765,
+      "path": "tests/test_forgepy_f576_f620_cohesive_normalization.py",
+      "sha256": "678cf8390b06a3e43212c8cea19124f7abdc4055c502d1e16005837f013940c6"
+    },
+    {
+      "bytes": 3253,
+      "path": "tests/test_forgepy_f621_cohesion_final.py",
+      "sha256": "94bba962f7ce08a4b50c317a4f9e217a74a663f9982d5edba6b0108fa7c00938"
+    },
+    {
+      "bytes": 2386,
+      "path": "tests/test_forgepy_f621_f630_console_layout.py",
+      "sha256": "30781637bd6a1252a7265407e44b4678a11a21ad66d23eb9cbbae0b6c066b5cc"
+    },
+    {
+      "bytes": 4410,
+      "path": "tests/test_forgepy_f631_f700_product_normalization.py",
+      "sha256": "50e2d46c6c547e8806e07f5f9e6b1439fdd4d1bca375275825a3ae000a9f98c6"
+    },
+    {
+      "bytes": 2603,
+      "path": "tools/BuildForgePYManifest.py",
+      "sha256": "67ece6b45eb4c60d18693f1a51a4983efb8b2f06c9280b97cbdca601dc453b6d"
+    },
+    {
+      "bytes": 6231,
+      "path": "tools/ForgeGate.py",
+      "sha256": "be8ca66353b12e73640b5a8a416d5ce847b698e3f65ff20427236b5a8cf67aa4"
+    },
+    {
+      "bytes": 983,
+      "path": "tools/ForgePYGate.py",
+      "sha256": "ebdb5dc1fcaa310e989509c46991040b1fc9561e12bfcbdca84b5641e88bcb3b"
+    }
+  ],
+  "identity": {
+    "certifiedBaseCompatibility": "0.4.415-F60R415",
+    "visibleBuild": "FORGEPY-F700",
+    "visibleVersion": "0.5.0-candidate.700"
+  },
+  "overlay": "FORGEPY-F450-F700-CUMULATIVE-PRODUCT-NORMALIZATION",
+  "schema": "forgepy.root-overlay.v1",
+  "workflow": {
+    "console": "Forge Console",
+    "dashboard": "functional project state/evidence/navigation",
+    "forgepyUpdates": "separate application self-maintenance lane",
+    "installModes": [
+      "standard AppData-backed",
+      "portable local Data"
+    ],
+    "primaryNavigation": [
+      "Vault",
+      "Project",
+      "Workspace",
+      "Settings"
+    ],
+    "projectCli": "separate project-owned CLI/PCC action",
+    "projectUpdates": "explicit project update lane",
+    "workspace": "native authoring with cached Quick Open"
+  }
+}

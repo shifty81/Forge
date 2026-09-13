@@ -182,7 +182,7 @@ raise SystemExit(0)
                 self.assertEqual(staged["staged"], 0, staged)
                 self.assertFalse((project / "updates" / "inbox" / "Demo_Patch_001.zip").exists())
 
-    def test_operation_host_applies_vault_patch_before_build(self) -> None:
+    def test_operation_host_catalogs_root_patch_but_does_not_apply_before_build(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             downloads = base / "Downloads"; downloads.mkdir()
@@ -228,10 +228,11 @@ raise SystemExit(0)
                 self.assertEqual(cp.returncode, 0, cp.stdout)
                 self.assertNotIn("fake patch authority", cp.stdout)
                 self.assertIn("fake build", cp.stdout)
-                self.assertEqual((project / "README.txt").read_text(encoding="utf-8"), "demo")
+                self.assertFalse((project / "README.txt").exists(), cp.stdout)
                 self.assertFalse((project / "updates" / "inbox").exists())
                 items = list_items(project="Demo")
-                self.assertEqual(items[0]["state"], "APPLIED", cp.stdout)
+                self.assertEqual(items[0]["state"], "QUEUED", cp.stdout)
+                self.assertIn("source is unchanged", cp.stdout)
 
 
     def test_operation_host_does_not_poll_or_apply_downloads(self) -> None:

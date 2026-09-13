@@ -10,5 +10,5 @@ class SafetyTests(unittest.TestCase):
     def test_startup_surface_teardown_remains(self):
         src=(ROOT/'app'/'ForgeStartup.py').read_text(encoding='utf-8'); self.assertIn('frame.destroy()',src); self.assertIn('root.quit()',src)
     def test_release_does_not_claim_native_exe(self):
-        doc=(ROOT/'docs'/'NEXT_100_PASSES_F108_F207.md').read_text(encoding='utf-8'); self.assertIn('not falsely certified as Windows binaries',doc)
+        doc=(ROOT/'docs'/'history'/'passes'/'NEXT_100_PASSES_F108_F207.md').read_text(encoding='utf-8'); self.assertIn('not falsely certified as Windows binaries',doc)
 if __name__=='__main__':unittest.main()

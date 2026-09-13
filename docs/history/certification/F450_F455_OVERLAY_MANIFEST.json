@@ -1,0 +1,37 @@
+{
+  "schema": "forgepy.root-overlay.v1",
+  "overlay": "FORGEPY-F450-F455-CUMULATIVE-STABILIZATION",
+  "deployment": "extract directly over ForgePY root; overwrite matching files",
+  "files": [
+    {
+      "path": "app/ForgeDriveCensus.py",
+      "bytes": 2726,
+      "sha256": "a97ce915c33410c5de08f7d08ce395533f435e34d960dde20f1f937ba1a6e246"
+    },
+    {
+      "path": "app/ForgePYIntake.py",
+      "bytes": 10209,
+      "sha256": "acecb316611a2c936c18c0d2c81f56e60f275a31fae4e6b96a27c427f4aee4f6"
+    },
+    {
+      "path": "app/ForgeRuntimeCompatibility.py",
+      "bytes": 5502,
+      "sha256": "79e1f5086ca8929a795fc2af9ad99b14aa600e17704049260c551c7f2c2bd9ed"
+    },
+    {
+      "path": "app/ForgeSourceAuthority.py",
+      "bytes": 999,
+      "sha256": "6c54d2dd4d2584582e3e00c5cee4bbb263327ee27355b55af545eee39af7b1fd"
+    },
+    {
+      "path": "docs/F450_F455_STABILIZATION_AND_RESPONSIVENESS.md",
+      "bytes": 1153,
+      "sha256": "e720327ca77b89145191f1f49576f7844f2ff0e934ba23d920324a4cec630d42"
+    },
+    {
+      "path": "tests/test_forgepy_f450_f455_stabilization.py",
+      "bytes": 1809,
+      "sha256": "9d24781a6ba8a01c69036d80396ee1aca870e44e2743a2ddd6b036e986ab11ed"
+    }
+  ]
+}

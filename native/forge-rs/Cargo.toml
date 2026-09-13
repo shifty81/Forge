@@ -1,0 +1,31 @@
+[package]
+name = "forge-native"
+version = "0.4.0"
+edition = "2021"
+description = "Forge native Rust successor with dockable eframe/egui shell"
+license = "Proprietary"
+publish = false
+resolver = "2"
+
+[lib]
+name = "forge_native"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ForgeNative"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "glow", "persistence"] }
+egui_dock = { version = "=0.21.1", features = ["serde"] }
+egui_extras = { version = "=0.36.2", features = ["file", "image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive"] }
+
+[profile.dev]
+debug = 1
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

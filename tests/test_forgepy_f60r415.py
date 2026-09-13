@@ -61,7 +61,9 @@ class F60R415SimplifiedWorkflowTests(unittest.TestCase):
         block = text[start:end]
         self.assertNotIn("_activate_project", block)
         self.assertIn("without changing the visible workspace", text)
-        self.assertIn("_start_universal_project_apply(target_root", text)
+        self.assertIn("_wait_for_approval_then_apply(gui, 120, target_root)", block)
+        self.assertIn("resolved = target_root", text)
+        self.assertIn("_start_universal_project_apply(resolved", text)
 
     def test_debug_reveal_uses_file_selection_handoff(self) -> None:
         text = (APP / "ForgeSimplifiedUX.py").read_text(encoding="utf-8")

@@ -1,0 +1,127 @@
+{
+  "candidateSafe": {
+    "doesNotReplace": [
+      "app/ForgeGui.py",
+      "app/ForgeSimplifiedUX.py",
+      "app/VaultIntake.py"
+    ]
+  },
+  "certifiedBaseCompatibility": "0.4.415-F60R415",
+  "functionalChanges": {
+    "dashboard": "project command center",
+    "forgepySelfMaintenance": "separate queue/stage/directory-promotion lane",
+    "installModes": [
+      "installed-appdata",
+      "portable-data-folder"
+    ],
+    "performance": "surface-once normalization + async project open + coordinated scans",
+    "projectPages": "lazy specialist-page construction",
+    "projectVersionStatus": "bounded project identity resolver",
+    "runtimeIdentity": "candidate version propagated to live GUI globals",
+    "workspace": "native editor + quick open + project overview + lazy files"
+  },
+  "normalizationAudit": {
+    "checks": [
+      {
+        "detail": "Vault / Project / Workspace / Settings",
+        "name": "primary-navigation",
+        "ok": true
+      },
+      {
+        "detail": "external-project-cli",
+        "name": "project-cli-mode",
+        "ok": true
+      },
+      {
+        "detail": "0.5.0-candidate.700 / FORGEPY-F700",
+        "name": "candidate-identity",
+        "ok": true
+      },
+      {
+        "detail": "['installed', 'portable']",
+        "name": "install-modes",
+        "ok": true
+      },
+      {
+        "detail": "separate application update lane",
+        "name": "self-maintenance-lane",
+        "ok": true
+      },
+      {
+        "detail": "project command-center dashboard",
+        "name": "functional-dashboard",
+        "ok": true
+      },
+      {
+        "detail": "specialist Project pages are lazy",
+        "name": "lazy-project-pages",
+        "ok": true
+      },
+      {
+        "detail": "FORGEPY-LAYOUT-1.0-F630",
+        "name": "layout-policy",
+        "ok": true
+      },
+      {
+        "detail": "governed",
+        "name": "root-app-governed",
+        "ok": true
+      },
+      {
+        "detail": "legacy-mirror",
+        "name": "nested-mirror-excluded",
+        "ok": true
+      },
+      {
+        "detail": "runtime-transient",
+        "name": "runtime-output-excluded",
+        "ok": true
+      },
+      {
+        "detail": "{}",
+        "name": "protocol-alias-conflicts",
+        "ok": true
+      },
+      {
+        "detail": "static overlay proof",
+        "name": "no-implicit-patch-apply",
+        "ok": true
+      },
+      {
+        "detail": "canonical CLI route",
+        "name": "root-cli-routing",
+        "ok": true
+      },
+      {
+        "detail": "native lazy Workspace",
+        "name": "native-workspace",
+        "ok": true
+      },
+      {
+        "detail": "/opt/pyvenv/bin/python -m nuitka --standalone --enable-plugin=tk-inter --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=/mnt/data/ForgePY_F450_F700_ProductNormalization/assets/branding/ForgePY.ico --company-name=ForgePY --product-name=ForgePY --file-description=ForgePY Universal Project Operations --output-filename=ForgePY.exe --output-dir=/mnt/data/ForgePY_F450_F700_ProductNormalization/dist/nuitka /mnt/data/ForgePY_F450_F700_ProductNormalization/app/ForgePYBootstrap.py",
+        "name": "portable-executable",
+        "ok": true
+      }
+    ],
+    "failed": [],
+    "ok": true,
+    "schema": "forgepy.normalization-audit.v1",
+    "version": "FORGEPY-NORMALIZATION-AUDIT-2.0-F700"
+  },
+  "passes": "F450-F700",
+  "performanceAudit": {
+    "filesParsed": 59,
+    "findings": 31,
+    "high": 0,
+    "severityCounts": {
+      "INFO": 19,
+      "WARN": 12
+    }
+  },
+  "schema": "forgepy.f700.certification.v1",
+  "syntaxCompiled": 59,
+  "unitTestsRan": 95,
+  "unitTestsSkipped": 2,
+  "visibleBuild": "FORGEPY-F700",
+  "visibleVersion": "0.5.0-candidate.700"
+}

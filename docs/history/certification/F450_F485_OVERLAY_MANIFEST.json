@@ -1,0 +1,211 @@
+{
+  "schema": "forgepy.root-overlay.v1",
+  "overlay": "FORGEPY-F450-F485-CUMULATIVE-UNIFIED-WORKFLOW",
+  "deployment": "extract directly over ForgePY root; overwrite matching files; no installer",
+  "candidateSafe": {
+    "doesNotReplace": [
+      "app/ForgeGui.py",
+      "app/ForgeSimplifiedUX.py",
+      "app/VaultIntake.py"
+    ],
+    "integration": "ForgeRuntimeCompatibility import hook + additive service modules"
+  },
+  "intakeContract": "scan/register -> project audit -> ForgePY support handoff + project integration handoff + intelligence snapshot",
+  "files": [
+    {
+      "path": "app/ForgeAdapterCompliance.py",
+      "bytes": 872,
+      "sha256": "6517138b17bc11715975cb24f272913e6ed20a65be4c984dc77afc6f4f9ec30d"
+    },
+    {
+      "path": "app/ForgeBackendCapabilityPatch.py",
+      "bytes": 2194,
+      "sha256": "8546b42b3ab9cfd764e4c92224611ad486ad92ae05c4f931aa59661343234680"
+    },
+    {
+      "path": "app/ForgeCommandAvailability.py",
+      "bytes": 1050,
+      "sha256": "be737ed6402a03095b562150f7c2eafdb931453eea6c07c3b849d5982e468152"
+    },
+    {
+      "path": "app/ForgeCommandBus.py",
+      "bytes": 4069,
+      "sha256": "8a78ffc6c817c0691306e61cb0d690a567cb49d659d3b05dc88e68b9806b387b"
+    },
+    {
+      "path": "app/ForgeDriveCensus.py",
+      "bytes": 2726,
+      "sha256": "a97ce915c33410c5de08f7d08ce395533f435e34d960dde20f1f937ba1a6e246"
+    },
+    {
+      "path": "app/ForgeOperationEnvelope.py",
+      "bytes": 2382,
+      "sha256": "452dbae87747d191e9fca6ab7f843854d4f9ffe69e0e5545e0a1e7a509cb8a2e"
+    },
+    {
+      "path": "app/ForgePYIntake.py",
+      "bytes": 11644,
+      "sha256": "7fa5fd4aec2c3a4f6056aed82ec176092c3c09fae9af63b794827c3c5a0e1a69"
+    },
+    {
+      "path": "app/ForgeProjectAudit.py",
+      "bytes": 9650,
+      "sha256": "9e8ba7f26493280b4ce535024bfb7b81e9996f1a80f98191436cd6ceddcd1323"
+    },
+    {
+      "path": "app/ForgeProjectProtocol.py",
+      "bytes": 6750,
+      "sha256": "93b7c607b549de660b91fe29de785420c8d3408260b16bcbf58211d41cf7646d"
+    },
+    {
+      "path": "app/ForgeRuntimeCompatibility.py",
+      "bytes": 6014,
+      "sha256": "c368bdcd8d53fc22c8f91c2f86c5def6dacf454d5adb5383f002c43715afe227"
+    },
+    {
+      "path": "app/ForgeRuntimeServices.py",
+      "bytes": 4835,
+      "sha256": "91baf66c620ff2de8b755e0176d1a696a87e61dc756048a3fcfd24f189efcd0b"
+    },
+    {
+      "path": "app/ForgeSourceAuthority.py",
+      "bytes": 999,
+      "sha256": "6c54d2dd4d2584582e3e00c5cee4bbb263327ee27355b55af545eee39af7b1fd"
+    },
+    {
+      "path": "app/ForgeUnifiedCli.py",
+      "bytes": 3915,
+      "sha256": "80634532a8c255ddbef53a77af4f4a91df1170458d3d459f9eceb331f34e244d"
+    },
+    {
+      "path": "app/ForgeUnifiedServices.py",
+      "bytes": 3992,
+      "sha256": "e5284da8fe2c8acbfa6118ec87f91755461ec9aa5f674dd448d08088a65d9f62"
+    },
+    {
+      "path": "app/ForgeUnifiedWorkflow.py",
+      "bytes": 17344,
+      "sha256": "2ce897fbf8676519d4e0226154d33a74ef54dbbfcde5f8b560a1c9741d64075e"
+    },
+    {
+      "path": "app/PCCOperationHost.py",
+      "bytes": 8406,
+      "sha256": "1fcfe53cd8ec39f3181076cff4c6c3f6b17aa63e377fff6ee8cae9f4777cb883"
+    },
+    {
+      "path": "app/__pycache__/ForgeAdapterCompliance.cpython-313.pyc",
+      "bytes": 1266,
+      "sha256": "009d68808facef439ff9c79a96b8ec241d705050b53eb509b1df1fba83c46e94"
+    },
+    {
+      "path": "app/__pycache__/ForgeBackendCapabilityPatch.cpython-313.pyc",
+      "bytes": 2822,
+      "sha256": "3bf1425189f4aeb8c6c864696c0ffd351ae06ff9c0b7c30e9bb02cf50d80ab72"
+    },
+    {
+      "path": "app/__pycache__/ForgeCommandAvailability.cpython-313.pyc",
+      "bytes": 1788,
+      "sha256": "851eb4f809d8271634d07cfe0a973907e996633dbc144be7bd4af443be326e86"
+    },
+    {
+      "path": "app/__pycache__/ForgeCommandBus.cpython-313.pyc",
+      "bytes": 7766,
+      "sha256": "077ea67832809bccd644d56ec3a288955e8508669d89b60cd671c6f9b89c52df"
+    },
+    {
+      "path": "app/__pycache__/ForgeDriveCensus.cpython-313.pyc",
+      "bytes": 3918,
+      "sha256": "3e9315617aa8977fd896787efb9a28c26ed6371d95b6480af60b60f413a4f3ad"
+    },
+    {
+      "path": "app/__pycache__/ForgeOperationEnvelope.cpython-313.pyc",
+      "bytes": 4614,
+      "sha256": "02c9df04c7bd22433543375876794660837fe46b9d0258413d4e86a87384849e"
+    },
+    {
+      "path": "app/__pycache__/ForgePYIntake.cpython-313.pyc",
+      "bytes": 14423,
+      "sha256": "e6c5da5dae50344460720c4973ef609d564d611eb6df18ea3b4d92bacb408978"
+    },
+    {
+      "path": "app/__pycache__/ForgeProjectAudit.cpython-313.pyc",
+      "bytes": 15588,
+      "sha256": "f0b95d71a2cc8782df284152af6588119867b3eaed4c18b33578b89e22d932be"
+    },
+    {
+      "path": "app/__pycache__/ForgeProjectProtocol.cpython-313.pyc",
+      "bytes": 8710,
+      "sha256": "084298fcaf41e59faeeb9faa5d80df7a37fa3125ef9a6e0e0de2485db0feb821"
+    },
+    {
+      "path": "app/__pycache__/ForgeRuntimeCompatibility.cpython-313.pyc",
+      "bytes": 9950,
+      "sha256": "f4eed95fbb82e5e7da63fa723457cf2b03248167b4429bf38bff5ff32bbbe8dc"
+    },
+    {
+      "path": "app/__pycache__/ForgeRuntimeServices.cpython-313.pyc",
+      "bytes": 7850,
+      "sha256": "74345ed42da6fddf91d24021f123c52a4d01facdcd59c9fbd937c66efe917d5d"
+    },
+    {
+      "path": "app/__pycache__/ForgeSourceAuthority.cpython-313.pyc",
+      "bytes": 1706,
+      "sha256": "7f9a7aec1f9abc23ff77fdbf74a353fcb5c795c28f0dbd514803d6db4766b576"
+    },
+    {
+      "path": "app/__pycache__/ForgeUnifiedCli.cpython-313.pyc",
+      "bytes": 6380,
+      "sha256": "97ba7578c14c51a247d76282cadc8da2145d7637f3e370a7c5a62043618bc02c"
+    },
+    {
+      "path": "app/__pycache__/ForgeUnifiedServices.cpython-313.pyc",
+      "bytes": 6156,
+      "sha256": "1d0e85318066011f0895e716c9a89e92bfe7349dbb7e990cdcbe3decb2d31439"
+    },
+    {
+      "path": "app/__pycache__/ForgeUnifiedWorkflow.cpython-313.pyc",
+      "bytes": 24786,
+      "sha256": "1b1ed1d2e48031286afa923c900318648ee1076dc438f802989114a60f6128cc"
+    },
+    {
+      "path": "app/__pycache__/PCCOperationHost.cpython-313.pyc",
+      "bytes": 11799,
+      "sha256": "47d1618d9cf445ae14ca458473b7563d6ed701c000ab16d254112ef040f0b961"
+    },
+    {
+      "path": "docs/F450_F455_OVERLAY_MANIFEST.json",
+      "bytes": 1205,
+      "sha256": "2e16696c5d640fbec86f7998baf9d22e35491c77f77c45989ae5d08e6fb1d69a"
+    },
+    {
+      "path": "docs/F450_F455_STABILIZATION_AND_RESPONSIVENESS.md",
+      "bytes": 1153,
+      "sha256": "e720327ca77b89145191f1f49576f7844f2ff0e934ba23d920324a4cec630d42"
+    },
+    {
+      "path": "docs/F456_F485_UNIFIED_WORKFLOW.md",
+      "bytes": 3696,
+      "sha256": "6a6757e8b455e3697de06fa4c38132cd1804d077ad2fc5088bd525190eef4378"
+    },
+    {
+      "path": "tests/__pycache__/test_forgepy_f450_f455_stabilization.cpython-313.pyc",
+      "bytes": 3724,
+      "sha256": "71023aea0359716a749c77c7b2623461eebbd92bd3841ed5c03986cbc6d70b0a"
+    },
+    {
+      "path": "tests/__pycache__/test_forgepy_f456_f485_unified_workflow.cpython-313.pyc",
+      "bytes": 6920,
+      "sha256": "8eb9f56dd41853195ad049a0eaf82261f4021789ff35f4752aac89013fbc6851"
+    },
+    {
+      "path": "tests/test_forgepy_f450_f455_stabilization.py",
+      "bytes": 1809,
+      "sha256": "d7f9e58e2792fbb0b01b20c4c6a7ca8e318c551c3fcec36958298d5463f4275b"
+    },
+    {
+      "path": "tests/test_forgepy_f456_f485_unified_workflow.py",
+      "bytes": 3640,
+      "sha256": "cef81c554a5cd18e122a0f469a9b499314923384de4b9f501e4d68e0aec597f3"
+    }
+  ]
+}

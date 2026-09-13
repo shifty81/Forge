@@ -16,6 +16,6 @@ class IntegrationAuditTests(unittest.TestCase):
         src=(ROOT/'app'/'ForgeBackupRuntime.py').read_text(encoding='utf-8')
         self.assertNotIn('schedule',src.casefold())
     def test_cumulative_notes_cover_f108_through_f307(self):
-        text=(ROOT/'docs'/'CUMULATIVE_PATCH_NOTES_F108_F307.md').read_text(encoding='utf-8')
+        text=(ROOT/'docs'/'history'/'passes'/'CUMULATIVE_PATCH_NOTES_F108_F307.md').read_text(encoding='utf-8')
         self.assertIn('F108–F207',text); self.assertIn('F208–F307',text)
 if __name__=='__main__':unittest.main()

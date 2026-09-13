@@ -1,0 +1,47 @@
+{
+  "schema": "forgepy.direct-overwrite-source.v1",
+  "candidate": "F444",
+  "purpose": "no-console normal launcher + stale test migration",
+  "files": {
+    "ForgePY-Debug.cmd": {
+      "bytes": 927,
+      "sha256": "0db8a23cd03d0655b52dabc959f068a5cba15027aba454c14e4a841ca14bb623"
+    },
+    "ForgePY.cmd": {
+      "bytes": 917,
+      "sha256": "fa00f47037223caaba02f8cfd473cc71c224c644872b3cfe8b86af69cbd263a0"
+    },
+    "OVERWRITE_SOURCE_README.txt": {
+      "bytes": 1537,
+      "sha256": "b85690a4d8486dc1e185be7dcc818ec2f40983605f9cd524b709622646fe4bf9"
+    },
+    "app/ForgeF440Normalization.py": {
+      "bytes": 95440,
+      "sha256": "599046d145b31b09f60e8809223c7bf25b7ea4d01ac9c0db862d99c4a6687711"
+    },
+    "app/ForgeProviderProtocol.py": {
+      "bytes": 4931,
+      "sha256": "e425f00f5287f4a22567815b1fc691cea907b34ead7a326fcfd1be3dde6f289f"
+    },
+    "app/ForgeSimplifiedUX.py": {
+      "bytes": 77647,
+      "sha256": "94d001cb0ab6693c8e34714c877b5e70b4d7d5c9318c840cd78fe4b08987fadb"
+    },
+    "tests/test_forgepy_f416_f440_normalization.py": {
+      "bytes": 6920,
+      "sha256": "b32abfb353aa98853f844c3c46b1727c93940fed38145a7444dd98e14846bc47"
+    },
+    "tests/test_forgepy_f60r372.py": {
+      "bytes": 2814,
+      "sha256": "7f579ed1c51af78c23390cf5a41d27f404d21b492e79b9a1d499302ba36f31cd"
+    },
+    "tests/test_forgepy_f60r415.py": {
+      "bytes": 4950,
+      "sha256": "df8ab3c336d9b612a2af2769d97b820f29c112fd345e51b5662fcfb6505aa514"
+    },
+    "tests/test_forgepy_f60r66.py": {
+      "bytes": 2140,
+      "sha256": "2bd2ba435a882011ad5874930afe090eeb5bbdbc0ad92f14178794551e82c0b3"
+    }
+  }
+}

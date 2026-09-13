@@ -10,8 +10,10 @@ from ForgeToolProbe import probe_command
 class Tests(unittest.TestCase):
     def test_identity(self):self.assertEqual((VERSION,BUILD),('0.4.415-F60R415','FORGEPY-F60R415'))
     def test_launchers(self):
-        cmd=(ROOT/'ForgePY.cmd').read_text(encoding='utf-8'); con=(ROOT/'ForgePYConsole.cmd').read_text(encoding='utf-8'); ver=(ROOT/'VerifyForgePY.cmd').read_text(encoding='utf-8')
-        self.assertIn('python.exe "%FORGEPY_APP%" %*',cmd); self.assertNotIn('start ""',cmd); self.assertIn('--console',con); self.assertNotIn('call "%~dp0ForgePY.cmd"',con); self.assertIn('--self-test',ver); self.assertNotIn('call "%~dp0ForgePY.cmd"',ver)
+        cmd=(ROOT/'ForgePY.cmd').read_text(encoding='utf-8'); dbg=(ROOT/'ForgePY-Debug.cmd').read_text(encoding='utf-8'); con=(ROOT/'ForgePYConsole.cmd').read_text(encoding='utf-8'); ver=(ROOT/'VerifyForgePY.cmd').read_text(encoding='utf-8')
+        self.assertIn('ForgePY.vbs',cmd); self.assertIn('start "" /b wscript.exe',cmd); self.assertNotIn('python.exe "%FORGEPY_APP%" %*',cmd)
+        self.assertIn('python.exe "%FORGEPY_APP%" %*',dbg); self.assertIn('pause',dbg.casefold())
+        self.assertIn('--console',con); self.assertNotIn('call "%~dp0ForgePY.cmd"',con); self.assertIn('--self-test',ver); self.assertNotIn('call "%~dp0ForgePY.cmd"',ver)
     def test_startup_false_result_fails(self):
         with patch.object(ForgeStartup,'ensure_layout',return_value={'ok':True}),patch.object(ForgeStartup,'first_run_needed',return_value=False),patch.object(ForgeStartup,'diagnose',return_value={'ok':False}),patch.object(ForgeStartup,'repair_safe',return_value={'ok':False}):r=ForgeStartup.checks(None)
         self.assertFalse(r['ok'])

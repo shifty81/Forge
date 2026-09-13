@@ -9,9 +9,14 @@ from __future__ import annotations
 
 import ctypes
 import os
+import json
 import queue
+import re
+import shutil
 import subprocess
 import threading
+import traceback
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -184,10 +189,25 @@ class _EventQueueProxy:
                 command, rc = payload
                 command = str(command or "")
                 if command == "full":
+                    generation = int(getattr(self.gui, "_forge_full_gate_generation", 0) or 0)
                     if int(rc) == 0:
-                        _dispatch_main(self.gui, lambda: _call_later(self.gui, 350, lambda: _after_green(self.gui)))
+                        self.gui._forge_full_gate_last_success_generation = generation
+                        # Do not publish merely because the worker posted DONE. The base
+                        # GUI must consume DONE first, render all preceding output and
+                        # release its single-flight job slot.
+                        _dispatch_main(
+                            self.gui,
+                            lambda generation=generation: _call_later(
+                                self.gui, 50, lambda: _queue_green_publish_when_idle(self.gui, generation)
+                            ),
+                        )
                     else:
-                        _dispatch_main(self.gui, lambda: _call_later(self.gui, 250, lambda: _after_failure(self.gui)))
+                        _dispatch_main(
+                            self.gui,
+                            lambda generation=generation: _call_later(
+                                self.gui, 50, lambda: _queue_failure_debug_when_idle(self.gui, generation)
+                            ),
+                        )
                 elif command in {"debug-bundle", "debug"} and int(rc) == 0:
                     if getattr(self.gui, "_forge_reveal_debug_after_generate", False):
                         self.gui._forge_reveal_debug_after_generate = False
@@ -203,12 +223,42 @@ class _EventQueueProxy:
                             _safe_log(self.gui, "[FAIL] Update application failed; Full Gate was not started.", "fail")
                 elif command in {"commit-push-green", "auto-green-publish", "source-commit-push-green"}:
                     self.gui._forge_auto_publish_running = False
+                    generation = int(getattr(self.gui, "_forge_green_publish_started_generation", 0) or 0)
+                    self.gui._forge_green_publish_completed_generation = generation
+                    _write_green_publication_receipt(self.gui, generation, int(rc), phase="completed" if int(rc) == 0 else "pending")
                     if int(rc) != 0:
                         _safe_log(self.gui, "[WARN] Project is GREEN, but GitHub publication is pending. Source was not force-pushed.", "warn")
                     _dispatch_main(self.gui, lambda: _call_later(self.gui, 250, lambda: _refresh_compact_status(self.gui)))
         except Exception:
             pass
         return result
+
+
+
+def _write_green_publication_receipt(gui: Any, generation: int, returncode: int, *, phase: str) -> None:
+    """Persist small runtime evidence for GREEN publication ordering.
+
+    This lives under .forge/runtime and is intentionally outside governed source.
+    It makes late GUI callbacks diagnosable without treating publication failure as
+    a quality-gate failure.
+    """
+    try:
+        root = Path(gui.root_path)
+        target = root / ".forge" / "runtime" / "green-publication.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": "forgepy.green-publication.v1",
+            "generation": int(generation),
+            "returncode": int(returncode),
+            "phase": str(phase),
+            "candidate": _project_identity(root).get("projectBuild") or "",
+            "recordedUtc": datetime.now(timezone.utc).isoformat(),
+        }
+        temp = target.with_suffix(".json.tmp")
+        temp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        os.replace(temp, target)
+    except Exception:
+        pass
 
 
 def _green_commit_message(gui: Any) -> str:
@@ -219,27 +269,68 @@ def _green_commit_message(gui: Any) -> str:
     return f"{name} GREEN {green} - certified by ForgePY Full Gate"
 
 
-def _after_green(gui: Any) -> None:
+def _queue_green_publish_when_idle(gui: Any, generation: int, attempts: int = 160) -> None:
+    """Publish only after the GUI has consumed Full Gate DONE and released the slot.
+
+    The process worker can post DONE while the Tk event queue still contains a large
+    backlog of console output. Scheduling publication directly from Queue.put() made
+    publication race the GUI's DONE handler, which produced a misleading
+    "Another ForgePY job is already running" popup on an otherwise GREEN gate.
+    """
+    current = int(getattr(gui, "_forge_full_gate_generation", 0) or 0)
+    if generation != current:
+        _safe_log(gui, f"[INFO] Ignored stale GREEN callback for Full Gate generation {generation}; current is {current}.", "info")
+        return
+    if int(getattr(gui, "_forge_full_gate_last_success_generation", -1) or -1) != generation:
+        return
+    active_proc = getattr(gui, "_active_proc", None)
+    proc_running = bool(active_proc is not None and getattr(active_proc, "poll", lambda: 0)() is None)
+    if bool(getattr(gui, "_busy", False)) or proc_running:
+        if attempts > 0:
+            _call_later(gui, 50, lambda: _queue_green_publish_when_idle(gui, generation, attempts - 1))
+        else:
+            _safe_log(gui, "[WARN] GREEN is certified but automatic publication remained queued because the operation slot never became idle.", "warn")
+        return
+    _after_green(gui, generation=generation)
+
+
+def _after_green(gui: Any, *, generation: int | None = None) -> None:
     """Full Gate GREEN is the source-control publication boundary."""
+    current = int(getattr(gui, "_forge_full_gate_generation", 0) or 0)
+    if generation is not None and generation != current:
+        _safe_log(gui, f"[INFO] Ignored stale GREEN callback for Full Gate generation {generation}; current is {current}.", "info")
+        return
     if getattr(gui, "_forge_auto_publish_running", False):
         return
+    if int(getattr(gui, "_forge_green_publish_completed_generation", -1) or -1) == current:
+        return
+    if int(getattr(gui, "_forge_green_publish_started_generation", -1) or -1) == current:
+        return
+    if bool(getattr(gui, "_busy", False)):
+        # Defensive guard: normally _queue_green_publish_when_idle owns this path.
+        _call_later(gui, 50, lambda: _queue_green_publish_when_idle(gui, current))
+        return
     gui._forge_auto_publish_running = True
+    gui._forge_green_publish_started_generation = current
+    _write_green_publication_receipt(gui, current, 0, phase="starting")
     _safe_log(gui, "[PASS] Full Gate GREEN; automatically publishing the certified active branch.", "pass")
     try:
-        # Use the existing guarded source-control command so project-specific GREEN
-        # evidence remains authoritative.  No prompt is needed after a successful gate.
         project_id = str(getattr(gui.contract, "project_id", gui.root_path.name))
         gui._start_builtin_source(
             "commit-push-green",
             [project_id, _green_commit_message(gui)],
         )
+        # _start_builtin_source historically returns None even for a guarded no-op.
+        # Verify it actually acquired the slot so publication state cannot stick.
+        if not bool(getattr(gui, "_busy", False)):
+            gui._forge_auto_publish_running = False
+            _safe_log(gui, "[WARN] GREEN is certified but automatic publication did not acquire the operation slot.", "warn")
+            return
     except Exception as exc:
         gui._forge_auto_publish_running = False
         _safe_log(gui, f"[WARN] GREEN is certified but automatic GitHub publish could not start: {exc}", "warn")
         return
 
-    # Command completion releases the guard.  Keep only a conservative failsafe in
-    # case a provider exits without posting the normal completion event.
     def release_failsafe() -> None:
         if getattr(gui, "_forge_auto_publish_running", False) and not getattr(gui, "_busy", False):
             gui._forge_auto_publish_running = False
@@ -248,7 +339,123 @@ def _after_green(gui: Any) -> None:
     _call_later(gui, 30000, release_failsafe)
 
 
-def _after_failure(gui: Any) -> None:
+def _debug_provider_command(gui: Any) -> str:
+    """Return a project debug-bundle command only when the provider actually exposes it."""
+    backend = getattr(gui, "backend", None)
+    if backend is None:
+        return ""
+    for key in ("debug-bundle", "debug.bundle", "debug"):
+        try:
+            if bool(backend.supports(key)):
+                return key
+        except Exception:
+            continue
+    return ""
+
+
+def _fallback_debug_bundle(gui: Any, reason: str = "ForgePY diagnostic fallback") -> Path | None:
+    """Create ForgePY-owned diagnostic evidence when no project debug command exists."""
+    root = Path(gui.root_path).expanduser().resolve()
+    try:
+        out_dir = root / "artifacts" / "debug"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", str(getattr(gui.contract, "name", root.name) or root.name)).strip("-") or "Project"
+        bundle = out_dir / f"{safe_name}_DebugBundle_{stamp}_FORGEPY_FALLBACK.zip"
+
+        console_text = ""
+        widget = getattr(gui, "console_text", None)
+        if widget is not None:
+            try:
+                console_text = str(widget.get("1.0", "end-1c"))
+            except Exception:
+                console_text = ""
+        if len(console_text) > 500_000:
+            console_text = console_text[-500_000:]
+
+        diagnostics = [
+            f"reason={reason}",
+            f"root={root}",
+            f"project={getattr(gui.contract, 'name', root.name)}",
+            f"kind={getattr(gui.contract, 'kind', '')}",
+            f"timestamp={datetime.now().isoformat()}",
+        ]
+        try:
+            cp = subprocess.run(
+                [shutil.which("git") or "git", "-C", str(root), "status", "--short", "--branch"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding="utf-8", errors="replace", check=False, timeout=15,
+                creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0,
+            )
+            diagnostics.extend(["", "[git status]", cp.stdout.rstrip()])
+        except Exception as exc:
+            diagnostics.extend(["", "[git status unavailable]", str(exc)])
+
+        candidates: list[Path] = []
+        for candidate in (
+            root / "project.control.json",
+            root / "logs" / "bootstrap" / "forgepy-bootstrap-latest.log",
+        ):
+            if candidate.is_file():
+                candidates.append(candidate)
+        sessions = root / "logs" / "sessions"
+        if sessions.is_dir():
+            try:
+                latest = max((x for x in sessions.iterdir() if x.is_file()), key=lambda x: x.stat().st_mtime, default=None)
+                if latest is not None:
+                    candidates.append(latest)
+            except Exception:
+                pass
+
+        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("FORGEPY_DIAGNOSTIC.txt", "\n".join(diagnostics).rstrip() + "\n")
+            if console_text:
+                zf.writestr("project-console.txt", console_text)
+            for candidate in candidates:
+                try:
+                    rel = candidate.relative_to(root)
+                    zf.write(candidate, str(rel).replace("\\", "/"))
+                except Exception:
+                    continue
+
+        import hashlib
+        digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+        bundle.with_suffix(bundle.suffix + ".sha256").write_text(f"{digest}  {bundle.name}\n", encoding="utf-8")
+        _safe_log(gui, f"[PASS] ForgePY fallback debug bundle created: {bundle}", "pass")
+        return bundle
+    except Exception as exc:
+        _safe_log(gui, f"[WARN] ForgePY fallback debug bundle could not be created: {exc}", "warn")
+        return None
+
+
+def _queue_failure_debug_when_idle(gui: Any, generation: int, attempts: int = 160) -> None:
+    """Create failure evidence only after the Full Gate DONE event is consumed."""
+    current = int(getattr(gui, "_forge_full_gate_generation", 0) or 0)
+    if generation != current:
+        _safe_log(gui, f"[INFO] Ignored stale failed-gate diagnostic request for generation {generation}; current is {current}.", "info")
+        return
+    if int(getattr(gui, "_forge_full_gate_last_success_generation", -1) or -1) == generation:
+        return
+    active_proc = getattr(gui, "_active_proc", None)
+    proc_running = bool(active_proc is not None and getattr(active_proc, "poll", lambda: 0)() is None)
+    if bool(getattr(gui, "_busy", False)) or proc_running:
+        if attempts > 0:
+            _call_later(gui, 50, lambda: _queue_failure_debug_when_idle(gui, generation, attempts - 1))
+        else:
+            _safe_log(gui, "[WARN] Full Gate failed but the operation slot did not become idle; creating ForgePY fallback diagnostics.", "warn")
+            _fallback_debug_bundle(gui, "Full Gate failed; operation slot remained busy while queueing diagnostics")
+            _refresh_compact_status(gui)
+        return
+    _after_failure(gui, generation=generation)
+
+
+def _after_failure(gui: Any, *, generation: int | None = None) -> None:
+    current_generation = int(getattr(gui, "_forge_full_gate_generation", 0) or 0)
+    if generation is not None and generation != current_generation:
+        _safe_log(gui, f"[INFO] Ignored stale Full Gate failure callback for generation {generation}; current is {current_generation}.", "info")
+        return
+    if generation is not None and int(getattr(gui, "_forge_full_gate_last_success_generation", -1) or -1) == generation:
+        return
     _safe_log(gui, "[INFO] Full Gate failed; ensuring one canonical debug handoff.", "info")
     current = _latest_debug(Path(gui.root_path))
     before = str(getattr(gui, "_forge_debug_before_full", "") or "")
@@ -256,11 +463,20 @@ def _after_failure(gui: Any) -> None:
         _safe_log(gui, f"[PASS] Full Gate already produced the canonical debug bundle: {current}", "pass")
         _refresh_compact_status(gui)
         return
-    try:
-        gui._forge_reveal_debug_after_generate = False
-        gui._start_command("debug-bundle", label="debug-bundle")
-    except Exception as exc:
-        _safe_log(gui, f"[WARN] Could not generate debug bundle automatically: {exc}", "warn")
+
+    command = _debug_provider_command(gui)
+    if command:
+        try:
+            gui._forge_reveal_debug_after_generate = False
+            gui._start_command(command, label=command)
+            if bool(getattr(gui, "_busy", False)):
+                return
+            _safe_log(gui, f"[WARN] Project debug command {command!r} did not acquire the operation slot; using ForgePY fallback diagnostics.", "warn")
+        except Exception as exc:
+            _safe_log(gui, f"[WARN] Project debug command could not start: {exc}", "warn")
+
+    _fallback_debug_bundle(gui, "Full Gate failed and no project debug-bundle command successfully started")
+    _refresh_compact_status(gui)
 
 
 def _reveal_latest_debug(gui: Any) -> None:
@@ -278,11 +494,22 @@ def _debug_clicked(gui: Any) -> None:
     if bundle is not None:
         _reveal_file(bundle)
         return
-    try:
-        gui._forge_reveal_debug_after_generate = True
-        gui._start_command("debug-bundle", label="debug-bundle")
-    except Exception as exc:
-        _safe_log(gui, f"[WARN] Debug bundle could not be started: {exc}", "warn")
+
+    command = _debug_provider_command(gui)
+    if command:
+        try:
+            gui._forge_reveal_debug_after_generate = True
+            gui._start_command(command, label=command)
+            if bool(getattr(gui, "_busy", False)):
+                return
+            _safe_log(gui, f"[WARN] Project debug command {command!r} did not acquire the operation slot; using ForgePY fallback diagnostics.", "warn")
+        except Exception as exc:
+            _safe_log(gui, f"[WARN] Project debug bundle could not be started: {exc}", "warn")
+
+    bundle = _fallback_debug_bundle(gui, "DEBUG requested and project provider exposes no debug-bundle command")
+    if bundle is not None:
+        _reveal_file(bundle)
+        _refresh_compact_status(gui)
 
 
 def _check_updates(gui: Any) -> None:
@@ -350,11 +577,49 @@ def _present_updates(gui: Any, ready: list[dict[str, Any]], review: list[dict[st
         if str(item.get("target_project") or "").casefold() in {current, current_name}
     ]
     if review_current:
-        gui._popup(
-            "Update Needs Attention",
-            f"{len(review_current)} update(s) need attention for {gui.contract.name}. ForgePY could not prove a safe unique apply path.\n\nOpen Project Operations > Advanced Patch Review only if you need to resolve it manually.",
+        # F415 temporarily hid the old Patch Review surface while simplifying menus, but
+        # REVIEW is still a valid intake state and must retain an operator escape hatch.
+        # Open the existing authoritative review surface directly instead of pointing at
+        # a Project Operations page that no longer exists.
+        open_review = gui._popup(
+            "Update Needs Review",
+            f"{len(review_current)} update(s) need review for {gui.contract.name}. "
+            "ForgePY could not prove a safe unique apply path.\n\n"
+            "Open Patch Review now?",
             kind="warning",
+            confirm=True,
         )
+        if open_review:
+            try:
+                gui._open_patch_review()
+            except Exception as exc:
+                _safe_log(gui, f"[WARN] Patch Review could not open: {exc}", "warn")
+                gui._popup(
+                    "Patch Review",
+                    f"The review item was preserved, but the review surface could not open.\n\n{exc}",
+                    kind="error",
+                )
+        return
+    # A prior approval may already have promoted an item to QUEUED before a GUI/process
+    # interruption. Surface that durable approval here instead of making the update
+    # disappear from Check for Updates.
+    try:
+        from ForgePYIntake import list_items
+        queued = [
+            row for row in list(list_items() or [])
+            if str(row.get("state") or "").upper() in {"QUEUED", "STAGED"}
+            and str(row.get("target_project") or "").casefold() in {current, current_name}
+        ]
+    except Exception:
+        queued = []
+    if queued:
+        name = str(queued[0].get("source_name") or queued[0].get("patch_id") or "Approved update")
+        if gui._popup(
+            "Approved Update Pending",
+            f"{name}\n\nThis update is already approved and waiting in the guarded queue for {gui.contract.name}.\n\nResume Apply + Full Gate now?",
+            kind="warning", confirm=True,
+        ):
+            gui._start_universal_project_apply(Path(gui.root_path), "apply-updates", run_full_after=True)
         return
     gui._popup("Updates", f"No actionable update is currently ready for {gui.contract.name}.", kind="info")
 
@@ -393,11 +658,28 @@ def _wait_for_approval_then_apply(gui: Any, attempts: int, target_root: Path | N
         gui._popup("Apply + Full Gate", f"Update approval failed:\n{payload}", kind="error")
         return
     _safe_log(gui, f"[PASS] Update approved for guarded queue: {payload}", "pass")
-    if target_root is not None and target_root.resolve() != Path(gui.root_path).resolve():
-        _safe_log(gui, f"[INFO] Applying queued patch to resolved project without changing the visible workspace: {target_root}", "info")
-        gui._start_universal_project_apply(target_root, "apply-updates", run_full_after=True)
+    # Use ForgePY's direct transactional universal lane for every normal project,
+    # including the currently selected project. The old current-project path routed
+    # back through `patch-apply`/ProcessHost and could appear to hang with no useful
+    # progress even though the same canonical transport was already verified.
+    resolved = target_root
+    if resolved is None and isinstance(payload, dict):
+        raw = str(payload.get("resolvedRoot") or payload.get("approved_root") or "").strip()
+        if raw:
+            resolved = Path(raw)
+    if resolved is None:
+        resolved = Path(gui.root_path)
+    resolved = Path(resolved).expanduser().resolve()
+    try:
+        is_self = bool(gui._is_forgepy_root(resolved))
+    except Exception:
+        is_self = resolved == Path(gui.root_path).resolve() and bool(gui._is_forgepy_self_project())
+    if is_self:
+        gui._start_forgepy_self_apply("apply-updates", target_root=resolved)
         return
-    _apply_queued_then_gate(gui)
+    if resolved != Path(gui.root_path).resolve():
+        _safe_log(gui, f"[INFO] Applying queued patch to resolved project without changing the visible workspace: {resolved}", "info")
+    gui._start_universal_project_apply(resolved, "apply-updates", run_full_after=True)
 
 def _apply_queued_then_gate(gui: Any) -> None:
     """Apply the already-approved queue once, then chain directly into Full Gate.
@@ -562,18 +844,38 @@ def _install_windows_drop(gui: Any) -> None:
         shell32 = ctypes.windll.shell32
         WM_DROPFILES = 0x0233
         GWL_WNDPROC = -4
+        from ctypes import wintypes
         LRESULT = ctypes.c_ssize_t
-        WPARAM = ctypes.c_size_t
-        LPARAM = ctypes.c_ssize_t
-        WNDPROC = ctypes.WINFUNCTYPE(LRESULT, ctypes.c_void_p, ctypes.c_uint, WPARAM, LPARAM)
+        WPARAM = wintypes.WPARAM
+        LPARAM = wintypes.LPARAM
+        HWND = wintypes.HWND
+        UINT = wintypes.UINT
+        WNDPROC = ctypes.WINFUNCTYPE(LRESULT, HWND, UINT, WPARAM, LPARAM)
+
         get_long = user32.GetWindowLongPtrW
         set_long = user32.SetWindowLongPtrW
         call_proc = user32.CallWindowProcW
+
+        # Win32 window procedures are pointer-sized.  Without explicit argtypes, ctypes
+        # falls back to 32-bit c_int conversion for CallWindowProcW's first argument,
+        # which truncates/overflows WNDPROC addresses on 64-bit Windows.
+        get_long.argtypes = [HWND, ctypes.c_int]
         get_long.restype = ctypes.c_void_p
-        set_long.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        set_long.argtypes = [HWND, ctypes.c_int, ctypes.c_void_p]
         set_long.restype = ctypes.c_void_p
+        call_proc.argtypes = [ctypes.c_void_p, HWND, UINT, WPARAM, LPARAM]
         call_proc.restype = LRESULT
-        old_proc = get_long(hwnd, GWL_WNDPROC)
+
+        shell32.DragAcceptFiles.argtypes = [HWND, wintypes.BOOL]
+        shell32.DragAcceptFiles.restype = None
+        shell32.DragQueryFileW.argtypes = [wintypes.HANDLE, UINT, wintypes.LPWSTR, UINT]
+        shell32.DragQueryFileW.restype = UINT
+        shell32.DragFinish.argtypes = [wintypes.HANDLE]
+        shell32.DragFinish.restype = None
+
+        old_proc = get_long(HWND(hwnd), GWL_WNDPROC)
+        if not old_proc:
+            raise OSError("GetWindowLongPtrW(GWLP_WNDPROC) returned NULL")
 
         def wndproc(hWnd: Any, msg: int, wParam: int, lParam: int) -> int:
             if msg == WM_DROPFILES:
@@ -592,11 +894,16 @@ def _install_windows_drop(gui: Any) -> None:
                 finally:
                     shell32.DragFinish(hdrop)
                 return 0
-            return call_proc(old_proc, hWnd, msg, wParam, lParam)
+            return int(call_proc(old_proc, hWnd, msg, wParam, lParam))
 
         callback = WNDPROC(wndproc)
-        set_long(hwnd, GWL_WNDPROC, ctypes.cast(callback, ctypes.c_void_p))
-        shell32.DragAcceptFiles(hwnd, True)
+        previous = set_long(HWND(hwnd), GWL_WNDPROC, ctypes.cast(callback, ctypes.c_void_p))
+        if not previous:
+            raise OSError("SetWindowLongPtrW(GWLP_WNDPROC) failed")
+        # Use the value returned by SetWindowLongPtrW as the authoritative previous
+        # procedure in case another component subclassed the Tk window between calls.
+        old_proc = previous
+        shell32.DragAcceptFiles(HWND(hwnd), True)
         gui._forge_drop_callback = callback
         gui._forge_drop_old_proc = old_proc
         gui._forge_drop_installed = True
@@ -671,11 +978,17 @@ def _build_simplified_status_bar(gui: Any, parent: Any) -> None:
     gui.footer = tk.Label(status, text="[Status:Loading]", bg="#07090b", fg="#00d9ff", font=("Consolas", 8), anchor="w")
     gui.footer.pack(side="left", fill="x", expand=True)
     try:
-        from ForgePYVersion import VERSION
-        version = VERSION
+        from ForgeApplicationIdentity import DISPLAY_VERSION, DISPLAY_BUILD
+        version_text = f"ForgePY {DISPLAY_VERSION} · {DISPLAY_BUILD}"
     except Exception:
-        version = ""
-    tk.Label(status, text=f"ForgePY {version}", bg="#07090b", fg="#929aa3", font=("Consolas", 8)).pack(side="right", padx=8)
+        try:
+            from ForgePYVersion import VERSION
+            version_text = f"ForgePY {VERSION}"
+        except Exception:
+            version_text = "ForgePY"
+    tk.Label(status, text=version_text, bg="#07090b", fg="#929aa3", font=("Consolas", 8)).pack(side="right", padx=8)
+    gui._forge_status_last_run = tk.Label(status, text="Last: —", bg="#07090b", fg="#929aa3", font=("Consolas", 8), anchor="e")
+    gui._forge_status_last_run.pack(side="right", padx=(6, 0))
 
 
 def _native_windows_folder_photo(gui: Any, size: int = 16) -> Any | None:
@@ -1199,6 +1512,219 @@ def _normalize_console_ratio(gui: Any) -> None:
         pass
 
 
+
+def _native_windows_popup(gui: Any, title: str, message: str, *, kind: str = "info", confirm: bool = False, parent: Any | None = None) -> bool:
+    """Use Tk's Windows-native messagebox bridge, never a direct ctypes MessageBox call.
+
+    Python 3.14 is stricter about GIL/thread-state re-entry around foreign calls.  Calling
+    user32.MessageBoxW through ctypes can release the GIL while Windows pumps messages,
+    which can re-enter Tk/Python and crash with PyEval_RestoreThread.  tkinter.messagebox
+    keeps the modal prompt inside Tk's supported interpreter/thread boundary while still
+    rendering as the normal Windows prompt.
+    """
+    if os.name != "nt":
+        raise OSError("native Windows prompt requested on a non-Windows host")
+    owner = parent if parent is not None else getattr(gui, "window", None)
+    box = getattr(gui, "messagebox", None)
+    if box is None:
+        raise RuntimeError("Tk messagebox bridge is unavailable")
+
+    options: dict[str, Any] = {"parent": owner} if owner is not None else {}
+    normalized = str(kind or "info").casefold()
+    if confirm:
+        # Safe default: pressing Enter before choosing should not mutate source.
+        options["default"] = "no"
+        return bool(box.askyesno(str(title), str(message), **options))
+    if normalized == "error":
+        box.showerror(str(title), str(message), **options)
+    elif normalized == "warning":
+        box.showwarning(str(title), str(message), **options)
+    else:
+        box.showinfo(str(title), str(message), **options)
+    return True
+
+
+def _responsive_embedded_popup(gui: Any, title: str, message: str, *, kind: str = "info", confirm: bool = False, parent: Any | None = None) -> bool:
+    """Cross-platform fallback with a footer that can never be consumed by content."""
+    tk = gui.tk
+    # Estimate useful size, then let the responsive shell wrapper clamp it to the host.
+    logical_lines = 0
+    for line in str(message).splitlines() or [""]:
+        logical_lines += max(1, (len(line) + 69) // 70)
+    height = max(290, min(620, 185 + logical_lines * 19))
+    overlay, shell = gui._embedded_action_shell(title, kind=kind, width=650, height=height)
+    result = tk.BooleanVar(master=gui.window, value=False)
+    done = tk.BooleanVar(master=gui.window, value=False)
+
+    def close(value: bool) -> None:
+        result.set(bool(value))
+        gui._finish_embedded_action(overlay)
+        done.set(True)
+
+    # Pack the action footer FIRST at the bottom.  Content can scroll/shrink, buttons cannot.
+    actions = tk.Frame(shell, bg="#11151a")
+    actions.pack(side="bottom", fill="x", padx=16, pady=(8, 16))
+    if confirm:
+        gui._button(actions, "No", lambda: close(False), compact=True).pack(side="right", padx=(8, 0))
+        gui._button(actions, "Yes", lambda: close(True), primary=True, compact=True).pack(side="right")
+    else:
+        gui._button(actions, "OK", lambda: close(True), primary=True, compact=True).pack(side="right")
+
+    body = tk.Frame(shell, bg="#11151a")
+    body.pack(fill="both", expand=True, padx=16, pady=(0, 4))
+    text = tk.Text(
+        body, bg="#11151a", fg="#929aa3", insertbackground="#00d9ff", relief="flat", bd=0,
+        wrap="word", font=("Segoe UI", 10), height=max(4, min(18, logical_lines + 1)),
+        highlightthickness=0, takefocus=False,
+    )
+    scroll = gui.ttk.Scrollbar(body, orient="vertical", command=text.yview)
+    text.configure(yscrollcommand=scroll.set)
+    text.pack(side="left", fill="both", expand=True)
+    scroll.pack(side="right", fill="y")
+    text.insert("1.0", str(message))
+    text.configure(state="disabled")
+
+    shell.bind("<Escape>", lambda _e: close(False))
+    shell.bind("<Return>", lambda _e: close(True))
+    shell.focus_set()
+    gui.window.wait_variable(done)
+    return bool(result.get())
+
+
+def _responsive_ask_text(gui: Any, title: str, prompt: str, *, initial: str = "", parent: Any | None = None) -> str | None:
+    """Text-entry prompt that never destroys an already-open ForgePY action surface."""
+    # Patch Review and other specialist surfaces are themselves embedded overlays.
+    # Creating another embedded shell would destroy the parent overlay/tree and leave
+    # its callbacks holding dead Tcl widget names. Use Tk's independent text prompt
+    # whenever an action surface is already active.
+    if bool(getattr(gui, "_embedded_action_active", False)):
+        try:
+            value = gui.simpledialog.askstring(
+                title, str(prompt), initialvalue=str(initial or ""), parent=gui.window
+            )
+            if value is None:
+                return None
+            value = str(value).strip()
+            return value or None
+        except Exception as exc:
+            _safe_log(gui, f"[WARN] Text prompt fallback failed: {exc}", "warn")
+            return None
+    tk = gui.tk
+    logical_lines = sum(max(1, (len(line) + 69) // 70) for line in (str(prompt).splitlines() or [""]))
+    height = max(300, min(560, 215 + logical_lines * 18))
+    overlay, shell = gui._embedded_action_shell(title, kind="info", width=650, height=height)
+    result: list[str | None] = [None]
+    done = tk.BooleanVar(master=gui.window, value=False)
+
+    def close(ok: bool) -> None:
+        value = entry_var.get().strip()
+        result[0] = value if ok and value else None
+        gui._finish_embedded_action(overlay)
+        done.set(True)
+
+    actions = tk.Frame(shell, bg="#11151a")
+    actions.pack(side="bottom", fill="x", padx=18, pady=(8, 16))
+    gui._button(actions, "Cancel", lambda: close(False), compact=True).pack(side="right", padx=(8, 0))
+    gui._button(actions, "Continue", lambda: close(True), primary=True, compact=True).pack(side="right")
+
+    body = tk.Frame(shell, bg="#11151a")
+    body.pack(fill="both", expand=True, padx=18, pady=(0, 8))
+    tk.Message(body, text=str(prompt), bg="#11151a", fg="#929aa3", font=("Segoe UI", 9), width=575, anchor="w", justify="left").pack(fill="x", pady=(0, 10))
+    entry_var = tk.StringVar(master=gui.window, value=initial)
+    entry = tk.Entry(body, textvariable=entry_var, bg="#07090b", fg="#edf2f5", insertbackground="#00d9ff", relief="flat", bd=0, font=("Consolas", 10))
+    entry.pack(fill="x", ipady=8)
+    entry.bind("<Escape>", lambda _e: close(False))
+    entry.bind("<Return>", lambda _e: close(True))
+    entry.focus_set()
+    gui.window.wait_variable(done)
+    return result[0]
+
+
+def _clamped_embedded_shell(gui: Any, original: Callable[..., Any], title: str, *, kind: str = "info", width: int = 570, height: int = 250) -> tuple[Any, Any]:
+    """Clamp every ForgePY-owned embedded surface to the visible center workspace."""
+    host = getattr(gui, "center_host", getattr(gui, "window", None))
+    try:
+        host.update_idletasks()
+        available_w = int(host.winfo_width())
+        available_h = int(host.winfo_height())
+        if available_w < 300 or available_h < 220:
+            gui.window.update_idletasks()
+            available_w = max(available_w, int(gui.window.winfo_width()))
+            available_h = max(available_h, int(gui.window.winfo_height()))
+        max_w = max(420, available_w - 40)
+        max_h = max(250, available_h - 40)
+        width = max(420, min(int(width), max_w))
+        height = max(250, min(int(height), max_h))
+    except Exception:
+        width = max(420, int(width))
+        height = max(250, int(height))
+    return original(gui, title, kind=kind, width=width, height=height)
+
+def _registry_root_for_patch_target(gui: Any, target: str) -> Path | None:
+    """Resolve a patch project id/name/root alias against the live registry."""
+    wanted = str(target or "").strip().casefold()
+    if not wanted:
+        return None
+    try:
+        entries = list(gui.registry.entries() or [])
+    except Exception:
+        entries = []
+    for entry in entries:
+        try:
+            root = Path(entry.root).expanduser().resolve()
+        except Exception:
+            continue
+        aliases = {
+            str(getattr(entry, "project_id", "") or "").strip().casefold(),
+            str(getattr(entry, "name", "") or "").strip().casefold(),
+            root.name.casefold(),
+            str(root).casefold(),
+        }
+        if wanted in aliases:
+            return root
+    # The active project may have been rebound after the registry snapshot.
+    try:
+        root = Path(gui.root_path).expanduser().resolve()
+        contract = getattr(gui, "contract", None)
+        aliases = {root.name.casefold(), str(root).casefold()}
+        aliases.add(str(getattr(contract, "project_id", "") or "").strip().casefold())
+        aliases.add(str(getattr(contract, "name", "") or "").strip().casefold())
+        if wanted in aliases:
+            return root
+    except Exception:
+        pass
+    return None
+
+
+def _report_tk_callback_exception(gui: Any, exc_type: type[BaseException], exc_value: BaseException, tb: Any) -> None:
+    """Route Tk callback failures into the ForgePY Project Console instead of stderr."""
+    text = "".join(traceback.format_exception(exc_type, exc_value, tb)).rstrip()
+    _safe_log(gui, "[FAIL] Tkinter callback exception:\n" + text, "fail")
+    try:
+        gui.footer.configure(text="[GUI:Callback Error — see Project Console]", fg="#ff5d68")
+    except Exception:
+        pass
+
+
+def _install_unbuffered_provider_output() -> None:
+    """Force Python project providers/operation-host descendants to stream live output."""
+    try:
+        from PCCSurfaceCommon import BackendClient
+    except Exception:
+        return
+    if getattr(BackendClient, "_forge_unbuffered_output_installed", False):
+        return
+    original = BackendClient._embedded_env
+    def embedded_env(self: Any) -> dict[str, str]:
+        env = dict(original(self))
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONUTF8"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        return env
+    BackendClient._embedded_env = embedded_env
+    BackendClient._forge_unbuffered_output_installed = True
+
+
 def install_forge_gui(cls: type[Any]) -> type[Any]:
     """Install the simplified UX once on the canonical ForgeGui class."""
     if getattr(cls, "_forge_f60r415_installed", False):
@@ -1211,16 +1737,54 @@ def install_forge_gui(cls: type[Any]) -> type[Any]:
     original_activate = cls._activate_project
     original_start_command = cls._start_command
     original_drain_events = cls._drain_events
+    original_popup = cls._popup
+    original_ask_text = cls._ask_text
+    original_embedded_action_shell = cls._embedded_action_shell
+    original_open_patch_review = getattr(cls, "_open_patch_review", None)
 
     def start_command(self: Any, command: str, *args: Any, **kwargs: Any) -> Any:
         if str(command or "") == "full":
             before = _latest_debug(Path(self.root_path))
             self._forge_debug_before_full = str(before) if before else ""
+            self._forge_full_gate_generation = int(getattr(self, "_forge_full_gate_generation", 0) or 0) + 1
+            self._forge_full_gate_last_success_generation = -1
         return original_start_command(self, command, *args, **kwargs)
 
     def configure_styles(self: Any) -> None:
         original_styles(self)
         _dark_scrollbars(self)
+
+    def embedded_action_shell(self: Any, title: str, *, kind: str = "info", width: int = 570, height: int = 250) -> tuple[Any, Any]:
+        return _clamped_embedded_shell(self, original_embedded_action_shell, title, kind=kind, width=width, height=height)
+
+    def popup(self: Any, title: str, message: str, *, kind: str = "info", confirm: bool = False, parent: Any | None = None) -> bool:
+        if os.name == "nt":
+            try:
+                return _native_windows_popup(self, title, message, kind=kind, confirm=confirm, parent=parent)
+            except Exception as exc:
+                _safe_log(self, f"[WARN] Native Windows prompt failed; using responsive ForgePY fallback: {exc}", "warn")
+        return _responsive_embedded_popup(self, title, message, kind=kind, confirm=confirm, parent=parent)
+
+    def ask_text(self: Any, title: str, prompt: str, *, initial: str = "", parent: Any | None = None) -> str | None:
+        return _responsive_ask_text(self, title, prompt, initial=initial, parent=parent)
+
+    def open_patch_review(self: Any) -> None:
+        if original_open_patch_review is None:
+            self._popup("Patch Review", "Patch Review is unavailable in this build.", kind="error")
+            return
+        original_open_patch_review(self)
+        # User-facing wording reflects what the authoritative action actually does.
+        def relabel() -> None:
+            mapping = {
+                "Queue": "Approve",
+                "Queue + Apply": "Approve + Apply + Gate",
+            }
+            for old_text, new_text in mapping.items():
+                button = _find_button(self, old_text)
+                if button is not None:
+                    try: button.configure(text=new_text)
+                    except Exception: pass
+        _call_later(self, 20, relabel)
 
     def build_source_control(self: Any, parent: Any) -> None:
         _build_simple_source_control(self, parent)
@@ -1248,6 +1812,10 @@ def install_forge_gui(cls: type[Any]) -> type[Any]:
     def build_shell(self: Any) -> None:
         self._forge_main_actions = queue.Queue()
         original_shell(self)
+        try:
+            self.window.report_callback_exception = lambda exc_type, exc_value, tb: _report_tk_callback_exception(self, exc_type, exc_value, tb)
+        except Exception:
+            pass
         _hide_legacy_header(self)
         _install_health_footer(self)
         _install_project_tool_rail(self)
@@ -1269,12 +1837,17 @@ def install_forge_gui(cls: type[Any]) -> type[Any]:
 
     cls._start_command = start_command
     cls._configure_styles = configure_styles
+    cls._embedded_action_shell = embedded_action_shell
+    cls._popup = popup
+    cls._ask_text = ask_text
     cls._activate_project = activate_project
     cls._drain_events = drain_events
     cls._build_global_quick_actions = build_quick_actions
     cls._build_global_statusbar = build_statusbar
     cls._build_source_control_tab = build_source_control
     cls._build_workspace_tab = build_workspace
+    cls._registry_root_for_patch_target = lambda self, target: _registry_root_for_patch_target(self, target)
+    cls._open_patch_review = open_patch_review
     cls._build_shell = build_shell
     cls._forge_check_updates = _check_updates
     cls._forge_ingest_patch = _ingest_patch
@@ -1290,4 +1863,7 @@ def install_forge_gui(cls: type[Any]) -> type[Any]:
         cls._set_health_rail_collapsed = keep_health_visible
     if hasattr(cls, "_toggle_health_rail"):
         cls._toggle_health_rail = lambda self: None
+    _install_unbuffered_provider_output()
+    from ForgeF440Normalization import install_normalization
+    install_normalization(cls)
     return cls
