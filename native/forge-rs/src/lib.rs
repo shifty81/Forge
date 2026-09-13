@@ -22,5 +22,6 @@ pub mod protocol;
 pub mod gui;
 pub mod intelligence;
 pub mod toolchains;
+pub mod update;
 
 pub use identity::{AuthorityPhase, NativeIdentity, NATIVE_BUILD, NATIVE_VERSION};

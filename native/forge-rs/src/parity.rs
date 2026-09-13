@@ -53,6 +53,7 @@ pub fn foundation_matrix() -> Vec<ParityRow> {
         ParityRow { capability: "internal-pcc-bridge", state: ParityState::Different, note: "native Project Tools launches/queues through Python-authority normalized internal PCC bridge; native contract execution pending" },
         ParityRow { capability: "asset-dependency-resolution", state: ParityState::Different, note: "hash-bound Vault/backup hydration is Python-authority and exposed through native Project Tools; native catalog authority pending" },
         ParityRow { capability: "foreground-operation-queue", state: ParityState::Different, note: "native single-flight queue streams Python-authority PCC operations; direct inferred-operation execution pending" },
+        ParityRow { capability: "native-self-update", state: ParityState::Different, note: "native install-mode detection and Windows directory-swap promotion are modeled; bundle build/hash verification and staging use the guarded Python SHADOW bridge until Rust archive authority is certified" },
         ParityRow { capability: "catalog-storage", state: ParityState::Missing, note: "SQLite/WAL catalog remains the next backend authority wave" },
         ParityRow { capability: "native-gui", state: ParityState::Different, note: "GUI Foundation Lock implemented; Windows visual/runtime certification and backend takeover remain pending" },
     ]
@@ -80,5 +81,12 @@ mod tests {
         let rows = foundation_matrix();
         assert!(rows.iter().any(|row| row.capability == "project-intelligence"));
         assert!(rows.iter().any(|row| row.capability == "operation-queue-ui" && row.state == ParityState::Pass));
+    }
+
+    #[test]
+    fn native_self_update_remains_shadow_gated() {
+        let rows = foundation_matrix();
+        assert!(rows.iter().any(|row| row.capability == "native-self-update" && row.state == ParityState::Different));
+        assert!(!takeover_ready(&rows));
     }
 }

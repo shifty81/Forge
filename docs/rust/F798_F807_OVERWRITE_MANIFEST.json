@@ -1,0 +1,66 @@
+{
+  "schema": "forge.overwrite-handoff.v1",
+  "title": "Forge Native F798-F807 Self-Update Foundation",
+  "baseline": {
+    "repository": "shifty81/Forge",
+    "gitCommit": "ecc774fc6b6dbdd19d4968131a2be94fafa33ce5",
+    "forgePyCandidate": "FORGEPY-F797",
+    "nativeBuild": "FORGE-NATIVE-PCC-ASSET-BRIDGE-0.7.0-F797"
+  },
+  "delivery": "extract-over-repository-root",
+  "identityPolicy": "Rust SHADOW identity intentionally remains F797 until Windows cargo check/test/build certifies this wave.",
+  "files": [
+    {
+      "path": "native/forge-rs/src/lib.rs",
+      "bytes": 739,
+      "sha256": "c83006d8f6d92ff77aa0c0f030f11c4944a0d631b51ee9cfc189d8658b83b9f7",
+      "operation": "overwrite"
+    },
+    {
+      "path": "native/forge-rs/src/main.rs",
+      "bytes": 11857,
+      "sha256": "83bb1b03c8e16b2b3fa03fb19a04cb57ee845916834d310042b51fa2b6390c8d",
+      "operation": "overwrite"
+    },
+    {
+      "path": "native/forge-rs/src/parity.rs",
+      "bytes": 6329,
+      "sha256": "667122303066249c285b825e895a39a0168a92f3a0f31221832344532523c2e7",
+      "operation": "overwrite"
+    },
+    {
+      "path": "native/forge-rs/src/update.rs",
+      "bytes": 18514,
+      "sha256": "ffb2ff0dfd0a105f51e37c394ea4ae4b90e0666db524963eb6cc479cafe21e35",
+      "operation": "add"
+    },
+    {
+      "path": "native/forge-rs/parity/matrix.json",
+      "bytes": 4791,
+      "sha256": "2140ae77c725e2bfde40c1488220a0ed4e698869456353651536759d0dc255d9",
+      "operation": "overwrite"
+    },
+    {
+      "path": "tools/rust/ForgeNativeUpdateBridge.py",
+      "bytes": 16012,
+      "sha256": "7ea69332c1f609de16837e275f53b486a626dae5df92e6cabddf2ebd70cb4aaa",
+      "operation": "add"
+    },
+    {
+      "path": "tests/test_forge_native_self_update_foundation.py",
+      "bytes": 6555,
+      "sha256": "b033c252aed1df5c651d51c36dc832865d2cc52e2f5b08e25c298d9b202a794a",
+      "operation": "add"
+    },
+    {
+      "path": "docs/rust/F798_F807_NATIVE_SELF_UPDATE_FOUNDATION.md",
+      "bytes": 4530,
+      "sha256": "faf19b02af5d6be4e321097551e249c1181851504bc8745b443cf195da4d62d1",
+      "operation": "add"
+    }
+  ],
+  "verification": {
+    "pythonBridgeTests": "6/6 PASS in producer environment",
+    "rustCompile": "REQUIRES Windows Rust SHADOW gate; cargo/rustc unavailable in producer environment"
+  }
+}

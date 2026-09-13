@@ -117,6 +117,11 @@
       "note": "native console/composer/Send/Stop and streamed operation output implemented"
     },
     {
+      "capability": "native-self-update",
+      "state": "DIFFERENT",
+      "note": "native install-mode detection and Windows directory-swap promotion are modeled; bundle build/hash verification and staging use the guarded Python SHADOW bridge until Rust archive authority is certified"
+    },
+    {
       "capability": "catalog-storage",
       "state": "MISSING",
       "note": "SQLite/WAL catalog remains next backend authority wave"

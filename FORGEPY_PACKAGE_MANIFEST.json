@@ -1,5 +1,5 @@
 {
-  "fileCount": 446,
+  "fileCount": 451,
   "files": [
     {
       "bytes": 728,
@@ -1577,6 +1577,16 @@
       "sha256": "b5fee055bbeb158080c139f1b6d9322e0b31594356f53c7d14308c09f6d9ea37"
     },
     {
+      "bytes": 4530,
+      "path": "docs/rust/F798_F807_NATIVE_SELF_UPDATE_FOUNDATION.md",
+      "sha256": "faf19b02af5d6be4e321097551e249c1181851504bc8745b443cf195da4d62d1"
+    },
+    {
+      "bytes": 2304,
+      "path": "docs/rust/F798_F807_OVERWRITE_MANIFEST.json",
+      "sha256": "895ad74dba6468a4aa16fbdebcbfb1c61979c712279f7936f755ebf67b433061"
+    },
+    {
       "bytes": 809,
       "path": "Forge.cmd",
       "sha256": "07683a538b5f65a2a54836c82cb129600b52f58248924433dcc8aa1d94c9ec59"
@@ -1617,9 +1627,9 @@
       "sha256": "12114d2e42fc0034b5ddf1e3a9c7ce9694f12894a1480a4753bdd062e7157bc7"
     },
     {
-      "bytes": 4490,
+      "bytes": 4791,
       "path": "native/forge-rs/parity/matrix.json",
-      "sha256": "2e03a67e5de6b1fbaf909b61b7d9134ab0ef8cc826322fe4103f3cd10340fff5"
+      "sha256": "2140ae77c725e2bfde40c1488220a0ed4e698869456353651536759d0dc255d9"
     },
     {
       "bytes": 1740,
@@ -1687,14 +1697,14 @@
       "sha256": "00d233f12c0314edf29431aac991042714f6d110331047fae9647a0fcee0a0be"
     },
     {
-      "bytes": 723,
+      "bytes": 739,
       "path": "native/forge-rs/src/lib.rs",
-      "sha256": "c95403eb06cf8761594ed24076199a8cbcd07b1cd2091f61d86d260a347fbbe5"
+      "sha256": "c83006d8f6d92ff77aa0c0f030f11c4944a0d631b51ee9cfc189d8658b83b9f7"
     },
     {
-      "bytes": 8521,
+      "bytes": 11857,
       "path": "native/forge-rs/src/main.rs",
-      "sha256": "26c82cde28b65f4ba704dad05b9e7d26253ae594b441fba4d9d54c818a94fb3b"
+      "sha256": "83bb1b03c8e16b2b3fa03fb19a04cb57ee845916834d310042b51fa2b6390c8d"
     },
     {
       "bytes": 3502,
@@ -1702,9 +1712,9 @@
       "sha256": "3acd74249407815ac7b1f8d59cd07fa65f9960d33e77c485e272db13b124d31a"
     },
     {
-      "bytes": 5761,
+      "bytes": 6329,
       "path": "native/forge-rs/src/parity.rs",
-      "sha256": "1f45c5740e17aadf806c95531c48876929c134dd976377d05c89cad13ba81883"
+      "sha256": "667122303066249c285b825e895a39a0168a92f3a0f31221832344532523c2e7"
     },
     {
       "bytes": 1601,
@@ -1745,6 +1755,11 @@
       "bytes": 2838,
       "path": "native/forge-rs/src/transactions.rs",
       "sha256": "6f5e14d7f6ccfe1cee49630b97633bc8ffc94728f2b3fcc87279280257a1e3c1"
+    },
+    {
+      "bytes": 18514,
+      "path": "native/forge-rs/src/update.rs",
+      "sha256": "ffb2ff0dfd0a105f51e37c394ea4ae4b90e0666db524963eb6cc479cafe21e35"
     },
     {
       "bytes": 5062,
@@ -1860,6 +1875,11 @@
       "bytes": 10832,
       "path": "tests/test_forge_f60r9.py",
       "sha256": "431b9a53b2dd6424983c0988a8f151bfb42390b19de27dccd7b6a4445f9adcc7"
+    },
+    {
+      "bytes": 6555,
+      "path": "tests/test_forge_native_self_update_foundation.py",
+      "sha256": "b033c252aed1df5c651d51c36dc832865d2cc52e2f5b08e25c298d9b202a794a"
     },
     {
       "bytes": 989,
@@ -2197,6 +2217,11 @@
       "sha256": "31e7706f5e3235b2301b509dcaed1072fa986a52d743ef2aec91765a4e8ecc27"
     },
     {
+      "bytes": 16012,
+      "path": "tools/rust/ForgeNativeUpdateBridge.py",
+      "sha256": "7ea69332c1f609de16837e275f53b486a626dae5df92e6cabddf2ebd70cb4aaa"
+    },
+    {
       "bytes": 6757,
       "path": "tools/rust/ForgeRustLane.py",
       "sha256": "b9d8fd9c6a96a632ec66edc73ea88f44d334ce973f215fb852d60755c82509e0"
@@ -2234,6 +2259,6 @@
   ],
   "forgePyBuild": "FORGEPY-F60R415",
   "forgePyVersion": "0.4.415-F60R415",
-  "generatedUtc": "2026-09-13T17:09:26.823529+00:00",
+  "generatedUtc": "2026-09-13T18:29:16.343157+00:00",
   "schema": "forgepy.package.manifest.v1"
 }

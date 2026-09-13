@@ -13,6 +13,9 @@ use forge_native::evidence::{evidence_json, write_evidence};
 use forge_native::gui::run_native_gui;
 use forge_native::intelligence::census;
 use forge_native::toolchains::{probe_all, ready_count};
+use forge_native::update::{
+    arm_promotion, build_native_update_bundle, current_layout, stage_native_update,
+};
 
 fn root_from_args(args: &[String]) -> PathBuf {
     if let Some(index) = args.iter().position(|value| value == "--root") {
@@ -21,6 +24,13 @@ fn root_from_args(args: &[String]) -> PathBuf {
         }
     }
     env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn value_after(args: &[String], flag: &str) -> Option<String> {
+    args.iter()
+        .position(|value| value == flag)
+        .and_then(|index| args.get(index + 1))
+        .cloned()
 }
 
 fn json_escape(value: &str) -> String {
@@ -84,7 +94,6 @@ fn print_shell_model(root: &Path) -> i32 {
     }
 }
 
-
 fn print_intelligence_json(root: &Path) -> i32 {
     let census = match census(root) {
         Ok(row) => row,
@@ -105,6 +114,91 @@ fn print_intelligence_json(root: &Path) -> i32 {
     println!("  \"toolchainsKnown\": {}", tools.len());
     println!("}}");
     0
+}
+
+fn print_update_status_json() -> i32 {
+    match current_layout() {
+        Ok(layout) => {
+            println!("{}", layout.to_json());
+            0
+        }
+        Err(err) => {
+            eprintln!("[FAIL] native update layout: {err}");
+            2
+        }
+    }
+}
+
+fn build_update_cli(root: &Path, args: &[String]) -> i32 {
+    let image_root = match value_after(args, "--build-native-update") {
+        Some(value) => PathBuf::from(value),
+        None => {
+            eprintln!("[FAIL] --build-native-update requires an application image directory");
+            return 2;
+        }
+    };
+    let output = value_after(args, "--update-output")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("dist/ForgeNative-Windows-x64.forgeupdate"));
+    let entrypoint = value_after(args, "--update-entrypoint")
+        .unwrap_or_else(|| "ForgeNative.exe".to_string());
+    let identity = NativeIdentity::current();
+    match build_native_update_bundle(
+        root,
+        &image_root,
+        &output,
+        &entrypoint,
+        identity.version,
+        identity.build,
+    ) {
+        Ok(path) => {
+            println!("[PASS] native application update bundle: {}", path.display());
+            0
+        }
+        Err(err) => {
+            eprintln!("[FAIL] native application update bundle: {err}");
+            2
+        }
+    }
+}
+
+fn stage_update_cli(root: &Path, args: &[String], arm: bool) -> i32 {
+    let flag = if arm { "--stage-and-arm-native-update" } else { "--stage-native-update" };
+    let transport = match value_after(args, flag) {
+        Some(value) => PathBuf::from(value),
+        None => {
+            eprintln!("[FAIL] {flag} requires a .forgeupdate transport");
+            return 2;
+        }
+    };
+    let executable = match env::current_exe() {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("[FAIL] current executable: {err}");
+            return 2;
+        }
+    };
+    let plan = match stage_native_update(root, &transport, &executable) {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("[FAIL] stage native application update: {err}");
+            return 2;
+        }
+    };
+    println!("{}", plan.to_json());
+    if !arm {
+        return 0;
+    }
+    match arm_promotion(&plan) {
+        Ok(helper) => {
+            println!("[PASS] native update promotion armed: {}", helper.display());
+            0
+        }
+        Err(err) => {
+            eprintln!("[FAIL] arm native update promotion: {err}");
+            2
+        }
+    }
 }
 
 fn serve_stdio(root: &Path) -> i32 {
@@ -185,6 +279,10 @@ fn main() {
     if args.iter().any(|arg| arg == "--self-test") { std::process::exit(self_test(&root)); }
     if args.iter().any(|arg| arg == "--shell-model-json") { std::process::exit(print_shell_model(&root)); }
     if args.iter().any(|arg| arg == "--intelligence-json") { std::process::exit(print_intelligence_json(&root)); }
+    if args.iter().any(|arg| arg == "--update-status-json") { std::process::exit(print_update_status_json()); }
+    if args.iter().any(|arg| arg == "--build-native-update") { std::process::exit(build_update_cli(&root, &args)); }
+    if args.iter().any(|arg| arg == "--stage-native-update") { std::process::exit(stage_update_cli(&root, &args, false)); }
+    if args.iter().any(|arg| arg == "--stage-and-arm-native-update") { std::process::exit(stage_update_cli(&root, &args, true)); }
     if args.iter().any(|arg| arg == "--evidence-json") { println!("{}", evidence_json()); return; }
     if let Some(index)=args.iter().position(|arg| arg == "--write-evidence") {
         let path=args.get(index+1).map(PathBuf::from).unwrap_or_else(|| root.join(".forge/native/parity-latest.json"));
