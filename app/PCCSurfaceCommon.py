@@ -379,7 +379,13 @@ class BackendClient:
         declared = str(control.get("machine_provider") or control.get("python_provider") or "").strip()
         candidates: list[Path] = []
         if declared:
-            candidates.append((self.root / declared).resolve())
+            declared_path = (self.root / declared).resolve()
+            # Only a real Python provider may be invoked directly with python.exe.
+            # PowerShell/CMD/native providers are represented by project.control.json
+            # commands and must flow through PCCAutoAdapter so their interpreter is
+            # selected from the command contract rather than guessed by the GUI.
+            if declared_path.suffix.casefold() in {".py", ".pyw"}:
+                candidates.append(declared_path)
         candidates.extend([
             self.root / "tools" / "control" / "ProjectControlCenter.py",
             self.root / "tools" / "control" / "CortexPCC.py",
@@ -391,6 +397,9 @@ class BackendClient:
                 return path
 
         # Project-owned declared commands remain stronger than machine-local adapters.
+        # This is also the canonical bridge for PowerShell internal PCCs such as
+        # Havenwild/Subspace: executable/arguments are normalized by discovery and
+        # PCCAutoAdapter selects pwsh instead of ever feeding .ps1 to Python.
         if self.contract.commands:
             bridge = Path(__file__).resolve().parent / "PCCAutoAdapter.py"
             if bridge.is_file():

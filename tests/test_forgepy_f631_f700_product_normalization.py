@@ -14,9 +14,9 @@ class F700Tests(unittest.TestCase):
 
     def test_candidate_identity(self):
         from ForgeApplicationIdentity import DISPLAY_VERSION,DISPLAY_BUILD,CANDIDATE_REVISION
-        self.assertEqual(DISPLAY_VERSION,"0.5.0-candidate.777")
-        self.assertEqual(DISPLAY_BUILD,"FORGEPY-F777")
-        self.assertEqual(CANDIDATE_REVISION,777)
+        self.assertEqual(DISPLAY_VERSION,"0.5.0-candidate.797")
+        self.assertEqual(DISPLAY_BUILD,"FORGEPY-F797")
+        self.assertEqual(CANDIDATE_REVISION,797)
 
     def test_project_identity_is_bounded(self):
         from ForgeProjectIdentity import resolve

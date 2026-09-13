@@ -13,8 +13,8 @@ class ForgePYF755F764NativeGuiWaveTests(unittest.TestCase):
         import sys
         sys.path.insert(0, str(ROOT / "app"))
         from ForgeApplicationIdentity import DISPLAY_BUILD, DISPLAY_VERSION
-        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F777")
-        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.777")
+        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F797")
+        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.797")
 
     def test_native_gui_dependencies_are_pinned(self):
         cargo = self.text("native/forge-rs/Cargo.toml")
@@ -39,10 +39,13 @@ class ForgePYF755F764NativeGuiWaveTests(unittest.TestCase):
     def test_dockable_widget_system_is_real(self):
         gui = self.text("native/forge-rs/src/gui/mod.rs")
         widgets = self.text("native/forge-rs/src/gui/widgets.rs")
+        docking = self.text("native/forge-rs/src/gui/docking.rs")
         self.assertIn("DockArea::new", gui)
         self.assertIn("show_close_buttons(!self.shell.layout_locked)", gui)
         self.assertIn("draggable_tabs(!self.shell.layout_locked)", gui)
-        self.assertIn("split_right(NodeIndex::root()", widgets)
+        self.assertIn("split_right(NodeIndex::root()", docking)
+        self.assertIn("pub struct ForgeDock", docking)
+        self.assertIn("open_or_focus", docking)
         self.assertIn("Reset ForgePY Layout", gui)
         self.assertIn("set_value(storage, DOCK_KEY", gui)
 
@@ -64,7 +67,7 @@ class ForgePYF755F764NativeGuiWaveTests(unittest.TestCase):
 
     def test_native_run_lane_launches_detached_gui(self):
         lane = self.text("tools/rust/ForgeRustLane.py")
-        self.assertIn("FORGEPY-RUST-LANE-0.5-F776", lane)
+        self.assertIn("FORGEPY-RUST-LANE-0.6-F787", lane)
         self.assertIn("def _launch_gui", lane)
         self.assertIn('"--gui"', lane)
         self.assertIn("subprocess.Popen", lane)
@@ -93,8 +96,8 @@ class ForgePYF755F764NativeGuiWaveTests(unittest.TestCase):
 
     def test_parity_matrix_records_native_gui_without_claiming_takeover(self):
         matrix = json.loads(self.text("native/forge-rs/parity/matrix.json"))
-        self.assertEqual(matrix["candidate"], "FORGEPY-F777")
-        self.assertEqual(matrix["nativeBuild"], "FORGE-NATIVE-GUI-WAVE2-0.5.0-F776")
+        self.assertEqual(matrix["candidate"], "FORGEPY-F797")
+        self.assertEqual(matrix["nativeBuild"], "FORGE-NATIVE-PCC-ASSET-BRIDGE-0.7.0-F797")
         self.assertFalse(matrix["takeoverReady"])
         rows = {row["capability"]: row for row in matrix["rows"]}
         self.assertEqual(rows["dock-widget-system"]["state"], "PASS")

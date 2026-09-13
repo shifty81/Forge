@@ -13,30 +13,32 @@ class ForgePYF767F776NativeGuiPolishTests(unittest.TestCase):
         import sys
         sys.path.insert(0, str(ROOT / "app"))
         from ForgeApplicationIdentity import DISPLAY_BUILD, DISPLAY_VERSION
-        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F777")
-        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.777")
+        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F797")
+        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.797")
 
     def test_native_wave2_identity(self):
         identity = self.text("native/forge-rs/src/identity.rs")
         self.assertIn('NATIVE_VERSION: &str = "0.5.0-shadow"', identity)
-        self.assertIn('NATIVE_BUILD: &str = "FORGE-NATIVE-GUI-WAVE2-0.5.0-F776"', identity)
+        self.assertIn('NATIVE_BUILD: &str = "FORGE-NATIVE-PCC-ASSET-BRIDGE-0.7.0-F797"', identity)
         lane = self.text("tools/rust/ForgeRustLane.py")
-        self.assertIn('FORGEPY-RUST-LANE-0.5-F776', lane)
+        self.assertIn('FORGEPY-RUST-LANE-0.6-F787', lane)
 
     def test_widget_registry_has_intelligence_and_operations(self):
         model = self.text("native/forge-rs/src/gui/model.rs")
         self.assertIn("OperationQueue", model)
         self.assertIn("ProjectIntelligence", model)
         self.assertIn('Self::OperationQueue => "Operations"', model)
-        self.assertIn('Self::ProjectIntelligence => "Project Intelligence"', model)
+        self.assertIn('Self::ProjectIntelligence => "Intelligence"', model)
 
     def test_layout_presets_and_lock_are_persisted(self):
         model = self.text("native/forge-rs/src/gui/model.rs")
         gui = self.text("native/forge-rs/src/gui/mod.rs")
         widgets = self.text("native/forge-rs/src/gui/widgets.rs")
+        docking = self.text("native/forge-rs/src/gui/docking.rs")
         self.assertIn("LayoutPreset", model)
         self.assertIn("layout_locked", model)
-        self.assertIn("dock_for_preset", widgets)
+        self.assertIn("for_preset", docking)
+        self.assertIn("apply_preset", docking)
         self.assertIn("show_close_buttons(!self.shell.layout_locked)", gui)
         self.assertIn("draggable_tabs(!self.shell.layout_locked)", gui)
         self.assertIn("Lock dock layout", gui)
@@ -86,8 +88,8 @@ class ForgePYF767F776NativeGuiPolishTests(unittest.TestCase):
 
     def test_parity_matrix_records_wave2_without_claiming_takeover(self):
         matrix = json.loads(self.text("native/forge-rs/parity/matrix.json"))
-        self.assertEqual(matrix["candidate"], "FORGEPY-F777")
-        self.assertEqual(matrix["nativeBuild"], "FORGE-NATIVE-GUI-WAVE2-0.5.0-F776")
+        self.assertEqual(matrix["candidate"], "FORGEPY-F797")
+        self.assertEqual(matrix["nativeBuild"], "FORGE-NATIVE-PCC-ASSET-BRIDGE-0.7.0-F797")
         self.assertFalse(matrix["takeoverReady"])
         rows = {row["capability"]: row for row in matrix["rows"]}
         self.assertEqual(rows["dock-widget-system"]["state"], "PASS")

@@ -56,6 +56,7 @@ from ForgePYIntake import (
     approve_manual_patch_for_project as vault_approve_manual_patch_for_project,
     resolve_patch_target as vault_resolve_patch_target,
     retain_already_applied_patch as vault_retain_already_applied_patch,
+    stage_project_native_patch as vault_stage_project_native_patch,
     counts_for_project as vault_update_counts_for_project,
     stage_for_project as vault_stage_for_project,
     reconcile_project as vault_reconcile_project,
@@ -4127,6 +4128,26 @@ class ForgeGui:
                                 self._event_q.put(("manual-patch-already-applied-retain-error", (str(exc), target_name, target_build)))
                         threading.Thread(target=retain_already_applied, daemon=True, name="ForgeAlreadyAppliedPatchRetain").start()
                         return
+                    if resolution_status == "PROJECT_NATIVE_REVIEW":
+                        target_root = Path(str(resolution.get("targetRoot") or "")).expanduser().resolve()
+                        target_name = str(resolution.get("targetName") or resolution.get("targetProject") or target_root.name)
+                        detail = str(resolution.get("reason") or "Project-native PCC review is available.")
+                        message = (
+                            f"Patch: {source.name}\nTarget project: {target_name}\nTarget root: {target_root}\n\n"
+                            f"{detail}\n\n"
+                            "ForgePY will preserve the exact patch bytes and delegate compatibility/apply/rollback to the project's internal PCC. Continue?"
+                        )
+                        if not self._popup("Route Patch to Internal PCC", message, kind="warning", confirm=True):
+                            return
+                        self._download_approval_busy = True
+                        def route_native_patch() -> None:
+                            try:
+                                staged = vault_stage_project_native_patch(target_root, source)
+                                self._event_q.put(("manual-patch-native-routed", (staged, str(target_root), target_name)))
+                            except Exception as exc:
+                                self._event_q.put(("manual-patch-error", str(exc)))
+                        threading.Thread(target=route_native_patch, daemon=True, name="ForgeProjectNativePatchRoute").start()
+                        return
                     if resolution_status != "RESOLVED":
                         detail = str((resolution or {}).get("reason") or "Patch target could not be resolved uniquely.")
                         self._append_log(f"[WARN] Patch target resolution requires review: {source.name}: {detail}\n", "warn")
@@ -4174,6 +4195,15 @@ class ForgeGui:
                         self._start_forgepy_self_apply("apply-patch", target_root=target_root)
                     else:
                         self._start_universal_project_apply(target_root, "apply-patch", run_full_after=False)
+                elif kind == "manual-patch-native-routed":
+                    self._download_approval_busy = False
+                    staged, target_root_raw, target_name = payload
+                    target_root = Path(str(target_root_raw)).expanduser().resolve()
+                    self._append_log(
+                        f"[PASS] Exact patch transport routed to {target_name} internal PCC: {staged.get('projectPath')} "
+                        f"(sha256={staged.get('sha256')}).\n", "pass"
+                    )
+                    self._start_universal_project_apply(target_root, "apply-patch", run_full_after=False)
                 elif kind == "manual-patch-error":
                     self._download_approval_busy = False
                     self._append_log(f"[FAIL] Manual patch selection failed: {payload}\n", "fail")

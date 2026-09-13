@@ -218,6 +218,28 @@ def resolve_patch_target(source: Path, *, details: dict[str, Any] | None = None)
                         "reason": "patch target is already fully installed; no source changes are required",
                         "routing": "FORGEPY-F754-ALREADY-TARGET",
                     }
+            # Do not weaken the Forge universal engine. If the project itself exposes
+            # transactional patch + recovery authority, an explicit manual selection may
+            # instead be handed to that internal PCC for its own compatibility decision.
+            # This is REVIEW routing, not a Forge compatibility claim.
+            try:
+                from ForgeProjectPCC import profile as pcc_profile
+                native = pcc_profile(root)
+            except Exception:
+                native = {}
+            if not unified and bool(native.get("nativePatchReady")):
+                return {
+                    "status": "PROJECT_NATIVE_REVIEW",
+                    "declaredProject": declared,
+                    "targetRoot": row["root"],
+                    "targetProject": row["projectId"],
+                    "targetName": row["name"],
+                    "matches": [row],
+                    "checks": [row],
+                    "details": resolved_details,
+                    "reason": "Forge build/source preconditions are not satisfied, but the registered project exposes internal PCC patch + recovery authority; exact transport can be delegated for project-native review",
+                    "routing": "FORGEPY-F797-PROJECT-NATIVE",
+                }
             return {
                 "status": "INCOMPATIBLE",
                 "declaredProject": declared,
@@ -347,6 +369,12 @@ def queue_manual_patch(source: Path) -> dict[str, Any]:
         "resolution": resolution,
         "queue": queued,
     }
+
+
+def stage_project_native_patch(root: Path, source: Path) -> dict[str, Any]:
+    """Bridge exact bytes to a project-owned PCC without converting the patch schema."""
+    from ForgeProjectPCC import stage_exact_transport
+    return stage_exact_transport(Path(root), Path(source))
 
 
 def retain_already_applied_patch(source: Path, resolution: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -17,8 +17,8 @@ if str(APP) not in sys.path:
 class ExecutableSystemTests(unittest.TestCase):
     def test_candidate_identity_is_f740(self) -> None:
         from ForgeApplicationIdentity import DISPLAY_BUILD, DISPLAY_VERSION
-        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.777")
-        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F777")
+        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.797")
+        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F797")
 
     def test_nuitka_build_is_onedir_and_includes_dynamic_modules(self) -> None:
         text = (APP / "ForgeStandaloneBuild.py").read_text(encoding="utf-8")

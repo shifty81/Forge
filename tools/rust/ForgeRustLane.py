@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-LANE_VERSION = "FORGEPY-RUST-LANE-0.5-F776"
+LANE_VERSION = "FORGEPY-RUST-LANE-0.6-F787"
 NATIVE_PHASE = "SHADOW"
 
 

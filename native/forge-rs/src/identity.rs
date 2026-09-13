@@ -1,7 +1,7 @@
 use std::fmt;
 
 pub const NATIVE_VERSION: &str = "0.5.0-shadow";
-pub const NATIVE_BUILD: &str = "FORGE-NATIVE-GUI-WAVE2-0.5.0-F776";
+pub const NATIVE_BUILD: &str = "FORGE-NATIVE-PCC-ASSET-BRIDGE-0.7.0-F797";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthorityPhase {

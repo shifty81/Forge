@@ -1,5 +1,5 @@
 {
-  "fileCount": 440,
+  "fileCount": 446,
   "files": [
     {
       "bytes": 728,
@@ -34,12 +34,17 @@
     {
       "bytes": 2597,
       "path": "app/ForgeApplicationIdentity.py",
-      "sha256": "7131ab98f0716152e5aa97a0a876166df06e8f92f4ca74a179fcfe7c481e2321"
+      "sha256": "101ae672025dc458bbd43c39820cdeca1f9306a8b3166d0ec418229685f78e68"
     },
     {
       "bytes": 3450,
       "path": "app/ForgeArtifactIndex.py",
       "sha256": "287e3bb9d9102aaf083dde7803fac09cbc073fec6953c208f37f824a5807c966"
+    },
+    {
+      "bytes": 15101,
+      "path": "app/ForgeAssetResolver.py",
+      "sha256": "9b2ca14c7523eb41efc1dacb42b8c02c99695ff4b017b7f392508cf4623e9e91"
     },
     {
       "bytes": 1087,
@@ -202,9 +207,9 @@
       "sha256": "56be4916381918d0e0422a9db1c105261a307494f349ad8f63cbf1877906ca7b"
     },
     {
-      "bytes": 324807,
+      "bytes": 327102,
       "path": "app/ForgeGui.py",
-      "sha256": "55df50adb137316f62f5022599671985acdf74397a02b27770ddf189e5915eaa"
+      "sha256": "360a21c1ed27ca2e5f728788e8e38fc21c4a5ecb47c2969cb6ccecce97b1cd2c"
     },
     {
       "bytes": 1313,
@@ -294,7 +299,7 @@
     {
       "bytes": 5447,
       "path": "app/ForgeNormalizationAudit.py",
-      "sha256": "383c863410f7e43cb349a03931b1c58ddb46677dbc1b450a00c9f98409f8a91b"
+      "sha256": "e112de1b15a70f5dfaa4bdfc59b8873039a10b578b14f90a4bce97d4c93e35c2"
     },
     {
       "bytes": 726,
@@ -312,9 +317,9 @@
       "sha256": "01d28cac268fb23adfd8011c4abc4e3f27cc0f5a0a538f58be34f66436e4bb7c"
     },
     {
-      "bytes": 2271,
+      "bytes": 2607,
       "path": "app/ForgePackagePolicy.py",
-      "sha256": "47c7db82dbc66975c6193655aa3d26032d518c8ea868090c3f4f7d5ad804338c"
+      "sha256": "1c704ddc260fd98effed034434cef79d91b7349e3c6bea007435df6733732860"
     },
     {
       "bytes": 733,
@@ -322,9 +327,9 @@
       "sha256": "eafd653dcae0b42a395101bd709d2d93e74806f2cb9d21651ba8ed6e15f7084f"
     },
     {
-      "bytes": 2355,
+      "bytes": 2405,
       "path": "app/ForgePatchBuilder.py",
-      "sha256": "bde76f032d2a90ef0892897531d0f87f1b2f76438a85ab7fa831db02c28580c4"
+      "sha256": "5575a1f1a9e8afcf44be0f2d7c744a0f128a24e0312bb2355154d607f5447cf0"
     },
     {
       "bytes": 7617,
@@ -402,6 +407,11 @@
       "sha256": "b5d6f37e3f666cd98821fa67c2dd46e265b7080a14c3e666ef02a6374f0e667b"
     },
     {
+      "bytes": 7913,
+      "path": "app/ForgeProjectPCC.py",
+      "sha256": "bba98c22b413fede43079bb5f617f95dc696962fc3cb6891c1a3cbbd87524fd4"
+    },
+    {
       "bytes": 9716,
       "path": "app/ForgeProjectProtocol.py",
       "sha256": "274783d10e0ebc32e7748a32cef131223fb319a3c6c8d8b75eadeac2ae4538c8"
@@ -452,9 +462,9 @@
       "sha256": "2b175b9bc81b90b43b0c1e4b47590809e91ac285827c44a230a4e9b82cbdec3c"
     },
     {
-      "bytes": 14651,
+      "bytes": 16222,
       "path": "app/ForgePYIntake.py",
-      "sha256": "002c56905dd8a6372c0f20b32ea6f37feb41552895ee04eb899e7ce2a3dc174c"
+      "sha256": "704ea9c5c6025595d05a5c87dcad3d622d3a85d8090b4b1cc7a2d1828347ad55"
     },
     {
       "bytes": 216,
@@ -842,14 +852,14 @@
       "sha256": "18d90f139bda4f27755a0facd3e63926a8ac1ec82b09a263d35e98a201ffb639"
     },
     {
-      "bytes": 23250,
+      "bytes": 24701,
       "path": "app/PCCAutoAdapter.py",
-      "sha256": "bba96a8078be61c6cfacd33e41d6b56dfcd578f18450d49e02be04e875763d39"
+      "sha256": "077da9302ad05dcf57a0cc7233d65286779ab60856ed2133f648784acb24db75"
     },
     {
-      "bytes": 13119,
+      "bytes": 17188,
       "path": "app/PCCOperationHost.py",
-      "sha256": "8f5c3b8b6a33b373bc3f5de6cc21a2b02ca1c690f7f6448d50ce18c2a716188d"
+      "sha256": "73891654f6a6721ddd5b8908c634cb09cf7ae4c71846da2e5381235e86f9b552"
     },
     {
       "bytes": 29180,
@@ -867,9 +877,9 @@
       "sha256": "82867b2fc9b181d742ef7aa93b38c9ad8a32b842a0419b63b4e7f7fe4da13c93"
     },
     {
-      "bytes": 28672,
+      "bytes": 29361,
       "path": "app/PCCSurfaceCommon.py",
-      "sha256": "d1b11edfc4b9f970cf294dde2c498eba07800e28efc3b2e2df5e6ffa498af005"
+      "sha256": "f6b0365378e9917d19a78d93c98843591a90863c6702f8848fafcb44b740dab3"
     },
     {
       "bytes": 24654,
@@ -947,9 +957,9 @@
       "sha256": "9b28b6e424d2fce39cd84b79a5c907e7eeb2a60760132807d535e40bbfb8de74"
     },
     {
-      "bytes": 19664,
+      "bytes": 20176,
       "path": "app/VaultPatchEngine.py",
-      "sha256": "cb05ca047c8cc10b40dabead0e8e56c6559ba0f844e100b741d32a4fbbe25ab6"
+      "sha256": "9caee01981598ac9e0aa73a76f5a4f32af09d43aa63d723919b2b8e31f8b83e3"
     },
     {
       "bytes": 5639,
@@ -1017,9 +1027,9 @@
       "sha256": "057dac3a019b26770744718078307f0bd5afd145c75fa455e97537fc818a1f20"
     },
     {
-      "bytes": 44720,
+      "bytes": 48352,
       "path": "CHANGELOG.md",
-      "sha256": "c4cae95873a666cdd718660dab1705fd59198e706f8cfe86e12c4292954825e6"
+      "sha256": "cd645b1cbb5440c01b78bcac59d0d54a0ad0fd950114da5487dd014fc73dba93"
     },
     {
       "bytes": 863,
@@ -1130,6 +1140,11 @@
       "bytes": 752,
       "path": "docs/current/F777_UPDATE_STATE_HARDENING.md",
       "sha256": "17f36a3829b650118c554b69804c02913b158d80147f227c0469cdd4f5f34e9a"
+    },
+    {
+      "bytes": 2202,
+      "path": "docs/current/F797_PROJECT_PCC_ASSET_BRIDGE.md",
+      "sha256": "abbaff147b8ac2b411163b58c90a99731c6eb9d29fe956646cc6d9145e79dbae"
     },
     {
       "bytes": 3964,
@@ -1599,12 +1614,12 @@
     {
       "bytes": 769,
       "path": "native/forge-rs/Cargo.toml",
-      "sha256": "0441bc703341b9186d9050946696eb823f965daf4d9795a7b2bdb8a3b1de4317"
+      "sha256": "12114d2e42fc0034b5ddf1e3a9c7ce9694f12894a1480a4753bdd062e7157bc7"
     },
     {
-      "bytes": 3147,
+      "bytes": 4490,
       "path": "native/forge-rs/parity/matrix.json",
-      "sha256": "bdbde1fef1d9c59ded7292e65b9359a4c93d333cab72932a4a9a0c08d47a5f3d"
+      "sha256": "2e03a67e5de6b1fbaf909b61b7d9134ab0ef8cc826322fe4103f3cd10340fff5"
     },
     {
       "bytes": 1740,
@@ -1622,14 +1637,19 @@
       "sha256": "659492ca24b722b051cf789e7f46377a05619f2a63cb3f44822a6e2da48338bf"
     },
     {
-      "bytes": 13021,
-      "path": "native/forge-rs/src/gui/mod.rs",
-      "sha256": "424124f7b7aa660bdc1cd091a525a7f92ec8855f75e02d64cb26c4d9fab913af"
+      "bytes": 3398,
+      "path": "native/forge-rs/src/gui/docking.rs",
+      "sha256": "a4de5a9f816789d3e8ac0892fe32bb4cb0200581b1e98d034fac1ee0f0cf199e"
     },
     {
-      "bytes": 3929,
+      "bytes": 17064,
+      "path": "native/forge-rs/src/gui/mod.rs",
+      "sha256": "1b60040d32d50c248e2af6ce7bc080377f0931ed27ff43572444be1e5beaed6a"
+    },
+    {
+      "bytes": 7755,
       "path": "native/forge-rs/src/gui/model.rs",
-      "sha256": "b8de2b856b428e78e43666f8b970ee536d795298d4c2878831e6a7180006e565"
+      "sha256": "cd5c59b1ba1c4fc237cafd572760b38c0935a78aec78c19d5a7dfd90329d67e5"
     },
     {
       "bytes": 9077,
@@ -1637,19 +1657,19 @@
       "sha256": "944b16b7cb36f5d687f83c8654af0241189f0bf1d1b145ee576286338ffaa6b6"
     },
     {
-      "bytes": 2386,
+      "bytes": 4065,
       "path": "native/forge-rs/src/gui/theme.rs",
-      "sha256": "053d8c67bde1bf2c136dec5f27b944bab272aea558c851e061df33e8d2d51626"
+      "sha256": "65c8fd3c4cb96ea3ed1ced3ba84b2dcb36ba0bd0aa43f4e14451e746d57fbaa6"
     },
     {
-      "bytes": 24847,
+      "bytes": 33234,
       "path": "native/forge-rs/src/gui/widgets.rs",
-      "sha256": "0e416f62e1c2e930f5fdaba39a9c1404ef19505b745246486b4dc4728a4f96ff"
+      "sha256": "b025fa8c2bdddd8e632673ad0c58f48112ce6f514de339afcf5bf736de3038bf"
     },
     {
-      "bytes": 1736,
+      "bytes": 1743,
       "path": "native/forge-rs/src/identity.rs",
-      "sha256": "8c7bc3a1d3402b4c07e65dfff330e5f389ed30e7d572de657e3702c544757ebe"
+      "sha256": "ebbaf90543b16f609987938ebbb02bed2b4fe48edd5722bb745fb82b1ac440cb"
     },
     {
       "bytes": 9819,
@@ -1682,9 +1702,9 @@
       "sha256": "3acd74249407815ac7b1f8d59cd07fa65f9960d33e77c485e272db13b124d31a"
     },
     {
-      "bytes": 5075,
+      "bytes": 5761,
       "path": "native/forge-rs/src/parity.rs",
-      "sha256": "18800c5b934686e1635fdea63f173fbfc113f5c2ec4547ea9fbac6adb40c9a89"
+      "sha256": "1f45c5740e17aadf806c95531c48876929c134dd976377d05c89cad13ba81883"
     },
     {
       "bytes": 1601,
@@ -1729,12 +1749,12 @@
     {
       "bytes": 5062,
       "path": "project.control.json",
-      "sha256": "35febdbd59b9ef09f06fa56438860f6ba8303bb7dc82ef7f6561340828e5cf92"
+      "sha256": "a05df548525b7ff04a33dd8f26aee646a31443fc25f653dd4ec847854c9b784d"
     },
     {
-      "bytes": 4562,
+      "bytes": 4972,
       "path": "README.md",
-      "sha256": "4d4044fc147a26ecf02d865d3e80a2de03b057f481068df767269faa42634f9e"
+      "sha256": "9c8af3a5b5fad5697ce3f0b029bdb205b8d2a6bf60727e7c48adcc46ccd87703"
     },
     {
       "bytes": 760,
@@ -2054,12 +2074,12 @@
     {
       "bytes": 4454,
       "path": "tests/test_forgepy_f631_f700_product_normalization.py",
-      "sha256": "01000ebc21b323e8f6698fe1eb725a2893f69ab9443d1477c4a798f5c71ef77f"
+      "sha256": "36ecf22993e6ebaaa7c18876f9bf65dc25db9e66a96c7011605e00015a9bfac1"
     },
     {
       "bytes": 5849,
       "path": "tests/test_forgepy_f701_f740_executable_system.py",
-      "sha256": "c2c59e9d84589153387f4b6167eb53fcd8274f9fa352713a5ec0ff737b9b15b3"
+      "sha256": "69e8db83762d5284a03917b8222cd0526d223d52fb9267dcebc8231d0b8296ad"
     },
     {
       "bytes": 2915,
@@ -2069,47 +2089,57 @@
     {
       "bytes": 3307,
       "path": "tests/test_forgepy_f742_dashboard_gate_completion.py",
-      "sha256": "c4a801e7606338954c1a4025d284ea162dbb66edfff2cec321d72e248c986bb4"
+      "sha256": "ffe2d3a8a72e91b918096d9e9f15ca67aa663a6a1bf967219d1517d96dd65c7f"
     },
     {
       "bytes": 4286,
       "path": "tests/test_forgepy_f743_native_foundation.py",
-      "sha256": "ea7e18808ca9ebcea32962047dff19e111827c412ee0f473937862c19d69eff9"
+      "sha256": "ed4deaec57f2ea86451298bbea9dbe2bd42995586e21a0907ec213b90a654375"
     },
     {
-      "bytes": 6857,
+      "bytes": 6864,
       "path": "tests/test_forgepy_f744_f753_native_wave.py",
-      "sha256": "256188e36e50193624434b7efffb9dac8d9c2ecb68a173655b5f77579d515a1a"
+      "sha256": "3ccb90d6643cfa337246652c0940f4e5385021be5735bd655086b0f784388caa"
     },
     {
       "bytes": 5525,
       "path": "tests/test_forgepy_f754_already_target.py",
-      "sha256": "06ef3b2d72c78bbf952f9672a49f8178acb8ea659569c91c2532a8e34e4629c8"
+      "sha256": "b792ad448c8c3e62c957b583a932dc23267c9791ad999bb69088420134a5c329"
     },
     {
-      "bytes": 5284,
+      "bytes": 5460,
       "path": "tests/test_forgepy_f755_f764_native_gui_wave.py",
-      "sha256": "75bd06024387f8d14b938cea67f212886af3abaf434d76abb826c0512b4e9349"
+      "sha256": "ef9b521cb9471fddaa44d2916bb714f895ea8e4c5799a7627f050cec054f9df1"
     },
     {
-      "bytes": 1321,
+      "bytes": 1328,
       "path": "tests/test_forgepy_f765_egui036_compile_repair.py",
-      "sha256": "65bdf886dd549cb59f15c0019d421f86abe9c2515a6f1bd9ca7e4ec4273390f6"
+      "sha256": "d67112495d92b3d34d5cfcce23b8484e5014b6f113fa3da74abbc9d9f05bf851"
     },
     {
       "bytes": 2695,
       "path": "tests/test_forgepy_f766_candidate_routing.py",
-      "sha256": "ccbeb0cd403f04192261a17ba480d32d64c50de5378ae38fc5a58f7a00005dc5"
+      "sha256": "4cd60009f38c983a42c308659805ba7ae2dd6cbb85ae596d4c524be4985192a0"
     },
     {
-      "bytes": 5163,
+      "bytes": 5277,
       "path": "tests/test_forgepy_f767_f776_native_gui_polish.py",
-      "sha256": "a497d930b7e7348f53c0c902e762c6229a938fd941300751e8c46b1a5b7a946d"
+      "sha256": "3fa7a81095eacfc189521a153b8c797e07717a7dfb4635ec60c9bc3f6bddc733"
     },
     {
       "bytes": 1515,
       "path": "tests/test_forgepy_f777_update_state_hardening.py",
-      "sha256": "ffcaabe022b2a858f14293ed6efb4f6c85b98e89f3e0941820006357f410bfed"
+      "sha256": "b3d9789601362379b7548fe6a7c3e3aefb383074208df92a6c42ba536c32ae47"
+    },
+    {
+      "bytes": 3883,
+      "path": "tests/test_forgepy_f778_f787_gui_foundation_lock.py",
+      "sha256": "26bd0df5d5c5378ecc2310b5b03872e61fbe5d2ba739f99006a4818b567b4e1b"
+    },
+    {
+      "bytes": 8858,
+      "path": "tests/test_forgepy_f788_f797_project_pcc_asset_bridge.py",
+      "sha256": "b8594c2d4f2887fed076a9e2cc9356f119cdd8ce6a6aec15d041551050e8cdcf"
     },
     {
       "bytes": 7611,
@@ -2169,7 +2199,7 @@
     {
       "bytes": 6757,
       "path": "tools/rust/ForgeRustLane.py",
-      "sha256": "457e1cc109df7ec35df008532988e794b3e4ed9da7364e9031edd6e7aa4cc286"
+      "sha256": "b9d8fd9c6a96a632ec66edc73ea88f44d334ce973f215fb852d60755c82509e0"
     },
     {
       "bytes": 212,
@@ -2204,6 +2234,6 @@
   ],
   "forgePyBuild": "FORGEPY-F60R415",
   "forgePyVersion": "0.4.415-F60R415",
-  "generatedUtc": "2026-09-13T14:55:20.515937+00:00",
+  "generatedUtc": "2026-09-13T17:09:26.823529+00:00",
   "schema": "forgepy.package.manifest.v1"
 }

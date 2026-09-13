@@ -17,21 +17,21 @@ from VaultBuildIdentity import build_identity, verify_manifest_preconditions
 
 class ForgePYF766CandidateRoutingTests(unittest.TestCase):
     def test_candidate_identity_is_f766(self):
-        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.777")
-        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F777")
+        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.797")
+        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F797")
 
     def test_build_identity_prefers_candidate_but_preserves_certified_donor(self):
         identity = build_identity(ROOT)
-        self.assertEqual(identity["projectVersion"], "0.5.0-candidate.777")
-        self.assertEqual(identity["projectBuild"], "FORGEPY-F777")
-        self.assertEqual(identity["candidateProjectVersion"], "0.5.0-candidate.777")
-        self.assertEqual(identity["candidateProjectBuild"], "FORGEPY-F777")
+        self.assertEqual(identity["projectVersion"], "0.5.0-candidate.797")
+        self.assertEqual(identity["projectBuild"], "FORGEPY-F797")
+        self.assertEqual(identity["candidateProjectVersion"], "0.5.0-candidate.797")
+        self.assertEqual(identity["candidateProjectBuild"], "FORGEPY-F797")
         self.assertEqual(identity["certifiedProjectVersion"], "0.4.415-F60R415")
         self.assertEqual(identity["certifiedProjectBuild"], "FORGEPY-F60R415")
         self.assertEqual(identity["identityPhase"], "candidate")
 
     def test_next_candidate_precondition_routes_against_live_candidate(self):
-        manifest = {"schema": "forge.patch.v1", "preconditions": {"projectBuild": "FORGEPY-F777"}}
+        manifest = {"schema": "forge.patch.v1", "preconditions": {"projectBuild": "FORGEPY-F797"}}
         result = verify_manifest_preconditions(manifest, ROOT)
         self.assertEqual(result["status"], "PASS", result)
         self.assertFalse(result["mismatches"], result)

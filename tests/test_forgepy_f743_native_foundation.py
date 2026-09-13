@@ -14,14 +14,14 @@ if str(APP) not in sys.path:
 class ForgePYF743NativeFoundationTests(unittest.TestCase):
     def test_candidate_identity_tracks_current_candidate(self):
         from ForgeApplicationIdentity import DISPLAY_BUILD, DISPLAY_VERSION
-        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.777")
-        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F777")
+        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.797")
+        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F797")
 
     def test_project_contract_declares_project_icon_and_native_lane(self):
         data = json.loads((ROOT / "project.control.json").read_text(encoding="utf-8"))
         project = data.get("project") or {}
         self.assertEqual(project.get("icon"), "assets/branding/ForgePY.png")
-        self.assertEqual(project.get("candidateBuild"), "FORGEPY-F777")
+        self.assertEqual(project.get("candidateBuild"), "FORGEPY-F797")
         keys = {row.get("key") for row in data.get("commands", []) if isinstance(row, dict)}
         self.assertTrue({
             "audit.rust-migration", "audit.rust-parity", "gate.rust-shadow",
@@ -42,7 +42,7 @@ class ForgePYF743NativeFoundationTests(unittest.TestCase):
     def test_machine_readable_parity_matrix_is_fail_closed(self):
         matrix = json.loads((ROOT / "native" / "forge-rs" / "parity" / "matrix.json").read_text(encoding="utf-8"))
         self.assertEqual(matrix.get("phase"), "SHADOW")
-        self.assertEqual(matrix.get("candidate"), "FORGEPY-F777")
+        self.assertEqual(matrix.get("candidate"), "FORGEPY-F797")
         self.assertFalse(matrix.get("takeoverReady"))
         states = {row.get("state") for row in matrix.get("rows", [])}
         self.assertIn("MISSING", states)

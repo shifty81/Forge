@@ -13,7 +13,7 @@ from ForgePYIntake import reconcile_project, scan_roots, stage_for_project
 from ForgePYPatchEngine import apply_transport, can_apply_transport
 from ForgeGreen import certify_green
 
-VERSION = "FORGE-OPERATION-HOST-1.1-F571"
+VERSION = "FORGE-OPERATION-HOST-1.2-F797"
 
 CLEAN_OPERATIONS = {
     "full", "quick", "fast", "build", "build-release", "patch-apply", "self-test",
@@ -81,7 +81,26 @@ def _project_has_recovery_authority(root: Path) -> bool:
 
 
 def _ingest_root_drop(root: Path) -> int:
-    """Project-root drop remains intake only; it may queue but does not apply."""
+    """Respect project-owned root-drop authority before generic Forge intake.
+
+    Mature internal PCCs intentionally watch the project root/updates inbox. Moving the
+    transport into Vault before the project provider starts breaks that contract. When the
+    project exposes both patch and recovery authority, preserve the exact bytes in place and
+    let explicit project tooling validate/apply them. Generic projects keep the Forge queue.
+    """
+    if _project_has_patch_authority(root) and _project_has_recovery_authority(root):
+        try:
+            from ForgeProjectPCC import root_patch_transports
+            native = root_patch_transports(root, include_inbox=False)
+        except Exception:
+            native = []
+        if native:
+            print(
+                f"[PASS] Project-owned root-drop authority detected; preserved {len(native)} patch transport(s) "
+                "in place for the internal PCC. ForgePY did not move or rewrite them.",
+                flush=True,
+            )
+            return 0
     try:
         result = scan_roots((root,), force_stable=True, remove_source=True, trusted_roots=(root,))
     except Exception as exc:
@@ -159,6 +178,23 @@ def _apply_staged_updates(root: Path, operation: str, child: Sequence[str]) -> t
 
     count = int(staged.get("staged", 0) or 0)
     if count == 0:
+        # An explicit Apply Updates action may delegate the same root/inbox transport
+        # directly to a mature project-owned PCC. This keeps Havenwild/Subspace-style
+        # standalone root-drop workflows interoperable with ForgePY without rewrapping bytes.
+        if _project_has_patch_authority(root) and _project_has_recovery_authority(root):
+            try:
+                from ForgeProjectPCC import root_patch_transports
+                native_pending = root_patch_transports(root, include_inbox=True)
+            except Exception:
+                native_pending = []
+            if native_pending:
+                print(
+                    f"[PASS] Explicit Apply Updates delegated {len(native_pending)} project-owned root/inbox "
+                    "transport(s) to the internal PCC; exact bytes were preserved.",
+                    flush=True,
+                )
+                apply_child = _provider_variant(child, operation, "patch-apply")
+                return _run(apply_child, root), None
         print("[INFO] No approved updates are queued for this project.", flush=True)
         return 0, None
 
@@ -265,7 +301,37 @@ def main(argv: Sequence[str] | None = None) -> int:
                     except Exception as exc:
                         print(f"[WARN] Could not annotate recovery checkpoint: {exc}", flush=True)
         else:
+            # Declared asset dependencies are hydrated from exact hash-bound Vault/backup
+            # authority before the project's Full Gate runs. Projects with no Forge asset
+            # requirement manifest are unaffected.
+            if operation == "full":
+                try:
+                    from ForgeAssetResolver import hydrate
+                    assets = hydrate(root, apply=True)
+                    required = int(assets.get("required", 0) or 0)
+                    missing = int(assets.get("missing", 0) or 0)
+                    if required:
+                        print(f"[INFO] Forge asset hydration preflight: {required - missing}/{required} READY; report={assets.get('report')}", flush=True)
+                    if missing:
+                        for error in assets.get("errors", [])[:20]:
+                            print(f"[FAIL] Asset hydration: {error}", flush=True)
+                        print("[FAIL] Full Gate stopped before project execution because required assets are unresolved.", flush=True)
+                        return 1
+                except Exception as exc:
+                    print(f"[FAIL] Forge asset hydration preflight failed: {exc}", flush=True)
+                    return 1
             rc = _run(child, root)
+            if rc != 0 and operation == "full":
+                try:
+                    from ForgeAssetResolver import diagnose_recent_logs
+                    report = diagnose_recent_logs(root)
+                    hits = [row for row in report.get("mentions", []) if int(row.get("candidateCount", 0) or 0) > 0]
+                    if hits:
+                        print(f"[INFO] Vault asset recovery found {len(hits)} logged asset mention(s) with candidate sources; report={report.get('report')}", flush=True)
+                        for row in hits[:8]:
+                            print(f"[INFO] Asset candidate: {row.get('name')} -> {row.get('candidateCount')} Vault/backup match(es)", flush=True)
+                except Exception as exc:
+                    print(f"[WARN] Post-failure asset recovery diagnostics could not complete: {exc}", flush=True)
     finally:
         if operation in CLEAN_OPERATIONS:
             clean_rc = _print_hygiene("Post-operation", root)

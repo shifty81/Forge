@@ -1,3 +1,31 @@
+## FORGEPY-F797 — Internal PCC / Vault Asset Authority Bridge
+
+- F788: project provider selection no longer feeds declared PowerShell `.ps1` machine providers to Python; non-Python internal PCCs route through the normalized command contract.
+- F789: script-aware provider argv resolves `.ps1`, `.cmd/.bat`, and `.py/.pyw` with the correct interpreter.
+- F790: added `ForgeProjectPCC` as the normalized internal-PCC profile/launcher authority.
+- F791: project-owned root/inbox patch transports are preserved in place when the project exposes patch + rollback authority, so direct internal-PCC root-drop remains valid under ForgePY.
+- F792: explicit Forge Apply Updates can delegate the same exact root/inbox transport bytes to the internal PCC instead of requiring a Forge-specific rewrap.
+- F793: manual patch routing gains `PROJECT_NATIVE_REVIEW` for registered projects whose internal PCC owns compatibility/recovery; Forge universal validation remains strict.
+- F794: native Project Tools exposes Launch Internal PCC and project-native update controls.
+- F795: added hash-bound `forge.assets.json` dependency resolution across Artifact Central, the Vault drive catalog, and verified Forge backup archives.
+- F796: Full Gate performs declared asset hydration before project execution and writes durable Asset Resolution evidence outside the project source tree.
+- F797: failed gates gain bounded Vault/backup asset diagnostics from recent project logs; candidate advances to `0.5.0-candidate.797 / FORGEPY-F797` and native shell build to `FORGE-NATIVE-PCC-ASSET-BRIDGE-0.7.0-F797`.
+- F797 hardening: `FORGEPY_PACKAGE_MANIFEST.json` remains governed release evidence but is excluded from patch-builder preimages; legacy self-update transports may tolerate drift of that generated file only, preventing Full Gate regeneration from stranding an otherwise valid update.
+
+## FORGEPY-F787 — Native GUI Foundation Lock / ForgeDock
+
+- F778 restores a permanent contextual Project rail immediately to the right of the ForgePY rail so Source/Build/Updates/Intelligence/Native/Diagnostics navigation never disappears when a tool opens.
+- F779 introduces ForgeDock as the single central-workspace docking authority; shell rails, quickbar, Health rail and status bar are protected and never become dock tabs.
+- F780 upgrades docking drop feedback, separator grab targets, tab sizing and dock chrome for an IDE-style workspace.
+- F781 adds reliable open-or-focus semantics so Project rail and widget-palette navigation focus existing tabs instead of silently duplicating them.
+- F782 adds Forge/Development/Operations/Intelligence layout presets and bumps persisted dock/shell schemas to v2 for a clean foundation reset.
+- F783 upgrades the widget palette with search, reopen/focus controls and Project-rail collapse state.
+- F784 redistributes the overloaded Project dashboard into Overview, Source, Build & Test, Run, Updates, Intelligence, Native, Diagnostics, Artifacts and Project Tools landing surfaces.
+- F785 polishes Forge Console composition, quickbar project identity, Health hierarchy and bottom status state.
+- F786 adds capability-aware Project Tools visibility for projects with an internal PCC/control contract and keeps raw projects on zero-tooling intelligence.
+- F787 freezes the protected four-column shell contract: `Forge Rail | Project Rail | ForgeDock Workspace | Health Rail`, with quickbar above and status bar below.
+- Candidate advances to `0.5.0-candidate.787 / FORGEPY-F787`; native shell build advances to `FORGE-NATIVE-GUI-FOUNDATION-0.6.0-F787`. Python ForgePY remains operational authority during SHADOW.
+
 ## FORGEPY-F777 — Update-State / Windows Gate Stabilization
 
 - Treat the Rust SHADOW `Cargo.lock` as runtime-transient even after Cargo materializes it; Windows Full Gate no longer fails merely because the file exists.

@@ -118,18 +118,18 @@ class ForgePYF744F753NativeWaveTests(unittest.TestCase):
 
     def test_candidate_and_native_builds_advance_to_f753(self):
         from ForgeApplicationIdentity import DISPLAY_BUILD, DISPLAY_VERSION
-        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.777")
-        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F777")
+        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.797")
+        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F797")
         identity = (ROOT / "native/forge-rs/src/identity.rs").read_text(encoding="utf-8")
-        self.assertIn("FORGE-NATIVE-GUI-WAVE2-0.5.0-F776", identity)
+        self.assertIn("FORGE-NATIVE-PCC-ASSET-BRIDGE-0.7.0-F797", identity)
 
     def test_project_contract_and_parity_state_are_f753_and_fail_closed(self):
         contract = json.loads((ROOT / "project.control.json").read_text(encoding="utf-8"))
-        self.assertEqual(contract["project"]["candidateBuild"], "FORGEPY-F777")
+        self.assertEqual(contract["project"]["candidateBuild"], "FORGEPY-F797")
         keys = {row.get("key") for row in contract.get("commands", []) if isinstance(row, dict)}
         self.assertTrue({"audit.rust-evidence", "audit.rust-shell"}.issubset(keys))
         matrix = json.loads((ROOT / "native/forge-rs/parity/matrix.json").read_text(encoding="utf-8"))
-        self.assertEqual(matrix["candidate"], "FORGEPY-F777")
+        self.assertEqual(matrix["candidate"], "FORGEPY-F797")
         self.assertFalse(matrix["takeoverReady"])
         states = {row["state"] for row in matrix["rows"]}
         self.assertIn("MISSING", states)

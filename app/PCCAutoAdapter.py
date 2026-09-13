@@ -311,9 +311,15 @@ def _prepare_argv(root: Path, program_raw: str, args: list[str]) -> list[str]:
         program = str(candidate)
     else:
         program = _resolve_program(raw)
-    if os.name == "nt" and Path(program).suffix.casefold() in {".cmd", ".bat"}:
+    suffix = Path(program).suffix.casefold()
+    if os.name == "nt" and suffix in {".cmd", ".bat"}:
         comspec = os.environ.get("COMSPEC") or "cmd.exe"
         return [comspec, "/d", "/s", "/c", program, *args]
+    if suffix == ".ps1":
+        shell = _resolve_program("pwsh")
+        return [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", program, *args]
+    if suffix in {".py", ".pyw"}:
+        return [sys.executable, program, *args]
     return [program, *args]
 
 
@@ -468,6 +474,31 @@ def _stream_command(root: Path, item: dict[str, Any], *, stdin_text: str = "") -
 
 
 def _run_command_core(root: Path, command: str, *, message: str = "", assume_yes: bool = False) -> int:
+    # Forge-owned universal bridge commands are available to every project without
+    # requiring the project to duplicate ForgePY implementation details.
+    if command in {"launch-pcc", "internal-pcc"}:
+        try:
+            from ForgeProjectPCC import launch_control_center
+            result = launch_control_center(root)
+            print(f"[PASS] Internal PCC launched (pid={result.get('pid')}): {result.get('argv')}", flush=True)
+            return 0
+        except Exception as exc:
+            print(f"[FAIL] Internal PCC launch failed: {exc}", flush=True)
+            return 2
+    if command == "asset-status":
+        from ForgeAssetResolver import status
+        print(json.dumps(status(root), separators=(",", ":")))
+        return 0
+    if command == "asset-hydrate":
+        from ForgeAssetResolver import hydrate
+        result = hydrate(root, apply=True)
+        print(json.dumps(result, separators=(",", ":")))
+        return 0 if int(result.get("missing", 0) or 0) == 0 else 3
+    if command == "asset-diagnose":
+        from ForgeAssetResolver import diagnose_recent_logs
+        print(json.dumps(diagnose_recent_logs(root), separators=(",", ":")))
+        return 0
+
     data = discover_project_contract_data(root)
     if command == "status-json":
         print(json.dumps(status_payload(root), separators=(",", ":")))

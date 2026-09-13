@@ -16,7 +16,7 @@ from typing import Any
 
 from VaultPaths import vault_root
 from ForgeUnifiedDiffPatch import is_unified_diff, validate as validate_unified_diff, apply as apply_unified_diff, synthetic_manifest as unified_manifest
-from ForgePackagePolicy import self_update_safe, classification as package_path_classification
+from ForgePackagePolicy import self_update_safe, patch_regenerated, classification as package_path_classification
 
 PATCH_ENGINE_VERSION = "FORGE-PATCH-0.5"
 SUPPORTED_SCHEMAS = {
@@ -222,7 +222,12 @@ def validate_transport(path: Path, root: Path | None = None) -> dict[str, Any]:
                     if not target.is_file():
                         raise PatchError(f"preimage required but missing: {rel}")
                     if not _hash_matches(target, row["preSha256"]):
-                        raise PatchError(f"preimage hash mismatch: {rel}")
+                        # FORGEPY_PACKAGE_MANIFEST.json is deterministic gate output, not source
+                        # authority. A local Full Gate may legitimately regenerate it between
+                        # patch creation and application. Keep every real source preimage strict,
+                        # but never let this one generated authority file strand a self-update.
+                        if not (_is_vault_application_root(root, manifest) and patch_regenerated(rel)):
+                            raise PatchError(f"preimage hash mismatch: {rel}")
                 if row["operation"] == "delete" and not target.exists() and not already_satisfied and not row["allowMissing"]:
                     raise PatchError(f"delete target is missing: {rel}")
     return {"manifest": manifest, "files": files, "sha256": sha256_file(path)}

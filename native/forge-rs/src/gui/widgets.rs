@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Color32, RichText, ScrollArea, Stroke, Ui};
-use egui_dock::{DockState, NodeIndex, Style, TabViewer};
+use egui_dock::{OverlayType, Style, TabViewer};
 
 use crate::identity::NativeIdentity;
 use crate::intelligence::{census, ProjectCensus};
@@ -11,7 +11,7 @@ use crate::project::{probe_project, ProjectSnapshot};
 use crate::settings;
 use crate::toolchains::{probe_all, ready_count, ToolchainProbe};
 
-use super::model::{LayoutPreset, WorkspaceTab};
+use super::model::WorkspaceTab;
 use super::operations::{ForegroundQueue, OperationEvent};
 use super::theme;
 
@@ -103,6 +103,17 @@ impl SharedUiState {
         }
     }
 
+    pub fn has_internal_pcc(&self) -> bool {
+        [
+            "project.control.json",
+            "ProjectControlCenter.cmd",
+            "ProjectControlCenter.bat",
+            "ProjectControlCenter.ps1",
+            "tools/ProjectControlCenter.py",
+            "app/PCCAutoAdapter.py",
+        ].iter().any(|rel| self.root.join(rel).is_file())
+    }
+
     pub fn execute_console_command(&mut self) {
         let command = self.console_input.trim().to_string();
         self.console_input.clear();
@@ -133,33 +144,6 @@ impl SharedUiState {
     }
 }
 
-pub fn dock_for_preset(preset: LayoutPreset) -> DockState<WorkspaceTab> {
-    match preset {
-        LayoutPreset::Forge => {
-            let mut dock = DockState::new(vec![WorkspaceTab::Dashboard]);
-            dock.main_surface_mut().split_right(NodeIndex::root(), 0.64, vec![WorkspaceTab::ForgeConsole]);
-            dock
-        }
-        LayoutPreset::Operations => {
-            let mut dock = DockState::new(vec![WorkspaceTab::OperationQueue]);
-            dock.main_surface_mut().split_right(NodeIndex::root(), 0.58, vec![WorkspaceTab::ForgeConsole]);
-            dock
-        }
-        LayoutPreset::Intelligence => {
-            let mut dock = DockState::new(vec![WorkspaceTab::ProjectIntelligence]);
-            dock.main_surface_mut().split_right(NodeIndex::root(), 0.66, vec![WorkspaceTab::Dashboard]);
-            dock
-        }
-    }
-}
-
-pub fn default_dock() -> DockState<WorkspaceTab> { dock_for_preset(LayoutPreset::Forge) }
-
-pub fn ensure_tab(dock: &mut DockState<WorkspaceTab>, tab: WorkspaceTab) {
-    if dock.iter_all_tabs().any(|(_, existing)| *existing == tab) { return; }
-    dock.push_to_focused_leaf(tab);
-}
-
 pub struct ForgeTabViewer<'a> {
     pub shared: &'a mut SharedUiState,
 }
@@ -168,35 +152,83 @@ impl TabViewer for ForgeTabViewer<'_> {
     type Tab = WorkspaceTab;
 
     fn id(&mut self, tab: &mut Self::Tab) -> egui::Id { egui::Id::new(*tab) }
-    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText { tab.title().into() }
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        RichText::new(format!("{}  {}", tab.icon(), tab.title())).color(theme::TEXT).into()
+    }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
         match tab {
             WorkspaceTab::Dashboard => dashboard(ui, self.shared),
-            WorkspaceTab::ForgeConsole => forge_console(ui, self.shared),
-            WorkspaceTab::OperationQueue => operation_queue(ui, self.shared),
+            WorkspaceTab::Source => source_page(ui, self.shared),
+            WorkspaceTab::BuildTest => build_test(ui, self.shared),
+            WorkspaceTab::Run => run_page(ui, self.shared),
+            WorkspaceTab::Updates => updates(ui, self.shared),
             WorkspaceTab::ProjectIntelligence => project_intelligence(ui, self.shared),
             WorkspaceTab::NativeMigration => native_migration(ui, self.shared),
+            WorkspaceTab::Diagnostics => diagnostics(ui, self.shared),
+            WorkspaceTab::Artifacts => artifacts(ui, self.shared),
+            WorkspaceTab::ProjectTools => project_tools(ui, self.shared),
+            WorkspaceTab::ForgeConsole => forge_console(ui, self.shared),
+            WorkspaceTab::OperationQueue => operation_queue(ui, self.shared),
             WorkspaceTab::ProjectCli => project_cli(ui, self.shared),
             WorkspaceTab::Vault => vault(ui, self.shared),
             WorkspaceTab::Workspace => workspace(ui, self.shared),
             WorkspaceTab::Settings => settings_page(ui, self.shared),
         }
     }
+
+    fn context_menu(&mut self, ui: &mut Ui, tab: &mut Self::Tab, _path: egui_dock::NodePath) {
+        ui.label(RichText::new(tab.title()).strong().color(theme::CYAN));
+        ui.label(RichText::new("Drag to split/tab/float. Use WIDGETS to reopen any closed panel.").size(10.0).color(theme::MUTED));
+    }
+
+    fn on_tab_button(&mut self, tab: &mut Self::Tab, response: &egui::Response) {
+        if response.hovered() { response.clone().on_hover_text(format!("{} · {}", tab.category(), tab.title())); }
+    }
+
+    fn scroll_bars(&self, tab: &Self::Tab) -> [bool; 2] {
+        match tab {
+            WorkspaceTab::ForgeConsole => [false, false],
+            _ => [false, true],
+        }
+    }
 }
 
-pub fn dock_style(ui: &Ui) -> Style { Style::from_egui(ui.style().as_ref()) }
+pub fn dock_style(ui: &Ui) -> Style {
+    let mut style = Style::from_egui(ui.style().as_ref());
+    style.main_surface_border_stroke = Stroke::new(1.0, theme::BORDER);
+    style.tab_bar.bg_fill = theme::BG_PANEL;
+    style.tab_bar.height = 30.0;
+    style.tab.minimum_width = Some(96.0);
+    style.tab.spacing = 6.0;
+    style.separator.width = 1.0;
+    style.separator.extra_interact_width = 5.0;
+    style.separator.color_idle = theme::BORDER;
+    style.separator.color_hovered = theme::CYAN;
+    style.separator.color_dragged = theme::CYAN;
+    style.overlay.overlay_type = OverlayType::HighlightedAreas;
+    style.overlay.selection_color = Color32::from_rgba_unmultiplied(0, 208, 231, 84);
+    style.overlay.selection_stroke_width = 2.0;
+    style.overlay.button_spacing = 8.0;
+    style.overlay.max_button_size = 96.0;
+    style.overlay.button_color = Color32::from_rgb(16, 46, 56);
+    style.overlay.button_border_stroke = Stroke::new(1.0, theme::CYAN);
+    style.overlay.surface_fade_opacity = 0.16;
+    style
+}
 
 fn heading(ui: &mut Ui, title: &str, subtitle: &str) {
+    ui.add_space(2.0);
     ui.label(RichText::new(title).size(19.0).strong().color(theme::TEXT));
     ui.label(RichText::new(subtitle).size(11.0).color(theme::MUTED));
-    ui.add_space(8.0);
+    ui.add_space(10.0);
 }
 
 fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
     theme::card_frame().show(ui, |ui| {
-        ui.label(RichText::new(title).strong().color(theme::CYAN));
-        ui.add_space(5.0);
+        ui.label(RichText::new(title).size(11.0).strong().color(theme::CYAN));
+        ui.add_space(6.0);
         add(ui);
     });
     ui.add_space(8.0);
@@ -204,10 +236,10 @@ fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
 
 fn dashboard(ui: &mut Ui, shared: &mut SharedUiState) {
     ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        heading(ui, "ForgePY Control", "Native project operations shell with Python ForgePY retained as certified backend authority during SHADOW.");
+        heading(ui, "ForgePY Control", "Project overview. Detailed work now lands in dedicated Source, Build, Updates, Intelligence, Native and Diagnostics tools.");
         section(ui, "Application Authority", |ui| {
             let id = NativeIdentity::current();
-            egui::Grid::new("native-authority-grid").num_columns(2).spacing([12.0, 3.0]).show(ui, |ui| {
+            egui::Grid::new("native-authority-grid").num_columns(2).spacing([14.0, 4.0]).show(ui, |ui| {
                 ui.label("Native candidate"); ui.label(RichText::new(id.build).color(theme::TEXT)); ui.end_row();
                 ui.label("Authority phase"); ui.label(RichText::new(id.phase.as_str()).color(theme::YELLOW)); ui.end_row();
                 ui.label("Project root"); ui.label(shared.root.display().to_string()); ui.end_row();
@@ -221,45 +253,105 @@ fn dashboard(ui: &mut Ui, shared: &mut SharedUiState) {
                 if ui.add(egui::Button::new("Full Gate / Certify GREEN").fill(theme::CYAN)).clicked() { shared.submit("Full Gate", "full"); }
                 if ui.button("Build").clicked() { shared.submit("Build", "build"); }
                 if ui.button("Test").clicked() { shared.submit("Test", "project.self-test"); }
-                if ui.button("Rust SHADOW Gate").clicked() { shared.submit("Rust SHADOW Gate", "gate.rust-shadow"); }
+                if ui.button("Run").clicked() { shared.submit("Run", "launch-gui"); }
             });
         });
-        section(ui, "Project Intelligence", |ui| {
-            ui.label(format!("{} build-system family(s), {} language family(s), {} inferred operation(s), {} nested root hint(s).",
+        section(ui, "Project Summary", |ui| {
+            ui.label(format!("{} build-system family(s) · {} language family(s) · {} inferred operation(s) · {} nested root hint(s)",
                 shared.intelligence.build_systems.len(), shared.intelligence.language_counts.len(), shared.intelligence.operations.len(), shared.intelligence.nested_roots.len()));
+            ui.label(RichText::new("Use the Project rail to keep navigation visible while tools change in the central dock workspace.").size(10.0).color(theme::MUTED));
+        });
+        section(ui, "Native Shell", |ui| {
+            ui.label("Forge rail, contextual Project rail, dock workspace, Health rail, quickbar and status bar are native shell regions.");
+            ui.label("Only the center tool workspace docks/floats; shell navigation cannot be accidentally dragged away.");
+        });
+    });
+}
+
+fn source_page(ui: &mut Ui, shared: &mut SharedUiState) {
+    heading(ui, "Source", "Source authority and repository context stay project-scoped while the Project rail remains visible.");
+    ScrollArea::vertical().show(ui, |ui| {
+        section(ui, "Repository", |ui| {
+            ui.label(format!("Root: {}", shared.root.display()));
+            ui.label(format!("Git repository: {}", if shared.root.join(".git").exists() { "Detected" } else { "Not initialized" }));
+            ui.label(format!("Forge contract: {}", if shared.project.contract_ready { "Ready" } else { "Not authoritative" }));
+        });
+        section(ui, "Source Operations", |ui| {
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Refresh Intelligence").clicked() { shared.refresh_project_context(); }
-                if ui.button("Show Detection Evidence").clicked() {
-                    for marker in shared.intelligence.markers.clone() {
-                        shared.push_console(format!("[INTEL] {} · {}", marker.kind, marker.path.display()));
-                    }
-                }
+                if ui.button("Git Status").clicked() { shared.submit("Git Status", "git-status"); }
+                if ui.button("Git Review").clicked() { shared.submit("Git Review", "git-review"); }
+                if ui.button("Refresh Project Context").clicked() { shared.refresh_project_context(); }
+            });
+            ui.label(RichText::new("Native source-control authority is still migrating; governed project commands remain the execution path in SHADOW.").size(10.0).color(theme::MUTED));
+        });
+    });
+}
+
+fn build_test(ui: &mut Ui, shared: &mut SharedUiState) {
+    heading(ui, "Build & Test", "One project-bound foreground queue owns build, test and gate operations.");
+    ScrollArea::vertical().show(ui, |ui| {
+        section(ui, "Quality", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.add(egui::Button::new("Full Gate / Certify GREEN").fill(theme::CYAN)).clicked() { shared.submit("Full Gate", "full"); }
+                if ui.button("Quick Gate").clicked() { shared.submit("Quick Gate", "quick"); }
             });
         });
-        section(ui, "Self Update / Source Authority", |ui| {
+        section(ui, "Build", |ui| {
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Check Downloads").clicked() { shared.push_console("[INFO] Download intake remains Python-authority during native SHADOW."); }
-                if ui.button("Patch Review / Route").clicked() { shared.push_console("[INFO] Patch intelligence will consume the same project fingerprints in a later native wave."); }
-                if ui.button("Source Control").clicked() { shared.push_console("[INFO] Native Source Control widget remains parity-pending."); }
-                if ui.button("Artifact Central").clicked() { shared.push_console("[INFO] Artifact Central is Python-owned during SHADOW."); }
+                if ui.button("Build").clicked() { shared.submit("Build", "build"); }
+                if ui.button("Build Release").clicked() { shared.submit("Build Release", "build-release"); }
+                if ui.button("Build Native Rust").clicked() { shared.submit("Build Native", "build.rust-forge"); }
             });
         });
-        section(ui, "Forge Native Rust Migration · SHADOW", |ui| {
-            ui.label("The graphical shell, docking/widget model, console and foreground queue are native. Backend authority moves only after parity evidence is GREEN.");
+        section(ui, "Test", |ui| {
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Parity Matrix").clicked() {
-                    for row in foundation_matrix() { shared.push_console(format!("[PARITY] {} = {} · {}", row.capability, row.state.as_str(), row.note)); }
-                }
-                if ui.button("Build Native").clicked() { shared.submit("Build Native", "build.rust-forge"); }
+                if ui.button("Project Self Test").clicked() { shared.submit("Test", "project.self-test"); }
                 if ui.button("Rust SHADOW Gate").clicked() { shared.submit("Rust SHADOW Gate", "gate.rust-shadow"); }
             });
         });
     });
 }
 
+fn run_page(ui: &mut Ui, shared: &mut SharedUiState) {
+    heading(ui, "Run", "Launch the selected project through its highest-confidence governed run capability.");
+    section(ui, "Launch", |ui| {
+        if ui.add(egui::Button::new(format!("Run {}", shared.project.name)).fill(theme::CYAN)).clicked() { shared.submit("Run", "launch-gui"); }
+        ui.label(RichText::new("Project PCC/run aliases outrank generic build-system inference. Raw-project execution remains fail-closed until inferred-command policy is certified.").size(10.0).color(theme::MUTED));
+    });
+}
+
+fn updates(ui: &mut Ui, shared: &mut SharedUiState) {
+    heading(ui, "Updates", "Project-aware update landing zone. Patch routing remains governed and explicit during SHADOW.");
+    ScrollArea::vertical().show(ui, |ui| {
+        section(ui, "Update Authority", |ui| {
+            ui.label("Artifact Intelligence will auto-tag patches to registered projects from manifest, lineage, touched paths and source fingerprints.");
+            ui.label(RichText::new("Application is currently using the certified Python patch/update authority underneath this native shell.").size(10.0).color(theme::MUTED));
+        });
+        section(ui, "Actions", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Refresh Update State").clicked() { shared.refresh_project_context(); shared.push_console("[INFO] Update state refreshed through project context."); }
+                if ui.button("Open Project Tools").clicked() { shared.push_console("[INFO] Open Project Tools from the contextual Project rail to access internal PCC/update workflows."); }
+            });
+        });
+    });
+}
+
 fn forge_console(ui: &mut Ui, shared: &mut SharedUiState) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Forge Console").strong().color(theme::CYAN));
+        if let Some(active) = shared.queue.active_label() {
+            ui.label(RichText::new(format!("RUNNING · {active}")).size(10.0).color(theme::CYAN));
+        } else {
+            ui.label(RichText::new("IDLE").size(10.0).color(theme::MUTED));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button("Clear").clicked() { shared.console.clear(); }
+            ui.label(RichText::new(format!("{} lines", shared.console.len())).size(9.0).color(theme::MUTED));
+        });
+    });
+    ui.separator();
     let available = ui.available_height();
-    let composer_height = 34.0;
+    let composer_height = 38.0;
     ScrollArea::vertical().stick_to_bottom(true).max_height((available - composer_height).max(80.0)).show(ui, |ui| {
         for line in &shared.console {
             let color = if line.contains("[PASS]") { theme::GREEN }
@@ -272,12 +364,12 @@ fn forge_console(ui: &mut Ui, shared: &mut SharedUiState) {
     });
     ui.separator();
     ui.horizontal(|ui| {
-        ui.label(RichText::new(">").monospace().color(theme::CYAN));
-        let edit = ui.add_sized([ui.available_width() - 110.0, 26.0], egui::TextEdit::singleline(&mut shared.console_input).hint_text("Forge command…"));
+        ui.label(RichText::new(">").monospace().strong().color(theme::CYAN));
+        let edit = ui.add_sized([ui.available_width() - 116.0, 28.0], egui::TextEdit::singleline(&mut shared.console_input).hint_text("Forge command…"));
         let send_enter = edit.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-        if ui.add_sized([52.0, 26.0], egui::Button::new("Send").fill(theme::CYAN)).clicked() || send_enter { shared.execute_console_command(); }
+        if ui.add_sized([54.0, 28.0], egui::Button::new("Send").fill(theme::CYAN)).clicked() || send_enter { shared.execute_console_command(); }
         let stop = egui::Button::new("Stop").fill(if shared.queue.active_label().is_some() { theme::RED } else { theme::BG_PANEL_ALT });
-        if ui.add_sized([52.0, 26.0], stop).clicked() {
+        if ui.add_sized([54.0, 28.0], stop).clicked() {
             if shared.queue.stop_active() { shared.push_console("[STOP] Cancellation requested for the active operation."); }
         }
     });
@@ -301,9 +393,7 @@ fn operation_queue(ui: &mut Ui, shared: &mut SharedUiState) {
         });
         section(ui, "Queued", |ui| {
             let pending = shared.queue.pending_snapshot();
-            if pending.is_empty() {
-                ui.label(RichText::new("Queue empty").color(theme::MUTED));
-            }
+            if pending.is_empty() { ui.label(RichText::new("Queue empty").color(theme::MUTED)); }
             for row in pending {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("#{}", row.id)).monospace().color(theme::MUTED));
@@ -362,7 +452,7 @@ fn project_intelligence(ui: &mut Ui, shared: &mut SharedUiState) {
                     ui.label(RichText::new(format!("{} {}", row.program, row.args.join(" "))).monospace().size(10.0).color(theme::MUTED));
                 });
             }
-            ui.label(RichText::new("Inferred operations are evidence only in this wave; execution remains governed by existing PCC/project commands until direct-operation policy is certified.").size(10.0).color(theme::MUTED));
+            ui.label(RichText::new("Inferred operations remain evidence-only until direct-operation execution policy is certified.").size(10.0).color(theme::MUTED));
         });
         section(ui, "Evidence", |ui| {
             for marker in shared.intelligence.markers.iter().take(30) { ui.label(format!("{} · {}", marker.kind, marker.path.display())); }
@@ -384,7 +474,63 @@ fn native_migration(ui: &mut Ui, shared: &mut SharedUiState) {
             }
         });
         ui.add_space(10.0);
-        if ui.button("Queue Rust SHADOW Gate").clicked() { shared.submit("Rust SHADOW Gate", "gate.rust-shadow"); }
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Build Native").clicked() { shared.submit("Build Native", "build.rust-forge"); }
+            if ui.button("Rust SHADOW Gate").clicked() { shared.submit("Rust SHADOW Gate", "gate.rust-shadow"); }
+        });
+    });
+}
+
+fn diagnostics(ui: &mut Ui, shared: &mut SharedUiState) {
+    heading(ui, "Diagnostics", "Health, evidence and debug handoffs for the selected project.");
+    ScrollArea::vertical().show(ui, |ui| {
+        section(ui, "Diagnostics", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Project Doctor").clicked() { shared.submit("Project Doctor", "doctor"); }
+                if ui.button("Self Test").clicked() { shared.submit("Self Test", "self-test"); }
+                if ui.button("Debug Bundle").clicked() { shared.submit("Debug Bundle", "debug-bundle"); }
+            });
+        });
+        section(ui, "Current Shell", |ui| {
+            ui.label(format!("Last notice: {}", shared.last_notice));
+            ui.label(format!("Health score: {}", health_score(shared)));
+            ui.label(format!("Queue: {} pending", shared.queue.pending_len()));
+        });
+    });
+}
+
+fn artifacts(ui: &mut Ui, shared: &mut SharedUiState) {
+    heading(ui, "Artifacts", "Project outputs, packages, logs and Artifact Central landing surface.");
+    section(ui, "Project", |ui| {
+        ui.label(format!("Root: {}", shared.root.display()));
+        ui.label(format!("Manifest: {}", shared.root.join("FORGEPY_PACKAGE_MANIFEST.json").display()));
+        ui.label(RichText::new("Artifact Central remains Python-authority during SHADOW; this native panel is the permanent landing surface.").size(10.0).color(theme::MUTED));
+    });
+}
+
+fn project_tools(ui: &mut Ui, shared: &mut SharedUiState) {
+    heading(ui, "Project Tools", "Detected internal PCCs/project tooling outrank synthesized generic operations.");
+    section(ui, "Internal PCC", |ui| {
+        if shared.has_internal_pcc() {
+            ui.label(RichText::new("Internal project control tooling detected").strong().color(theme::GREEN));
+            ui.horizontal_wrapped(|ui| {
+                if ui.add(egui::Button::new("Launch Internal PCC").fill(theme::CYAN)).clicked() { shared.submit("Internal PCC", "launch-pcc"); }
+                if ui.button("Apply Project Update").clicked() { shared.submit("Project Update", "patch-apply"); }
+            });
+            ui.label(RichText::new("Forge delegates project-native patch compatibility and rollback to the internal PCC while preserving the exact root/inbox transport bytes.").size(10.0).color(theme::MUTED));
+        } else {
+            ui.label(RichText::new("No explicit internal PCC detected; zero-tooling Project Intelligence remains available.").color(theme::MUTED));
+        }
+    });
+    section(ui, "Governed Tools", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Project CLI").clicked() { shared.push_console("[INFO] Use the Project CLI tab from the top quickbar or WIDGETS palette."); }
+            if ui.button("Project Doctor").clicked() { shared.submit("Project Doctor", "doctor"); }
+            if ui.button("Asset Status").clicked() { shared.submit("Asset Status", "asset-status"); }
+            if ui.button("Hydrate Assets").clicked() { shared.submit("Hydrate Assets", "asset-hydrate"); }
+            if ui.button("Find Missing Assets").clicked() { shared.submit("Asset Recovery", "asset-diagnose"); }
+        });
+        ui.label(RichText::new("Hash-bound forge.assets.json requirements can hydrate from Artifact Central, the Vault drive catalog, or verified Forge backup archives before Full Gate.").size(10.0).color(theme::MUTED));
     });
 }
 
@@ -412,7 +558,7 @@ fn vault(ui: &mut Ui, shared: &mut SharedUiState) {
 }
 
 fn workspace(ui: &mut Ui, shared: &mut SharedUiState) {
-    heading(ui, "Workspace", "Dockable project work surface. Widgets can be tabbed, split, resized, closed, reopened and undocked.");
+    heading(ui, "Workspace", "Dockable project work surface. Tool panels can be tabbed, split, resized, closed, reopened and floated while shell rails remain fixed.");
     section(ui, "Selected Project", |ui| {
         ui.label(format!("Name: {}", shared.project.name));
         ui.label(format!("Root: {}", shared.root.display()));
@@ -424,8 +570,9 @@ fn workspace(ui: &mut Ui, shared: &mut SharedUiState) {
 fn settings_page(ui: &mut Ui, shared: &mut SharedUiState) {
     heading(ui, "Settings", "Native settings authority is intentionally read-mostly until schema migration is certified.");
     section(ui, "Native Shell", |ui| {
-        ui.label("Dock layout persistence: enabled");
-        ui.label("Layout presets + lock: enabled");
+        ui.label("ForgeDock central workspace: enabled");
+        ui.label("Contextual Project rail: enabled");
+        ui.label("Dock layout persistence/recovery: enabled");
         ui.label("Project-aware icon loading: enabled");
         ui.label("Foreground operation queue: enabled");
         ui.label("Project Intelligence census: enabled");
@@ -458,9 +605,7 @@ pub fn queue_summary(ui: &mut Ui, shared: &SharedUiState) {
     } else {
         ui.label(RichText::new("IDLE").color(theme::MUTED));
     }
-    if shared.queue.pending_len() > 0 {
-        ui.label(RichText::new(format!("{} queued", shared.queue.pending_len())).color(theme::YELLOW));
-    }
+    if shared.queue.pending_len() > 0 { ui.label(RichText::new(format!("{} queued", shared.queue.pending_len())).color(theme::YELLOW)); }
 }
 
 pub fn border_stroke() -> Stroke { Stroke::new(1.0, theme::BORDER) }

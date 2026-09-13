@@ -47,11 +47,14 @@ pub fn foundation_matrix() -> Vec<ParityRow> {
         ParityRow { capability: "settings-path-authority", state: ParityState::Different, note: "Vault/registry path snapshot modeled; full settings schema migration pending" },
         ParityRow { capability: "stdio-ipc", state: ParityState::Different, note: "request/response stdio server implemented; host bridge certification pending" },
         ParityRow { capability: "parity-evidence", state: ParityState::Pass, note: "atomic native evidence receipt writer implemented" },
-        ParityRow { capability: "native-shell-model", state: ParityState::Pass, note: "primary surfaces/project branding shell model is shared by the graphical native host" },
-        ParityRow { capability: "dock-widget-system", state: ParityState::Pass, note: "egui_dock tabs/splits/resizing/undocking + semantic widget registry + persistent presets/lock implemented" },
+        ParityRow { capability: "native-shell-model", state: ParityState::Pass, note: "protected Forge rail + contextual Project rail + dock workspace + Health rail + quickbar/status shell model implemented" },
+        ParityRow { capability: "project-context-navigation", state: ParityState::Pass, note: "persistent capability-aware Project rail keeps project navigation visible while central tools change" },
+        ParityRow { capability: "dock-widget-system", state: ParityState::Pass, note: "ForgeDock owns central tabs/splits/focus/reopen, persistent presets/lock and enhanced highlighted drop overlays" },
+        ParityRow { capability: "internal-pcc-bridge", state: ParityState::Different, note: "native Project Tools launches/queues through Python-authority normalized internal PCC bridge; native contract execution pending" },
+        ParityRow { capability: "asset-dependency-resolution", state: ParityState::Different, note: "hash-bound Vault/backup hydration is Python-authority and exposed through native Project Tools; native catalog authority pending" },
         ParityRow { capability: "foreground-operation-queue", state: ParityState::Different, note: "native single-flight queue streams Python-authority PCC operations; direct inferred-operation execution pending" },
         ParityRow { capability: "catalog-storage", state: ParityState::Missing, note: "SQLite/WAL catalog remains the next backend authority wave" },
-        ParityRow { capability: "native-gui", state: ParityState::Different, note: "polished eframe/egui ForgePY shell implemented; visual/runtime parity certification and backend takeover remain pending" },
+        ParityRow { capability: "native-gui", state: ParityState::Different, note: "GUI Foundation Lock implemented; Windows visual/runtime certification and backend takeover remain pending" },
     ]
 }
 

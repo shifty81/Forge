@@ -113,8 +113,8 @@ class ForgePYF754AlreadyTargetTests(unittest.TestCase):
 
     def test_candidate_identity_is_f754(self) -> None:
         from ForgeApplicationIdentity import DISPLAY_BUILD, DISPLAY_VERSION
-        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F777")
-        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.777")
+        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F797")
+        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.797")
 
 
 if __name__ == "__main__":

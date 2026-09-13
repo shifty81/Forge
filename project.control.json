@@ -7,8 +7,8 @@
     "version": "0.4.415-F60R415",
     "build": "FORGEPY-F60R415",
     "icon": "assets/branding/ForgePY.png",
-    "candidateVersion": "0.5.0-candidate.777",
-    "candidateBuild": "FORGEPY-F777"
+    "candidateVersion": "0.5.0-candidate.797",
+    "candidateBuild": "FORGEPY-F797"
   },
   "root_control_center": {
     "launcher": "ForgePY.cmd"

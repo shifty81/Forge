@@ -4,7 +4,7 @@ import hashlib,json,zipfile
 from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any
-from ForgePackagePolicy import is_governed
+from ForgePackagePolicy import is_governed, patch_regenerated
 
 PATCH_BUILDER_VERSION="FORGEPY-PATCH-BUILDER-1.0"
 
@@ -19,7 +19,7 @@ def _files(root:Path)->dict[str,Path]:
     for p in root.rglob('*'):
         if not p.is_file():continue
         rel=p.relative_to(root).as_posix()
-        if is_governed(rel):out[rel]=p
+        if is_governed(rel) and not patch_regenerated(rel):out[rel]=p
     return out
 
 def build(base:Path,target:Path,destination:Path,*,project:str='forgepy',base_build:str='',target_build:str='',target_version:str='',patch_id:str='',title:str='')->dict[str,Any]:

@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-AUDIT_VERSION = "FORGEPY-NORMALIZATION-AUDIT-2.7-F776"
+AUDIT_VERSION = "FORGEPY-NORMALIZATION-AUDIT-2.8-F787"
 
 
 def audit(root: Path) -> dict[str, Any]:
@@ -20,7 +20,7 @@ def audit(root: Path) -> dict[str, Any]:
     add("project-cli-mode", PROJECT_CLI_MODE == "external-project-cli", PROJECT_CLI_MODE)
     try:
         from ForgeApplicationIdentity import DISPLAY_VERSION, DISPLAY_BUILD
-        add("candidate-identity", DISPLAY_VERSION == "0.5.0-candidate.777" and DISPLAY_BUILD == "FORGEPY-F777", f"{DISPLAY_VERSION} / {DISPLAY_BUILD}")
+        add("candidate-identity", DISPLAY_VERSION == "0.5.0-candidate.797" and DISPLAY_BUILD == "FORGEPY-F797", f"{DISPLAY_VERSION} / {DISPLAY_BUILD}")
     except Exception as exc:
         add("candidate-identity", False, str(exc))
     try:

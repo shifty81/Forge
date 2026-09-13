@@ -12,8 +12,8 @@ class ForgePYF765Egui036CompileRepairTests(unittest.TestCase):
         import sys
         sys.path.insert(0, str(ROOT / "app"))
         from ForgeApplicationIdentity import DISPLAY_BUILD, DISPLAY_VERSION
-        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F777")
-        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.777")
+        self.assertEqual(DISPLAY_BUILD, "FORGEPY-F797")
+        self.assertEqual(DISPLAY_VERSION, "0.5.0-candidate.797")
 
     def test_egui_036_theme_api_is_used(self):
         theme = self.text("native/forge-rs/src/gui/theme.rs")
@@ -27,7 +27,7 @@ class ForgePYF765Egui036CompileRepairTests(unittest.TestCase):
     def test_native_identity_tracks_compile_repair(self):
         identity = self.text("native/forge-rs/src/identity.rs")
         self.assertIn('NATIVE_VERSION: &str = "0.5.0-shadow"', identity)
-        self.assertIn('NATIVE_BUILD: &str = "FORGE-NATIVE-GUI-WAVE2-0.5.0-F776"', identity)
+        self.assertIn('NATIVE_BUILD: &str = "FORGE-NATIVE-PCC-ASSET-BRIDGE-0.7.0-F797"', identity)
 
 
 if __name__ == "__main__":

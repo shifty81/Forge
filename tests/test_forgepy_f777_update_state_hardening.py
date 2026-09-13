@@ -9,8 +9,8 @@ from ForgePackagePolicy import classification
 
 class ForgePYF777UpdateStateHardeningTests(unittest.TestCase):
     def test_candidate_identity(self):
-        self.assertEqual(DISPLAY_BUILD,'FORGEPY-F777')
-        self.assertEqual(DISPLAY_VERSION,'0.5.0-candidate.777')
+        self.assertEqual(DISPLAY_BUILD,'FORGEPY-F797')
+        self.assertEqual(DISPLAY_VERSION,'0.5.0-candidate.797')
     def test_runtime_generated_cargo_lock_never_breaks_gate(self):
         self.assertEqual(classification('native/forge-rs/Cargo.lock'),'runtime-transient')
         text=(ROOT/'tests/test_forgepy_f755_f764_native_gui_wave.py').read_text(encoding='utf-8')

@@ -11,8 +11,8 @@ if str(APP) not in sys.path:
 class ForgePYF742Tests(unittest.TestCase):
     def test_candidate_identity(self):
         from ForgeApplicationIdentity import DISPLAY_VERSION, DISPLAY_BUILD
-        self.assertEqual(DISPLAY_VERSION,"0.5.0-candidate.777")
-        self.assertEqual(DISPLAY_BUILD,"FORGEPY-F777")
+        self.assertEqual(DISPLAY_VERSION,"0.5.0-candidate.797")
+        self.assertEqual(DISPLAY_BUILD,"FORGEPY-F797")
 
     def test_dashboard_lazy_builder_resolves_forgepy_self(self):
         text=(APP/"ForgeProjectSurface.py").read_text(encoding="utf-8")
