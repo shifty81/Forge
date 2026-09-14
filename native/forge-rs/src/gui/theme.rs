@@ -16,6 +16,11 @@ pub const GREEN: Color32 = Color32::from_rgb(39, 224, 116);
 pub const YELLOW: Color32 = Color32::from_rgb(238, 194, 69);
 pub const RED: Color32 = Color32::from_rgb(244, 74, 89);
 
+pub const RADIUS_SMALL: u8 = 6;
+pub const RADIUS_CONTROL: u8 = 8;
+pub const RADIUS_PANEL: u8 = 10;
+pub const RADIUS_DIALOG: u8 = 12;
+
 pub fn install(ctx: &egui::Context) {
     ctx.set_theme(Theme::Dark);
     let mut style = (*ctx.style_of(Theme::Dark)).clone();
@@ -26,14 +31,22 @@ pub fn install(ctx: &egui::Context) {
     visuals.faint_bg_color = BG_PANEL_ALT;
     visuals.selection.bg_fill = CYAN;
     visuals.selection.stroke = Stroke::new(1.0, CYAN);
+    visuals.window_corner_radius = egui::CornerRadius::same(RADIUS_DIALOG);
+    visuals.menu_corner_radius = egui::CornerRadius::same(RADIUS_CONTROL);
+
     visuals.widgets.noninteractive.bg_fill = BG_PANEL;
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
+    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(RADIUS_CONTROL);
     visuals.widgets.inactive.bg_fill = BG_PANEL_ALT;
     visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER);
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(RADIUS_CONTROL);
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(21, 37, 45);
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, CYAN);
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(RADIUS_CONTROL);
     visuals.widgets.active.bg_fill = Color32::from_rgb(0, 79, 91);
     visuals.widgets.active.bg_stroke = Stroke::new(1.0, CYAN);
+    visuals.widgets.active.corner_radius = egui::CornerRadius::same(RADIUS_CONTROL);
+    visuals.widgets.open.corner_radius = egui::CornerRadius::same(RADIUS_CONTROL);
     visuals.override_text_color = Some(TEXT);
     style.visuals = visuals;
     style.spacing.item_spacing = egui::vec2(6.0, 6.0);
@@ -42,32 +55,40 @@ pub fn install(ctx: &egui::Context) {
     ctx.set_style_of(Theme::Dark, style);
 }
 
+fn rounded_frame(fill: Color32, stroke: Stroke, margin: egui::Margin, radius: u8) -> egui::Frame {
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(stroke)
+        .inner_margin(margin)
+        .corner_radius(egui::CornerRadius::same(radius))
+}
+
 pub fn rail_frame() -> egui::Frame {
-    egui::Frame::new().fill(BG_PANEL).stroke(Stroke::new(1.0, BORDER_STRONG)).inner_margin(egui::Margin::same(8))
+    rounded_frame(BG_PANEL, Stroke::new(1.0, BORDER_STRONG), egui::Margin::same(8), RADIUS_PANEL)
 }
 
 pub fn project_rail_frame() -> egui::Frame {
-    egui::Frame::new().fill(Color32::from_rgb(10, 16, 21)).stroke(Stroke::new(1.0, BORDER)).inner_margin(egui::Margin::same(8))
+    rounded_frame(Color32::from_rgb(10, 16, 21), Stroke::new(1.0, BORDER), egui::Margin::same(8), RADIUS_PANEL)
 }
 
 pub fn toolbar_frame() -> egui::Frame {
-    egui::Frame::new().fill(Color32::from_rgb(10, 16, 21)).stroke(Stroke::new(1.0, BORDER_STRONG)).inner_margin(egui::Margin::symmetric(8, 7))
+    rounded_frame(Color32::from_rgb(10, 16, 21), Stroke::new(1.0, BORDER_STRONG), egui::Margin::symmetric(8, 7), RADIUS_PANEL)
 }
 
 pub fn status_frame() -> egui::Frame {
-    egui::Frame::new().fill(Color32::from_rgb(7, 11, 15)).stroke(Stroke::new(1.0, BORDER)).inner_margin(egui::Margin::symmetric(8, 4))
+    rounded_frame(Color32::from_rgb(7, 11, 15), Stroke::new(1.0, BORDER), egui::Margin::symmetric(8, 4), RADIUS_SMALL)
 }
 
 pub fn panel_frame() -> egui::Frame {
-    egui::Frame::new().fill(BG_PANEL).stroke(Stroke::new(1.0, BORDER)).inner_margin(egui::Margin::same(8))
+    rounded_frame(BG_PANEL, Stroke::new(1.0, BORDER), egui::Margin::same(8), RADIUS_PANEL)
 }
 
 pub fn card_frame() -> egui::Frame {
-    egui::Frame::new().fill(BG_PANEL_ALT).stroke(Stroke::new(1.0, BORDER)).inner_margin(egui::Margin::same(10))
+    rounded_frame(BG_PANEL_ALT, Stroke::new(1.0, BORDER), egui::Margin::same(10), RADIUS_CONTROL)
 }
 
 pub fn identity_chip(ui: &mut egui::Ui, project_name: &str, icon: Option<&PathBuf>) {
-    egui::Frame::new().fill(BG_SELECTED).stroke(Stroke::new(1.0, BORDER_STRONG)).inner_margin(egui::Margin::symmetric(8, 5)).show(ui, |ui| {
+    rounded_frame(BG_SELECTED, Stroke::new(1.0, BORDER_STRONG), egui::Margin::symmetric(8, 5), RADIUS_CONTROL).show(ui, |ui| {
         ui.horizontal(|ui| {
             if let Some(icon) = icon {
                 let normalized = icon.display().to_string().replace('\\', "/");

@@ -10,7 +10,8 @@ use forge_native::project::probe_project;
 use forge_native::protocol::{parse_request_line, NativeEvent, NativeRequest};
 use forge_native::shell::ShellModel;
 use forge_native::evidence::{evidence_json, write_evidence};
-use forge_native::gui::run_native_gui;
+use forge_native::gui::{run_native_gui, run_native_tool};
+use forge_native::gui::model::ToolPanel;
 use forge_native::intelligence::census;
 use forge_native::toolchains::{probe_all, ready_count};
 use forge_native::update::{
@@ -31,6 +32,14 @@ fn value_after(args: &[String], flag: &str) -> Option<String> {
         .position(|value| value == flag)
         .and_then(|index| args.get(index + 1))
         .cloned()
+}
+
+
+fn tool_from_args(args: &[String]) -> Result<Option<ToolPanel>, String> {
+    let Some(value) = value_after(args, "--tool") else { return Ok(None); };
+    ToolPanel::from_slug(&value)
+        .map(Some)
+        .ok_or_else(|| format!("unknown Forge tool panel: {value}"))
 }
 
 fn json_escape(value: &str) -> String {
@@ -289,6 +298,21 @@ fn main() {
         match write_evidence(&path) { Ok(()) => { println!("[PASS] native evidence: {}",path.display()); return; }, Err(err) => { eprintln!("[FAIL] native evidence: {err}"); std::process::exit(2); } }
     }
     if args.iter().any(|arg| arg == "--serve-stdio") { std::process::exit(serve_stdio(&root)); }
+    match tool_from_args(&args) {
+        Ok(Some(panel)) => {
+            if let Err(err) = run_native_tool(root.clone(), panel) {
+                eprintln!("[FAIL] Forge standalone tool: {err}");
+                std::process::exit(2);
+            }
+            return;
+        }
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("[FAIL] {err}");
+            eprintln!("Available tool ids: {}", ToolPanel::ALL.map(|panel| panel.slug()).join(", "));
+            std::process::exit(2);
+        }
+    }
     if args.iter().any(|arg| arg == "--headless") {
         println!("Forge Native Rust successor ({})", identity.build);
         println!("Root: {}", root.display());

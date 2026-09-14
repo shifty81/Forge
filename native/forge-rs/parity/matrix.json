@@ -84,17 +84,42 @@
     {
       "capability": "native-shell-model",
       "state": "PASS",
-      "note": "protected Forge rail + contextual Project rail + dock workspace + Health rail + quickbar/status shell model implemented"
+      "note": "minimal native interface host; Forge workflow surfaces are composed by the ToolPanel graph rather than hard-coded shell chrome"
+    },
+    {
+      "capability": "panel-interface-system",
+      "state": "PASS",
+      "note": "single ToolPanel graph owns tabs/splits/nesting/reopen plus built-in and named custom interface persistence/lock"
+    },
+    {
+      "capability": "forgepy-mirror-preset",
+      "state": "PASS",
+      "note": "built-in ForgePY Mirror preset places the reusable Forge Console and other panels into the current certified ForgePY geometry and defaults locked"
+    },
+    {
+      "capability": "project-context-intake-panels",
+      "state": "DIFFERENT",
+      "note": "Project Health, Patch Intake, Project Context and Recent Activity are independent panels; governed intake classification backend remains Python-authority"
     },
     {
       "capability": "project-context-navigation",
       "state": "PASS",
-      "note": "persistent capability-aware Project rail keeps project navigation visible while central tools change"
+      "note": "Forge Navigator and Project Navigator are reusable panels that focus/open capability panels without owning backend authority"
+    },
+    {
+      "capability": "hybrid-shell-rails",
+      "state": "PASS",
+      "note": "permanent command/navigation/context/Console-Cortex/status rails surround the modular central ForgeDock"
     },
     {
       "capability": "dock-widget-system",
       "state": "PASS",
-      "note": "ForgeDock owns central tabs/splits/focus/reopen, persistent presets/lock and enhanced highlighted drop overlays"
+      "note": "central ForgeDock retains nested workspace tools/presets while shell anchors are permanent and non-duplicating"
+    },
+    {
+      "capability": "modular-tool-host",
+      "state": "PASS",
+      "note": "27 stable ToolPanel descriptors share one renderer across nested ForgeDock interfaces and standalone --tool/ForgeTool hosts"
     },
     {
       "capability": "internal-pcc-bridge",
@@ -112,9 +137,9 @@
       "note": "native queue streams governed Python PCC operations; direct inferred-operation execution pending"
     },
     {
-      "capability": "embedded-native-console",
+      "capability": "forge-console-panel",
       "state": "PASS",
-      "note": "native console/composer/Send/Stop and streamed operation output implemented"
+      "note": "native console/composer/Send/Stop and streamed operation output implemented as a reusable ToolPanel"
     },
     {
       "capability": "native-self-update",
@@ -127,9 +152,19 @@
       "note": "SQLite/WAL catalog remains next backend authority wave"
     },
     {
+      "capability": "legacy-gui-certification-compatibility",
+      "state": "PASS",
+      "note": "F755-F787 GUI probes map to typed ToolPanel compatibility views and stable panel IDs without restoring the retired fixed shell"
+    },
+    {
       "capability": "native-gui",
       "state": "DIFFERENT",
-      "note": "GUI Foundation Lock implemented; Windows visual/runtime certification and backend takeover remain pending"
+      "note": "hybrid permanent-rail shell + modular central workspace implemented; Windows compile/runtime certification pending"
+    },
+    {
+      "capability": "visual-cli-workbench",
+      "state": "PASS",
+      "note": "F950 panel-composed Tooling / CLI preset uses an 18-command allowlisted visual catalog, shared project queue, safe alias runner, cancellation/history and standalone panel host reuse. Python/Project PCC remains execution authority in SHADOW."
     }
   ]
 }

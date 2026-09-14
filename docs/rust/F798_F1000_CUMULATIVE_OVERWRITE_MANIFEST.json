@@ -1,0 +1,301 @@
+{
+  "schema": "forge.native.cumulative-overwrite.v1",
+  "range": "F798-F1000",
+  "baseline": "FORGEPY-F797",
+  "purpose": "Forge Native GUI takeover, universal GUI core groundwork, fused locked shell, hover-peek Console/Cortex, captured Forge Remote",
+  "pythonRole": "frozen compatibility/build interface",
+  "nativePhase": "SHADOW",
+  "takeoverReady": false,
+  "files": [
+    {
+      "path": "README_FIRST_F798_F1000.txt",
+      "sha256": "6133e34aa25086da8eb3dfd458f44cfe93aca5dee677da7346e974b133982d7a",
+      "size": 800
+    },
+    {
+      "path": "README_FIRST_F798_F950.txt",
+      "sha256": "9a17789046680ca72cf5509f8472a4ba0e23c0084bc22901bad10075ff66ea99",
+      "size": 1241
+    },
+    {
+      "path": "README_FIRST_F798_F975.txt",
+      "sha256": "93337c724497abc603822c704c0bf7bc1e8b32e51e892448d76852f20a0f84c5",
+      "size": 765
+    },
+    {
+      "path": "README_FIRST_F798_F976.txt",
+      "sha256": "6f7b30cc6bb1a0c278b493e19965691a018aa12dbc74f63e51acb23652f5b33e",
+      "size": 781
+    },
+    {
+      "path": "SOURCE_ROLLUP_README.md",
+      "sha256": "b610d3cfb9f9ab555879d596630d3a34a8a4776c2ebc99515072f92d178b111f",
+      "size": 856
+    },
+    {
+      "path": "docs/rust/F798_F807_NATIVE_SELF_UPDATE_FOUNDATION.md",
+      "sha256": "faf19b02af5d6be4e321097551e249c1181851504bc8745b443cf195da4d62d1",
+      "size": 4530
+    },
+    {
+      "path": "docs/rust/F798_F900_CUMULATIVE_OVERWRITE_MANIFEST.json",
+      "sha256": "1f6b5005d8a49e29d50e2911af98b69cc4002f5b5a527481562e14168039a1fc",
+      "size": 5124
+    },
+    {
+      "path": "docs/rust/F798_F910_CUMULATIVE_OVERWRITE_MANIFEST.json",
+      "sha256": "ff46def087bc8a8e5a24ecb168eed64b767e46406e458dddbfa5999c34deea54",
+      "size": 6147
+    },
+    {
+      "path": "docs/rust/F798_F950_CUMULATIVE_OVERWRITE_MANIFEST.json",
+      "sha256": "1ef5a8e317efa9e7d6af01693074c28f23638b0abb9305761261b8e6a2e08c33",
+      "size": 6413
+    },
+    {
+      "path": "docs/rust/F798_F975_CUMULATIVE_OVERWRITE_MANIFEST.json",
+      "sha256": "59712a2cd3623e4405b39f298c5f6b9c4dbee75bf86f5f6e074a5af7fad2ef6a",
+      "size": 8633
+    },
+    {
+      "path": "docs/rust/F798_F976_CUMULATIVE_OVERWRITE_MANIFEST.json",
+      "sha256": "41da180f0b80cab06a11a4dd93cc7f076d41a94d66f5a918e81a576e882134b1",
+      "size": 8052
+    },
+    {
+      "path": "docs/rust/F808_F825_GUI_PARITY_LOCK.md",
+      "sha256": "c395c4fc28491faadeec39e4fa71d0944d4bf754817eef45ecb47dcd97e5b059",
+      "size": 10219
+    },
+    {
+      "path": "docs/rust/F826_F850_PANEL_INTERFACE_PARITY.md",
+      "sha256": "588c78e59ab7b998ad04a175712a06a0e3083e0fa575e894fbcf4c233905f20f",
+      "size": 3645
+    },
+    {
+      "path": "docs/rust/F851_F900_MODULAR_TOOL_HOST_AND_POLISH.md",
+      "sha256": "a7ce1dfea93b0b73d2e3627d66f8f440032aed0c8959fb66707d53c22271b16c",
+      "size": 3654
+    },
+    {
+      "path": "docs/rust/F901_F910_LEGACY_GUI_CERTIFICATION_COMPAT.md",
+      "sha256": "c62aa41e485be4abbe0b1ef87bb253056fc411949c44e48e1970d2341962612c",
+      "size": 2450
+    },
+    {
+      "path": "docs/rust/F911_F950_TOOLING_CLI_WORKBENCH.md",
+      "sha256": "bac1b566dd2a2f7a5d75d803ed7b6fdbcae7697f1db9a1abab1f27f403cee11d",
+      "size": 2677
+    },
+    {
+      "path": "docs/rust/F951_F975_HYBRID_SHELL_AND_PERMANENT_CONSOLE.md",
+      "sha256": "6000d20ab48d124c68b77d4d9d0fb2744e54f7131e1386b4a6a3bacfc48f3a57",
+      "size": 2867
+    },
+    {
+      "path": "docs/rust/F976_SHELL_ANCHOR_COMPILE_REPAIR.md",
+      "sha256": "886805087a72e2cbc8fdc2860b44e4dbb29c63fda0fa79231a02fe454977b9af",
+      "size": 1626
+    },
+    {
+      "path": "docs/rust/F977_F1000_FORGE_NATIVE_GUI_TAKEOVER.md",
+      "sha256": "8d2343238bb8c01d94e07a70d70cb7b88d01b92884e8a6d1af4b67c3ccff1d0a",
+      "size": 2480
+    },
+    {
+      "path": "native/forge-rs/Cargo.toml",
+      "sha256": "697c47baa691ac54acb9e7f280bdb72c40b1fc3745552ba63947d1aaa4dd93e7",
+      "size": 841
+    },
+    {
+      "path": "native/forge-rs/parity/gui-parity.json",
+      "sha256": "51ce9ba5edfbc9962a049a43713c9e9b99579acab9ca94bc410d0443e0dd6d1b",
+      "size": 9596
+    },
+    {
+      "path": "native/forge-rs/parity/matrix.json",
+      "sha256": "5196ab9dc517ff5df97e9c48abc9c4bcc9aae3c12635bee2a80547c0468ea095",
+      "size": 7042
+    },
+    {
+      "path": "native/forge-rs/src/bin/forge_tool.rs",
+      "sha256": "fc9643d2cf2c0e0dae61feed5abae6a2e03b12055dfe0c9863ec9d2ffca5ddd3",
+      "size": 967
+    },
+    {
+      "path": "native/forge-rs/src/gui/console.rs",
+      "sha256": "27235e0e2b041fb124eaa53559a8c97c845c4cf1ed14bd458725bdc66f53d17c",
+      "size": 4504
+    },
+    {
+      "path": "native/forge-rs/src/gui/contract.rs",
+      "sha256": "487e392b240a72056480bfdbe2dd4c3b70373bf0be422096014e4fa861db8709",
+      "size": 5661
+    },
+    {
+      "path": "native/forge-rs/src/gui/docking.rs",
+      "sha256": "27b6175dadfe92d3aee742fd1759995d1d3ce78703c2c110b7d84637ed3d6e2c",
+      "size": 7588
+    },
+    {
+      "path": "native/forge-rs/src/gui/interfaces.rs",
+      "sha256": "d8b6b4021869c0e6d822e893ac51bf0fcc8c572bf70e58d9c805746e17483aac",
+      "size": 1736
+    },
+    {
+      "path": "native/forge-rs/src/gui/mod.rs",
+      "sha256": "797894b66d7f1ccd0b58964be3a12f0a1149769cde2d4b7870cdd530d63d71b0",
+      "size": 43278
+    },
+    {
+      "path": "native/forge-rs/src/gui/model.rs",
+      "sha256": "ce397c3c51ffe09b36b3ff43bf462121c36e2eb0b8fa0a6c37463f977c968a2a",
+      "size": 19064
+    },
+    {
+      "path": "native/forge-rs/src/gui/registry.rs",
+      "sha256": "d22fbe6c921da4813f0a113d400bfb0e8a9fe34a2a869f32384657bf659d2426",
+      "size": 5914
+    },
+    {
+      "path": "native/forge-rs/src/gui/remote.rs",
+      "sha256": "7d538ce3353b7a7b59dca372efeaeb5bc110ffb5b15e3590172373b17dd2dbac",
+      "size": 1897
+    },
+    {
+      "path": "native/forge-rs/src/gui/standalone.rs",
+      "sha256": "b526ce9db479069794b133a20a20ca2ef6ad69efb947d8d94f128884030d3363",
+      "size": 3705
+    },
+    {
+      "path": "native/forge-rs/src/gui/theme.rs",
+      "sha256": "6afc66181bab93e7771ef8c729abe7b8d47e4dfac6e4b165d6b046b9177aa72e",
+      "size": 6194
+    },
+    {
+      "path": "native/forge-rs/src/gui/tool_host.rs",
+      "sha256": "23377179bcc19256e2f5c1aba5d4f8b8bb17c45ceace2ed6c50a0ac4a9c86ea6",
+      "size": 1616
+    },
+    {
+      "path": "native/forge-rs/src/gui/tooling.rs",
+      "sha256": "4f752b5107ad712ea3721b717d1fcb40d276d9b7f2d40093233ff887be8606d2",
+      "size": 18497
+    },
+    {
+      "path": "native/forge-rs/src/gui/universal.rs",
+      "sha256": "a42f4f0c015305d65027b26ded45541a6c83286c07db958d78f386b647e76e13",
+      "size": 1533
+    },
+    {
+      "path": "native/forge-rs/src/lib.rs",
+      "sha256": "c83006d8f6d92ff77aa0c0f030f11c4944a0d631b51ee9cfc189d8658b83b9f7",
+      "size": 739
+    },
+    {
+      "path": "native/forge-rs/src/main.rs",
+      "sha256": "a1fff95b55e07e3d13618caa36ef051b5b709931f45d3102019dba04a628fe45",
+      "size": 12711
+    },
+    {
+      "path": "native/forge-rs/src/parity.rs",
+      "sha256": "3cc52cbc8d4068f407c8ddbfd61a4ae18add2e9b0699b4578db67fce59bafb8e",
+      "size": 9038
+    },
+    {
+      "path": "native/forge-rs/src/update.rs",
+      "sha256": "ffb2ff0dfd0a105f51e37c394ea4ae4b90e0666db524963eb6cc479cafe21e35",
+      "size": 18514
+    },
+    {
+      "path": "tests/__pycache__/test_forge_native_f851_f900_modular_tools.cpython-313.pyc",
+      "sha256": "aad76775c25de798aa8e423f941584e4164b7c43fbaa4e82bf296231560cbc68",
+      "size": 5503
+    },
+    {
+      "path": "tests/__pycache__/test_forge_native_f901_f910_legacy_gui_compat.cpython-313.pyc",
+      "sha256": "ff90df22dca70a0f3506cd137eb3d004bbe6169762c03936309469509f5f1dea",
+      "size": 4745
+    },
+    {
+      "path": "tests/__pycache__/test_forge_native_f911_f950_tooling_workbench.cpython-313.pyc",
+      "sha256": "298cbfbc3255083ce813bf8ed004401c001281a5dd216cdcf8f671aa75fe8932",
+      "size": 8531
+    },
+    {
+      "path": "tests/__pycache__/test_forge_native_f951_f975_hybrid_shell.cpython-313.pyc",
+      "sha256": "f998cf119ee9468b68ee38f0fa75f62ffffc9169314d4d1c7c24f62559a70012",
+      "size": 6445
+    },
+    {
+      "path": "tests/__pycache__/test_forge_native_f976_shell_anchor_compile_repair.cpython-313.pyc",
+      "sha256": "9736d1eacb009a400ca3a1c6e0219e1cdc7a9cfc0824b238807a13006f39cd9e",
+      "size": 3256
+    },
+    {
+      "path": "tests/__pycache__/test_forge_native_f977_f1000_gui_takeover.cpython-313.pyc",
+      "sha256": "ce93fc3ecca73cf9e7183596492cd0d26c2cddba5d0e933416e14dafee2afa91",
+      "size": 5665
+    },
+    {
+      "path": "tests/__pycache__/test_forge_native_gui_parity_lock.cpython-313.pyc",
+      "sha256": "c1d050c308dbc13ef492659b6539b1c5a895c5c75fee30d2fa3eebd557eabec7",
+      "size": 7047
+    },
+    {
+      "path": "tests/__pycache__/test_forge_native_self_update_foundation.cpython-313.pyc",
+      "sha256": "7ff75b571bd88b2bb4500db4c2df5a5cf90b6e69675f3c439bde22a08e271877",
+      "size": 10693
+    },
+    {
+      "path": "tests/test_forge_native_f851_f900_modular_tools.py",
+      "sha256": "9b802f6b0e19dcf0e4d4a6eb24088b955c11e5c1ef321aebd5c069e9e662b3df",
+      "size": 3067
+    },
+    {
+      "path": "tests/test_forge_native_f901_f910_legacy_gui_compat.py",
+      "sha256": "2de347c0453798053a610ef3a3af5379d9aedfe1b85ec378b2fe25348e2a14ac",
+      "size": 2596
+    },
+    {
+      "path": "tests/test_forge_native_f911_f950_tooling_workbench.py",
+      "sha256": "189f070df188f680585189e50a7607794eb2b4d265413ddc62dbbdcd1b36f205",
+      "size": 5208
+    },
+    {
+      "path": "tests/test_forge_native_f951_f975_hybrid_shell.py",
+      "sha256": "18e34c31a38373a1c62c4dc71f55a27f9413addf23847686787956b3328ffa35",
+      "size": 4068
+    },
+    {
+      "path": "tests/test_forge_native_f976_shell_anchor_compile_repair.py",
+      "sha256": "8a91aef5eb2ef02821826b2d837475b6b9f599b6b672fe2fd8455c11c2354d0c",
+      "size": 1609
+    },
+    {
+      "path": "tests/test_forge_native_f977_f1000_gui_takeover.py",
+      "sha256": "dafcdd012d084621e82ef312746a04f2ff8c55f76812bfdc5aee899bcb8c6aa8",
+      "size": 3130
+    },
+    {
+      "path": "tests/test_forge_native_gui_parity_lock.py",
+      "sha256": "dfb0817dc8fa062afaac052e3297d6deda5b2ebebbc63bc7b83ee4600b7b6db0",
+      "size": 4384
+    },
+    {
+      "path": "tests/test_forge_native_self_update_foundation.py",
+      "sha256": "b033c252aed1df5c651d51c36dc832865d2cc52e2f5b08e25c298d9b202a794a",
+      "size": 6555
+    },
+    {
+      "path": "tools/rust/ForgeNativeUpdateBridge.py",
+      "sha256": "7ea69332c1f609de16837e275f53b486a626dae5df92e6cabddf2ebd70cb4aaa",
+      "size": 16012
+    },
+    {
+      "path": "tools/rust/__pycache__/ForgeNativeUpdateBridge.cpython-313.pyc",
+      "sha256": "7ef41be1369db7bc8eac8ab9fc65fd7df7acfb65b9a68b70a101175715c089e8",
+      "size": 22960
+    }
+  ]
+}

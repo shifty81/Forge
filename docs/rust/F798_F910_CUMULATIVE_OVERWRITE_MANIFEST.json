@@ -1,0 +1,178 @@
+{
+  "schema": "forge.native.cumulative-overwrite.v1",
+  "baseline": "FORGEPY-F797",
+  "range": "F798-F910",
+  "nativeIdentityIntentionallyUnchanged": true,
+  "supersedes": [
+    "F798-F807",
+    "F798-F825",
+    "F798-F850",
+    "F798-F900"
+  ],
+  "focus": [
+    "native self-update foundation",
+    "panel-native interfaces",
+    "ForgePY Mirror preset",
+    "modular standalone-capable tool panels",
+    "shared docked/standalone renderer",
+    "F755-F787 legacy GUI certification compatibility without fixed-shell rollback"
+  ],
+  "windowsGateEvidence": {
+    "inputLog": "Pasted text(20260913-193501).txt",
+    "observed": "new F798-F900 tests pass; historical F755-F787 GUI source-shape probes failed",
+    "repair": "typed ProjectSection view, stable panel IDs, mirror reset/search/icon/health compatibility, ForgeDock focus/dedupe tokens",
+    "compileRepair": "E0308 fallback match arm normalized from egui::Response to ()"
+  },
+  "files": [
+    {
+      "path": "README_FIRST_F798_F910.txt",
+      "bytes": 855,
+      "sha256": "db3c3204af56001ef449427c3270bac80671569dd312e29402fc41cb8770ac4d"
+    },
+    {
+      "path": "docs/rust/F798_F807_NATIVE_SELF_UPDATE_FOUNDATION.md",
+      "bytes": 4530,
+      "sha256": "faf19b02af5d6be4e321097551e249c1181851504bc8745b443cf195da4d62d1"
+    },
+    {
+      "path": "docs/rust/F798_F900_CUMULATIVE_OVERWRITE_MANIFEST.json",
+      "bytes": 5124,
+      "sha256": "1f6b5005d8a49e29d50e2911af98b69cc4002f5b5a527481562e14168039a1fc"
+    },
+    {
+      "path": "docs/rust/F808_F825_GUI_PARITY_LOCK.md",
+      "bytes": 10219,
+      "sha256": "c395c4fc28491faadeec39e4fa71d0944d4bf754817eef45ecb47dcd97e5b059"
+    },
+    {
+      "path": "docs/rust/F826_F850_PANEL_INTERFACE_PARITY.md",
+      "bytes": 3645,
+      "sha256": "588c78e59ab7b998ad04a175712a06a0e3083e0fa575e894fbcf4c233905f20f"
+    },
+    {
+      "path": "docs/rust/F851_F900_MODULAR_TOOL_HOST_AND_POLISH.md",
+      "bytes": 3654,
+      "sha256": "a7ce1dfea93b0b73d2e3627d66f8f440032aed0c8959fb66707d53c22271b16c"
+    },
+    {
+      "path": "docs/rust/F901_F910_LEGACY_GUI_CERTIFICATION_COMPAT.md",
+      "bytes": 2450,
+      "sha256": "c62aa41e485be4abbe0b1ef87bb253056fc411949c44e48e1970d2341962612c"
+    },
+    {
+      "path": "native/forge-rs/Cargo.toml",
+      "bytes": 841,
+      "sha256": "697c47baa691ac54acb9e7f280bdb72c40b1fc3745552ba63947d1aaa4dd93e7"
+    },
+    {
+      "path": "native/forge-rs/parity/gui-parity.json",
+      "bytes": 6632,
+      "sha256": "6503f5b8943db97c8c30ee413321cc94db066c8541aa6734882ce925f709ad02"
+    },
+    {
+      "path": "native/forge-rs/parity/matrix.json",
+      "bytes": 6134,
+      "sha256": "d459ac938f52c3fc8e2f66660196c2646ff582cc7eee9f8bb3f6e7da8aeb2f94"
+    },
+    {
+      "path": "native/forge-rs/src/bin/forge_tool.rs",
+      "bytes": 967,
+      "sha256": "fc9643d2cf2c0e0dae61feed5abae6a2e03b12055dfe0c9863ec9d2ffca5ddd3"
+    },
+    {
+      "path": "native/forge-rs/src/gui/console.rs",
+      "bytes": 4504,
+      "sha256": "27235e0e2b041fb124eaa53559a8c97c845c4cf1ed14bd458725bdc66f53d17c"
+    },
+    {
+      "path": "native/forge-rs/src/gui/contract.rs",
+      "bytes": 2543,
+      "sha256": "c629cf5d5d1504fb02d9f9b5f104dcd4d6370f5426e8a74180170f4de6f4264a"
+    },
+    {
+      "path": "native/forge-rs/src/gui/docking.rs",
+      "bytes": 7290,
+      "sha256": "d2d6372f0641674870a8aca816e1efe3fa527ecddea20a3358dbaf068dfd5e82"
+    },
+    {
+      "path": "native/forge-rs/src/gui/interfaces.rs",
+      "bytes": 1736,
+      "sha256": "d8b6b4021869c0e6d822e893ac51bf0fcc8c572bf70e58d9c805746e17483aac"
+    },
+    {
+      "path": "native/forge-rs/src/gui/mod.rs",
+      "bytes": 30698,
+      "sha256": "6d1ff4a7133c86bf210eb1c5f97fa366546ceeefcb9ab96b51686c1966480a18"
+    },
+    {
+      "path": "native/forge-rs/src/gui/model.rs",
+      "bytes": 15716,
+      "sha256": "d72682259cf59eef816720d6696730a685149bc6109997dcb18b1a513d17ef91"
+    },
+    {
+      "path": "native/forge-rs/src/gui/registry.rs",
+      "bytes": 5862,
+      "sha256": "4adfbc1b9c20c7998733e7c6e8df1099f354818026448058c0ea7665557028dc"
+    },
+    {
+      "path": "native/forge-rs/src/gui/standalone.rs",
+      "bytes": 3460,
+      "sha256": "e700137aef2ab77a0c636b95a8535b2909bf9f805a270419593e83be727d4fed"
+    },
+    {
+      "path": "native/forge-rs/src/gui/theme.rs",
+      "bytes": 4933,
+      "sha256": "c6eec8fb04f9c806dc57a60c167107e7b013c605d0d160fcf9b161e3b24601ba"
+    },
+    {
+      "path": "native/forge-rs/src/gui/tool_host.rs",
+      "bytes": 1616,
+      "sha256": "23377179bcc19256e2f5c1aba5d4f8b8bb17c45ceace2ed6c50a0ac4a9c86ea6"
+    },
+    {
+      "path": "native/forge-rs/src/lib.rs",
+      "bytes": 739,
+      "sha256": "c83006d8f6d92ff77aa0c0f030f11c4944a0d631b51ee9cfc189d8658b83b9f7"
+    },
+    {
+      "path": "native/forge-rs/src/main.rs",
+      "bytes": 12711,
+      "sha256": "a1fff95b55e07e3d13618caa36ef051b5b709931f45d3102019dba04a628fe45"
+    },
+    {
+      "path": "native/forge-rs/src/parity.rs",
+      "bytes": 7844,
+      "sha256": "5a920be260aeadd39fe0a614b697286df807a40b5bdfa3551c3c5727d07b5a69"
+    },
+    {
+      "path": "native/forge-rs/src/update.rs",
+      "bytes": 18514,
+      "sha256": "ffb2ff0dfd0a105f51e37c394ea4ae4b90e0666db524963eb6cc479cafe21e35"
+    },
+    {
+      "path": "tests/test_forge_native_f851_f900_modular_tools.py",
+      "bytes": 3067,
+      "sha256": "9b802f6b0e19dcf0e4d4a6eb24088b955c11e5c1ef321aebd5c069e9e662b3df"
+    },
+    {
+      "path": "tests/test_forge_native_f901_f910_legacy_gui_compat.py",
+      "bytes": 2596,
+      "sha256": "2de347c0453798053a610ef3a3af5379d9aedfe1b85ec378b2fe25348e2a14ac"
+    },
+    {
+      "path": "tests/test_forge_native_gui_parity_lock.py",
+      "bytes": 4384,
+      "sha256": "dfb0817dc8fa062afaac052e3297d6deda5b2ebebbc63bc7b83ee4600b7b6db0"
+    },
+    {
+      "path": "tests/test_forge_native_self_update_foundation.py",
+      "bytes": 6555,
+      "sha256": "b033c252aed1df5c651d51c36dc832865d2cc52e2f5b08e25c298d9b202a794a"
+    },
+    {
+      "path": "tools/rust/ForgeNativeUpdateBridge.py",
+      "bytes": 16012,
+      "sha256": "7ea69332c1f609de16837e275f53b486a626dae5df92e6cabddf2ebd70cb4aaa"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 name = "forge-native"
 version = "0.7.0"
 edition = "2021"
-description = "Forge native Rust successor with dockable eframe/egui shell"
+description = "Forge native Rust successor with modular dockable/standalone tool panels"
 license = "Proprietary"
 publish = false
 resolver = "2"
@@ -14,6 +14,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "ForgeNative"
 path = "src/main.rs"
+
+[[bin]]
+name = "ForgeTool"
+path = "src/bin/forge_tool.rs"
 
 [dependencies]
 eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "glow", "persistence"] }

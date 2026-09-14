@@ -1,0 +1,357 @@
+{
+  "schema": "forge.native.gui-parity.v4",
+  "contract": "FORGE-NATIVE-MODULAR-TOOLS-3.0-F900",
+  "baseline": "FORGEPY-F797",
+  "architecture": "modular-tool-panel-interface-graph",
+  "defaultPreset": "ForgePY Mirror",
+  "takeoverReady": false,
+  "panels": {
+    "registryCount": 27,
+    "nestable": true,
+    "tabbable": true,
+    "splittable": true,
+    "reopenable": true,
+    "allForgePyWorkflowSurfacesArePanels": true,
+    "registry": [
+      "Forge Navigator",
+      "Project Navigator",
+      "Quick Actions",
+      "Overview",
+      "Source",
+      "Build & Test",
+      "Run",
+      "Updates",
+      "Recovery",
+      "Diagnostics",
+      "Artifacts",
+      "Project Tools",
+      "Project CLI",
+      "Intelligence",
+      "Native Migration",
+      "Asset Dependencies",
+      "Forge Console",
+      "Operations",
+      "Project Health",
+      "Patch Intake",
+      "Project Context",
+      "Recent Activity",
+      "Vault",
+      "Workspace",
+      "Settings",
+      "Interfaces",
+      "Status"
+    ],
+    "stableIds": true,
+    "descriptorRegistry": true,
+    "sharedDockedStandaloneRenderer": true,
+    "standaloneHost": true,
+    "standaloneCli": "ForgeNative --root <project> --tool <panel-id>",
+    "convenienceBinary": "ForgeTool"
+  },
+  "interfaces": {
+    "saveable": true,
+    "lockable": true,
+    "persisted": true,
+    "builtIns": [
+      "ForgePY Mirror",
+      "Development",
+      "Operations",
+      "Intelligence",
+      "Tooling / CLI",
+      "Minimal"
+    ],
+    "customNamedInterfaces": true,
+    "centerWorkspaceOnly": true
+  },
+  "forgePyMirror": {
+    "defaultLocked": true,
+    "semanticZones": [
+      "Forge Navigation",
+      "Project Navigation",
+      "Quick Actions",
+      "Workbench",
+      "Forge Console",
+      "Project Context / Intake",
+      "Status"
+    ],
+    "note": "The familiar ForgePY structure is now a coherent hybrid shell: permanent command/navigation/context/Console-Cortex/status rails around a modular central workspace.",
+    "permanentAnchors": [
+      "Top Command Rail",
+      "Left Navigation Rail",
+      "Right Context Rail",
+      "Bottom Forge Console / Cortex Rail",
+      "Status Rail"
+    ],
+    "centralWorkspaceDockable": true,
+    "consolePermanent": true,
+    "cortexEmbeddedInConsoleRail": true
+  },
+  "parityCoverage": [
+    {
+      "authority": "Primary navigation",
+      "panel": "Forge Navigator",
+      "ui": "PASS",
+      "backend": "PASS"
+    },
+    {
+      "authority": "Selected-project navigation",
+      "panel": "Project Navigator",
+      "ui": "PASS",
+      "backend": "PASS"
+    },
+    {
+      "authority": "Daily operations",
+      "panel": "Quick Actions",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Dashboard",
+      "panel": "Overview",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Source Control",
+      "panel": "Source",
+      "ui": "PASS",
+      "backend": "MIGRATING"
+    },
+    {
+      "authority": "Build/Test/Full Gate",
+      "panel": "Build & Test",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Run",
+      "panel": "Run",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Project updates",
+      "panel": "Updates",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Patch intake",
+      "panel": "Patch Intake",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Recovery",
+      "panel": "Recovery",
+      "ui": "PASS",
+      "backend": "MIGRATING"
+    },
+    {
+      "authority": "Diagnostics",
+      "panel": "Diagnostics",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Artifacts",
+      "panel": "Artifacts",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Project tooling/Internal PCC",
+      "panel": "Project Tools",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Project-owned CLI/PCC",
+      "panel": "Project CLI",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Project Intelligence",
+      "panel": "Intelligence",
+      "ui": "PASS",
+      "backend": "PARTIAL_NATIVE"
+    },
+    {
+      "authority": "Rust migration/parity",
+      "panel": "Native Migration",
+      "ui": "PASS",
+      "backend": "PARTIAL_NATIVE"
+    },
+    {
+      "authority": "Missing assets / hydration",
+      "panel": "Asset Dependencies",
+      "ui": "PASS",
+      "backend": "PYTHON_SHADOW"
+    },
+    {
+      "authority": "Persistent Forge execution output",
+      "panel": "Forge Console",
+      "ui": "PASS",
+      "backend": "PARTIAL_NATIVE"
+    },
+    {
+      "authority": "Foreground operation queue",
+      "panel": "Operations",
+      "ui": "PASS",
+      "backend": "PARTIAL_NATIVE"
+    },
+    {
+      "authority": "Project health",
+      "panel": "Project Health",
+      "ui": "PASS",
+      "backend": "PARTIAL_NATIVE"
+    },
+    {
+      "authority": "Project/root identity",
+      "panel": "Project Context",
+      "ui": "PASS",
+      "backend": "PASS"
+    },
+    {
+      "authority": "Recent operation state",
+      "panel": "Recent Activity",
+      "ui": "PASS",
+      "backend": "PARTIAL_NATIVE"
+    },
+    {
+      "authority": "Vault",
+      "panel": "Vault",
+      "ui": "PASS",
+      "backend": "MISSING_NATIVE_CATALOG"
+    },
+    {
+      "authority": "Workspace",
+      "panel": "Workspace",
+      "ui": "PASS",
+      "backend": "MIGRATING"
+    },
+    {
+      "authority": "Settings/integrations",
+      "panel": "Settings",
+      "ui": "PASS",
+      "backend": "MIGRATING"
+    },
+    {
+      "authority": "Panel/preset authoring",
+      "panel": "Interfaces",
+      "ui": "PASS",
+      "backend": "NATIVE"
+    },
+    {
+      "authority": "Compact status",
+      "panel": "Status",
+      "ui": "PASS",
+      "backend": "PARTIAL_NATIVE"
+    }
+  ],
+  "largestBlockers": [
+    "Windows Cargo compile/runtime certification for hybrid shell and modular tool host",
+    "native Cortex adapter/IPC connection for embedded console surface",
+    "native SQLite/WAL Vault catalog and Explorer-like browser",
+    "native governed patch intake/classification/application",
+    "native Internal PCC Provider execution authority",
+    "native ForgeGit and GitHub Remote source authority",
+    "native Workspace file browser/editor authoring services",
+    "native installed/portable lifecycle and self-update certification"
+  ],
+  "toolHost": {
+    "version": "FORGE-NATIVE-TOOL-HOST-1.0-F900",
+    "registryVersion": "FORGE-NATIVE-TOOL-REGISTRY-1.0-F900",
+    "hostModes": [
+      "DOCKED",
+      "STANDALONE"
+    ],
+    "projectBound": true,
+    "sameRenderer": true,
+    "sameServices": true,
+    "perPanelPreferredSize": true,
+    "perPanelMinimumSize": true
+  },
+  "legacyCertificationCompatibility": {
+    "f755_f764": "PASS",
+    "f778_f787": "PASS",
+    "strategy": "typed compatibility views and stable panel IDs; no fixed-shell rollback"
+  },
+  "compatibilityOverlay": "FORGE-NATIVE-MODULAR-TOOLS-3.1-F910",
+  "toolingWorkbench": {
+    "contract": "FORGE-NATIVE-TOOLING-WORKBENCH-1.0-F950",
+    "preset": "Tooling / CLI",
+    "registeredCommandsOnly": true,
+    "commandCount": 18,
+    "sharedForegroundQueue": true,
+    "arbitraryShell": false,
+    "panels": [
+      "Project Tools",
+      "Project CLI",
+      "Diagnostics",
+      "Operations (bottom rail)",
+      "Forge Console (bottom rail)",
+      "Project Context (right rail)",
+      "Quick Actions (top rail)"
+    ],
+    "features": [
+      "search",
+      "favorites",
+      "command metadata",
+      "availability",
+      "safe alias runner",
+      "queue cancellation",
+      "visual history",
+      "standalone host reuse"
+    ]
+  },
+  "shellArchitecture": "hybrid-permanent-rails-plus-central-dock",
+  "hybridShellOverlay": "FORGE-NATIVE-HYBRID-SHELL-1.0-F975",
+  "hybridShell": {
+    "contract": "FORGE-NATIVE-HYBRID-SHELL-1.0-F975",
+    "topCommandRail": {
+      "permanent": true,
+      "resizable": false
+    },
+    "leftNavigationRail": {
+      "permanent": true,
+      "resizable": true,
+      "hosts": [
+        "Forge Navigator",
+        "Project Navigator"
+      ]
+    },
+    "rightContextRail": {
+      "permanent": true,
+      "resizable": true,
+      "tabs": [
+        "Project Health",
+        "Patch Intake",
+        "Project Context",
+        "Recent Activity"
+      ]
+    },
+    "bottomConsoleCortexRail": {
+      "permanent": true,
+      "resizable": true,
+      "tabs": [
+        "Forge Console",
+        "Cortex",
+        "Operations"
+      ],
+      "consolePermanent": true,
+      "cortexBridge": "SHADOW"
+    },
+    "statusRail": {
+      "permanent": true,
+      "resizable": false
+    },
+    "centralWorkspace": {
+      "dockable": true,
+      "saveable": true,
+      "excludesShellAnchors": true
+    },
+    "standaloneHostRetained": true
+  }
+}
