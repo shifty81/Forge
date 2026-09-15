@@ -1,5 +1,5 @@
 {
-  "fileCount": 485,
+  "fileCount": 487,
   "files": [
     {
       "bytes": 728,
@@ -1672,6 +1672,11 @@
       "sha256": "c6f68bc857f2b10d32b864b221983f2dfba5c5dfc701e89965d62df00d575ae2"
     },
     {
+      "bytes": 491,
+      "path": "ForgeGUI_Core_FG-C70_EGUI036_TEXTEDIT_FRAME_FIX_20260914 (1).zip",
+      "sha256": "a6fbabd9a1a97a67fef349123661a67cf7c1f652b52946dd30500649d527a8f8"
+    },
+    {
       "bytes": 927,
       "path": "ForgePY-Debug.cmd",
       "sha256": "0db8a23cd03d0655b52dabc959f068a5cba15027aba454c14e4a841ca14bb623"
@@ -1685,6 +1690,11 @@
       "bytes": 1328,
       "path": "ForgePY.vbs",
       "sha256": "dac1671d3ce3cf47f21b238109180e7209e03ad71a086e3f42f05b4e2ae5d8fe"
+    },
+    {
+      "bytes": 44197,
+      "path": "ForgePY_F1001_F1125_FORGEGUI_INTEGRATION_ROOT_DROP (1).zip",
+      "sha256": "f2fd7a0d9af73bfa44b95c52d1e05075262ab25f9e04eef93576401116ff5cc0"
     },
     {
       "bytes": 12910,
@@ -2429,6 +2439,6 @@
   ],
   "forgePyBuild": "FORGEPY-F60R415",
   "forgePyVersion": "0.4.415-F60R415",
-  "generatedUtc": "2026-09-14T13:02:27.541185+00:00",
+  "generatedUtc": "2026-09-15T02:15:09.597749+00:00",
   "schema": "forgepy.package.manifest.v1"
 }
