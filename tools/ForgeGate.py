@@ -126,6 +126,14 @@ def manifest_check() -> bool:
     if not path.is_file(): emit("WARN", "Package manifest not generated yet; run tools/BuildForgePYManifest.py before release packaging"); return True
     try:
         data = json.loads(path.read_text(encoding="utf-8-sig")); declared = data.get("files") or []
+        # Verify completeness as well as each declared hash. A previous release
+        # omitted src/bin/forge_tool.rs yet the manifest checker still passed.
+        from BuildForgePYManifest import _files
+        actual = _files()
+        if declared != actual:
+            expected_paths = {row["path"] for row in actual}
+            listed_paths = {row["path"] for row in declared}
+            raise ValueError(f"manifest incomplete/stale: missing={sorted(expected_paths-listed_paths)[:8]} extra={sorted(listed_paths-expected_paths)[:8]}")
         for row in declared:
             rel = str(row["path"])
             if not is_governed(rel): raise ValueError(f"manifest contains non-governed path: {rel}")

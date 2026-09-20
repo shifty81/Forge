@@ -52,6 +52,7 @@ def _call(argv: Sequence[str], *, cwd: Path, timeout: int = 1800) -> int:
     try:
         env = os.environ.copy()
         env.setdefault("FORGEPY_PYTHON", sys.executable)
+        env.setdefault("FORGEPY_HOME", str(cwd.resolve()))
         return int(subprocess.run(list(argv), cwd=cwd, check=False, timeout=timeout, env=env).returncode)
     except subprocess.TimeoutExpired:
         print(f"[FAIL] Rust command timed out after {timeout}s.", flush=True)
@@ -108,6 +109,7 @@ def _launch_gui(root: Path) -> int:
     binary = _binary(root)
     env = os.environ.copy()
     env.setdefault("FORGEPY_PYTHON", sys.executable)
+    env.setdefault("FORGEPY_HOME", str(root.resolve()))
     flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
     try:
         subprocess.Popen([str(binary), "--root", str(root), "--gui"], cwd=str(root), env=env, creationflags=flags)

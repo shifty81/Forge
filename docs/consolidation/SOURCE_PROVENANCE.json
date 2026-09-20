@@ -1,0 +1,42 @@
+{
+  "schema": "forge.consolidation.provenance.v1",
+  "sourceArchive": "ForgePY (2).zip",
+  "sourceArchiveSha256": "0c3430ed6a73f39b9bd32dc2767b7eab3543712f80746445e63f7e9048aeb476",
+  "manifestVerified": 487,
+  "rootTransportsQuarantined": [
+    {
+      "path": "ForgeGUI_Core_FG-C70_EGUI036_TEXTEDIT_FRAME_FIX_20260914 (1).zip",
+      "sha256": "a6fbabd9a1a97a67fef349123661a67cf7c1f652b52946dd30500649d527a8f8",
+      "bytes": 491,
+      "disposition": "retained in original source archive; root-drop transport not applied automatically"
+    },
+    {
+      "path": "ForgePY_F1001_F1125_FORGEGUI_INTEGRATION_ROOT_DROP (1).zip",
+      "sha256": "f2fd7a0d9af73bfa44b95c52d1e05075262ab25f9e04eef93576401116ff5cc0",
+      "bytes": 44197,
+      "disposition": "retained in original source archive; root-drop transport not applied automatically"
+    },
+    {
+      "path": "ForgePY_F797_INTERNAL_UNIVERSAL_PCC_ROOT_DROP (1).zip",
+      "sha256": "17454e7f354fc031c8ae74acfc8878829a17fedd200a97a16073fbba5d253a63",
+      "bytes": 12910,
+      "disposition": "retained in original source archive; root-drop transport not applied automatically"
+    }
+  ],
+  "donorMode": "authoritative source preserved; historical root transports not applied",
+  "unlistedGovernedSourceRecovered": [
+    {
+      "path": "native/forge-rs/src/bin/forge_tool.rs",
+      "sha256": "fc9643d2cf2c0e0dae61feed5abae6a2e03b12055dfe0c9863ec9d2ffca5ddd3",
+      "bytes": 967
+    }
+  ],
+  "unlistedArchivesExcluded": [
+    {
+      "path": "native/forge-rs/README.zip",
+      "bytes": 93117,
+      "sha256": "db8f3fb713742cd32c69d1a8bbf5501feac6b47594266d0f9af714b980b3e260",
+      "reason": "nested source snapshot; root governed Rust files retained instead"
+    }
+  ]
+}

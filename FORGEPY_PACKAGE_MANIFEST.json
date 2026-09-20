@@ -1,5 +1,5 @@
 {
-  "fileCount": 487,
+  "fileCount": 491,
   "files": [
     {
       "bytes": 728,
@@ -422,9 +422,9 @@
       "sha256": "5d3631c6f5893e95629b516032c1e8f86b26c936a7d93785b6ce34d8d744481b"
     },
     {
-      "bytes": 7879,
+      "bytes": 10078,
       "path": "app/ForgeProjectSource.py",
-      "sha256": "d72b762e929b0ed9775c3e95e7cb729eea8d3e76052679a9c00f10b2b6c993a0"
+      "sha256": "46d5bb26174ee673bcf4125330638d44d254040a490316168dbd2b33e27214ca"
     },
     {
       "bytes": 4516,
@@ -757,9 +757,9 @@
       "sha256": "10204b60b7d314d4850413380a64c101fafca0c478c735d82aabed98d999a784"
     },
     {
-      "bytes": 8184,
+      "bytes": 10116,
       "path": "app/ForgeUnifiedCli.py",
-      "sha256": "3f84e733cf81a1879e369e12797d37851c5325670ec37e6339c2ef60daf6679f"
+      "sha256": "fbbd86c781bc111d574eea7477e7b362a0e2da54ee9abf21040d6b0c59d43b98"
     },
     {
       "bytes": 6148,
@@ -767,9 +767,9 @@
       "sha256": "fa2fd6d66c22763e689f68a4c75d4c4be509bfea2db3997288a55df9a7cf07ea"
     },
     {
-      "bytes": 6003,
+      "bytes": 6484,
       "path": "app/ForgeUnifiedServices.py",
-      "sha256": "41488a4625d8cb31775598356ae322ae2c274dfcdf229d50c2690f1938275951"
+      "sha256": "ed0ae48f785781cc2200aea996757f34e79b6b0da2076ab46e62548e45d633d2"
     },
     {
       "bytes": 42847,
@@ -902,9 +902,9 @@
       "sha256": "5e670644459d98250b9d57b754f630f8f05e8fab7341e4f62916d66c1c6a2cbd"
     },
     {
-      "bytes": 7809,
+      "bytes": 8402,
       "path": "app/VaultBuildIdentity.py",
-      "sha256": "bd5aa07f664dd9ddd338522eb816725884857c900432ead0dbeb3de202d072c7"
+      "sha256": "fa8dfba5ff18ec8de572dc27d7de17569cc745c1e984c7248e0caaf3ca6d3d31"
     },
     {
       "bytes": 2687,
@@ -1095,6 +1095,31 @@
       "bytes": 3107,
       "path": "docs/architecture/FORGEPY_ROOT_NORMALIZATION_AUDIT.md",
       "sha256": "7a1e1a4b2f5d5cffb9b4988d207e7c9427d6ea8aac5e2b5257adccb7ad36304a"
+    },
+    {
+      "bytes": 4749,
+      "path": "docs/consolidation/README_START_HERE.md",
+      "sha256": "97c375c2fd5a328441284ee1dae963eca5ab68692ff3e2c6f6ff9dafed628a95"
+    },
+    {
+      "bytes": 1735,
+      "path": "docs/consolidation/SOURCE_PROVENANCE.json",
+      "sha256": "f3328b5a2259719487afedb48b18f325e180eb9eb75803c274c2af87b5d58b00"
+    },
+    {
+      "bytes": 7953,
+      "path": "docs/consolidation/UNIVERSAL_FORGE_SPEC_V1_DRAFT.md",
+      "sha256": "9dc1eb8be41d4a617c1f015194e524e2edaf8015d27cfcdd892fee35cd566d02"
+    },
+    {
+      "bytes": 5259,
+      "path": "docs/consolidation/VALIDATION_AND_SOURCE_HANDOFF.md",
+      "sha256": "1b1082cca24ceb3aa637d872627098ef416bfbb6d2a683dc2a65348ea6674949"
+    },
+    {
+      "bytes": 1309,
+      "path": "docs/consolidation/VERIFICATION_REPORT.json",
+      "sha256": "b7e99a4fc2e8df5ee32c265fb393c43e9220a7a158e32da81ebf317d4af8d3f0"
     },
     {
       "bytes": 2045,
@@ -1672,11 +1697,6 @@
       "sha256": "c6f68bc857f2b10d32b864b221983f2dfba5c5dfc701e89965d62df00d575ae2"
     },
     {
-      "bytes": 491,
-      "path": "ForgeGUI_Core_FG-C70_EGUI036_TEXTEDIT_FRAME_FIX_20260914 (1).zip",
-      "sha256": "a6fbabd9a1a97a67fef349123661a67cf7c1f652b52946dd30500649d527a8f8"
-    },
-    {
       "bytes": 927,
       "path": "ForgePY-Debug.cmd",
       "sha256": "0db8a23cd03d0655b52dabc959f068a5cba15027aba454c14e4a841ca14bb623"
@@ -1690,16 +1710,6 @@
       "bytes": 1328,
       "path": "ForgePY.vbs",
       "sha256": "dac1671d3ce3cf47f21b238109180e7209e03ad71a086e3f42f05b4e2ae5d8fe"
-    },
-    {
-      "bytes": 44197,
-      "path": "ForgePY_F1001_F1125_FORGEGUI_INTEGRATION_ROOT_DROP (1).zip",
-      "sha256": "f2fd7a0d9af73bfa44b95c52d1e05075262ab25f9e04eef93576401116ff5cc0"
-    },
-    {
-      "bytes": 12910,
-      "path": "ForgePY_F797_INTERNAL_UNIVERSAL_PCC_ROOT_DROP (1).zip",
-      "sha256": "17454e7f354fc031c8ae74acfc8878829a17fedd200a97a16073fbba5d253a63"
     },
     {
       "bytes": 429,
@@ -1725,6 +1735,11 @@
       "bytes": 1740,
       "path": "native/forge-rs/README.md",
       "sha256": "39fb1bbf71368ba4a2361b27a3561146d7ad220cd51f380b0c318f114b82badb"
+    },
+    {
+      "bytes": 967,
+      "path": "native/forge-rs/src/bin/forge_tool.rs",
+      "sha256": "fc9643d2cf2c0e0dae61feed5abae6a2e03b12055dfe0c9863ec9d2ffca5ddd3"
     },
     {
       "bytes": 3125,
@@ -1767,9 +1782,9 @@
       "sha256": "ecf7878cbaa23a128757ab45bfba4274590745cdd432bf68fe2a39a3d812235f"
     },
     {
-      "bytes": 9077,
+      "bytes": 11704,
       "path": "native/forge-rs/src/gui/operations.rs",
-      "sha256": "944b16b7cb36f5d687f83c8654af0241189f0bf1d1b145ee576286338ffaa6b6"
+      "sha256": "cf45c246137c78da8a3aef86e268c093072c29ff474d2671e590b2f72ef5ee2b"
     },
     {
       "bytes": 5914,
@@ -1797,9 +1812,9 @@
       "sha256": "4f752b5107ad712ea3721b717d1fcb40d276d9b7f2d40093233ff887be8606d2"
     },
     {
-      "bytes": 33234,
+      "bytes": 34036,
       "path": "native/forge-rs/src/gui/widgets.rs",
-      "sha256": "b025fa8c2bdddd8e632673ad0c58f48112ce6f514de339afcf5bf736de3038bf"
+      "sha256": "bf121f45fc095761187675b4bf3c979413b3ef451064943ee7ccfaf9278a9047"
     },
     {
       "bytes": 1743,
@@ -1985,6 +2000,11 @@
       "bytes": 1275,
       "path": "SOURCE_ROLLUP_README.md",
       "sha256": "a53969c30f462fba710ac2d36f089f8fd438a3684636644e80e6f9c97b6f74db"
+    },
+    {
+      "bytes": 7154,
+      "path": "tests/test_forge_consolidated_spine.py",
+      "sha256": "ef4906c458822c7ddfc7641bc2ef9a428c46c80d6617a62ac1f14e0a9b87587b"
     },
     {
       "bytes": 14083,
@@ -2367,9 +2387,9 @@
       "sha256": "7297a35f0252d8b7813b864c27dc21fe1ae3c668860096ed585de112fd5ed21d"
     },
     {
-      "bytes": 2603,
+      "bytes": 2854,
       "path": "tools/BuildForgePYManifest.py",
-      "sha256": "67ece6b45eb4c60d18693f1a51a4983efb8b2f06c9280b97cbdca601dc453b6d"
+      "sha256": "35fc45f03876fed98f62cf7cdb389704a5d502756ad455a5e0b1c9a299f214c3"
     },
     {
       "bytes": 1078,
@@ -2382,9 +2402,9 @@
       "sha256": "bd40ed19feaecb70a72bf89e1dae445435b916da9f41ca378d2edcdbe6e0f256"
     },
     {
-      "bytes": 7645,
+      "bytes": 8189,
       "path": "tools/ForgeGate.py",
-      "sha256": "b577859ddee75f92bb942b5b99795751c7f1176437da25aec90b4481a84a610a"
+      "sha256": "d37b1d4c0ed89643bdb218d0f302d054eb8aa21b2de0bb8219ac545885fd9641"
     },
     {
       "bytes": 1763,
@@ -2402,9 +2422,9 @@
       "sha256": "7ea69332c1f609de16837e275f53b486a626dae5df92e6cabddf2ebd70cb4aaa"
     },
     {
-      "bytes": 6757,
+      "bytes": 6872,
       "path": "tools/rust/ForgeRustLane.py",
-      "sha256": "b9d8fd9c6a96a632ec66edc73ea88f44d334ce973f215fb852d60755c82509e0"
+      "sha256": "e83b85b0acfd1d270b709d20f6186dd39053e84fe20dcb4502e8f80657a1d1f9"
     },
     {
       "bytes": 212,
@@ -2439,6 +2459,6 @@
   ],
   "forgePyBuild": "FORGEPY-F60R415",
   "forgePyVersion": "0.4.415-F60R415",
-  "generatedUtc": "2026-09-15T02:15:09.597749+00:00",
+  "generatedUtc": "2026-09-19T20:19:57.619418+00:00",
   "schema": "forgepy.package.manifest.v1"
 }

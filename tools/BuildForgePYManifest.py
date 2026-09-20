@@ -30,7 +30,10 @@ def _files():
         kept = []
         for d in dirs:
             rel = (current_path / d).relative_to(ROOT).as_posix()
-            if d.casefold() in PRUNE_ANYWHERE or not is_governed(rel):
+            # Rust's src/bin holds declared source targets (ForgeTool), not build
+            # output. Never silently omit it from a supposedly complete rollup.
+            rust_bin_source = rel == "native/forge-rs/src/bin"
+            if (d.casefold() in PRUNE_ANYWHERE and not rust_bin_source) or not is_governed(rel):
                 continue
             kept.append(d)
         dirs[:] = kept

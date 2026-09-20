@@ -80,10 +80,22 @@ class ForgeOperationService:
         else:
             return None
 
+        if isinstance(value, dict) and value.get("error"):
+            error = str(value["error"])
+            event = transcript.emit("diagnostic.error", error)
+            if emit:
+                emit(event.to_dict())
+            result = transcript.finish(ok=False, returncode=8, result=value, error=error)
+            if emit:
+                emit(result["events"][-1])
+            return result
         event = transcript.emit("operation.result", canonical, result=value)
         if emit:
             emit(event.to_dict())
-        return transcript.finish(ok=True, returncode=0, result=value)
+        result = transcript.finish(ok=True, returncode=0, result=value)
+        if emit:
+            emit(result["events"][-1])
+        return result
 
     def run(
         self,

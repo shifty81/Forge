@@ -1,0 +1,32 @@
+{
+  "schema": "forge.consolidation.verification.v1",
+  "stage": "C01",
+  "asOf": "2026-09-19",
+  "source": "ForgePY (2).zip",
+  "authority": "ForgePY Python; Rust SHADOW",
+  "checks": {
+    "originalSourceZipCrc": "pass",
+    "inputDeclaredManifestFilesVerified": 487,
+    "pythonSourceGate": "pass",
+    "existingAndNewUnitTests": 531,
+    "packageManifestFilesBeforeReport": 490,
+    "pythonQuickGate": "pass",
+    "pythonFullGate": "pass_with_rust_shadow_skipped",
+    "rustCargoCheckTestBuild": "not_run_toolchain_absent",
+    "windowsNativeGUIAndInstaller": "not_run",
+    "realDDriveScan": "not_run",
+    "githubCloneRepoRename": "not_run",
+    "CortexEmberFullIntegration": "not_implemented"
+  },
+  "sourceChanges": [
+    "Canonical CLI uses existing VaultDriveIndex catalog",
+    "Native Vault UI delegates via same Python CLI",
+    "Native operation host resolves central Forge backend",
+    "Owner-qualified GitHub clone identity checks",
+    "Passive build identity AST-only",
+    "CLI and service failure status and event repair",
+    "Rust src/bin missing source restored and governed manifest coverage repaired"
+  ],
+  "certification": "Python staging Full Gate GREEN only; native and production status unverified",
+  "sourcePackageDeployment": "new staging checkout only; no blind overwrite"
+}

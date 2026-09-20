@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
     vault_sub = vault_p.add_subparsers(dest="action", required=True)
     vault_sub.add_parser("projects")
     vault_sub.add_parser("workflow")
+    scan_p = vault_sub.add_parser("scan", help="Use ForgePY's existing VaultDriveIndex catalog scanner")
+    scan_p.add_argument("--scan-root", help="Directory to inventory (defaults to configured scan root)")
+    scan_p.add_argument("--max-dirs", type=int, default=500000)
+    scan_p.add_argument("--max-depth", type=int, default=24)
+    vault_sub.add_parser("catalog-status", help="Read the existing Vault drive catalog")
 
     project_p = sub.add_parser("project")
     project_sub = project_p.add_subparsers(dest="action", required=True)
@@ -129,6 +134,26 @@ def main(argv: list[str] | None = None) -> int:
         _dump(report(root or Path.cwd()), json_mode=True)
         return 0
 
+    if ns.group == "vault" and ns.action == "scan":
+        from VaultDriveIndex import scan
+        from VaultPaths import configured_scan_roots
+        configured = configured_scan_roots()
+        if not ns.scan_root and not configured:
+            print("[FAIL] No configured scan root; pass --scan-root", file=sys.stderr)
+            return 4
+        selected = Path(ns.scan_root) if ns.scan_root else configured[0]
+        if not selected.is_dir():
+            print(f"[FAIL] Scan root does not exist: {selected}", file=sys.stderr)
+            return 4
+        def progress(event: dict[str, Any]) -> None:
+            print(f"[SCAN] {event.get('phase')} dirs={event.get('directories', 0)} files={event.get('files', 0)} entries={event.get('entries', 0)}", file=sys.stderr, flush=True)
+        result = scan(selected, max_dirs=max(1, ns.max_dirs), max_depth=max(0, ns.max_depth), progress=progress)
+        _dump({k: v for k, v in result.items() if k != "records"}, json_mode=ns.json or ns.stream_json)
+        return 11 if result.get("truncated") else 0
+    if ns.group == "vault" and ns.action == "catalog-status":
+        from VaultDriveIndex import latest_summary
+        _dump(latest_summary(), json_mode=ns.json or ns.stream_json)
+        return 0
     if ns.group == "vault" and ns.action == "projects":
         _dump(vault.projects(), json_mode=ns.json)
         return 0
@@ -156,8 +181,9 @@ def main(argv: list[str] | None = None) -> int:
         target = root or Path.cwd()
         from ForgeExecutableSystem import build_distribution, generate_inno_script, preflight
         if ns.action == "preflight":
-            _dump(preflight(target), json_mode=True)
-            return 0
+            result = preflight(target)
+            _dump(result, json_mode=True)
+            return 0 if result.get("ok") and not result.get("error") else 7
         if ns.action == "installer-script":
             _dump({"script": str(generate_inno_script(target))}, json_mode=True)
             return 0
@@ -176,8 +202,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if ns.group == "patch" and ns.action == "queue":
-        _dump(vault.queue_patch(Path(ns.file)), json_mode=True if ns.stream_json else ns.json)
-        return 0
+        result = vault.queue_patch(Path(ns.file))
+        _dump(result, json_mode=True if ns.stream_json else ns.json)
+        return 0 if result.get("ok") and not result.get("error") else 7
 
     if ns.group == "project":
         if root is None:
@@ -206,7 +233,8 @@ def main(argv: list[str] | None = None) -> int:
         result = operations.run(root, key, extra=extra, initiator="cli", emit=emit)
         if not ns.stream_json:
             _dump(result, json_mode=ns.json)
-        return int(result.get("returncode") or (0 if result.get("ok") else 1))
+        code = result.get("returncode")
+        return int(code) if isinstance(code, int) and code != 0 else (0 if result.get("ok") and not result.get("error") else 1)
     return 0
 
 

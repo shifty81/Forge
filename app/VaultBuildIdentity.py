@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import os
 import subprocess
 from datetime import datetime, timezone
@@ -86,16 +87,24 @@ def build_identity(root: Path) -> dict[str, Any]:
             continue
         ns: dict[str, Any] = {}
         try:
-            import sys
-            app_path = str((root / "app").resolve())
-            added = app_path not in sys.path
-            if added:
-                sys.path.insert(0, app_path)
-            try:
-                exec(compile(version_file.read_text(encoding="utf-8"), version_name, "exec"), {}, ns)
-            finally:
-                if added and sys.path and sys.path[0] == app_path:
-                    sys.path.pop(0)
+            # Read only literal assignments. An unknown project's version file is
+            # untrusted code and must never run during passive drive discovery.
+            if version_file.is_symlink() or version_file.stat().st_size > 256 * 1024:
+                continue
+            syntax = ast.parse(version_file.read_text(encoding="utf-8-sig"), filename=str(version_file))
+            for node in syntax.body:
+                if isinstance(node, ast.Assign):
+                    targets = node.targets
+                    value = node.value
+                elif isinstance(node, ast.AnnAssign):
+                    targets = [node.target]
+                    value = node.value
+                else:
+                    continue
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    for target in targets:
+                        if isinstance(target, ast.Name) and target.id in {"VERSION", "BUILD"}:
+                            ns[target.id] = value.value
             legacy_version = str(ns.get("VERSION") or "")
             legacy_build = str(ns.get("BUILD") or "")
             if legacy_version and not identity.get("certifiedProjectVersion"):

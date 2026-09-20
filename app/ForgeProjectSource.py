@@ -6,11 +6,12 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any, Sequence
 
 from VaultSettings import load_settings
 
-FORGE_PROJECT_SOURCE_VERSION = "FORGE-PROJECT-SOURCE-0.4.7"
+FORGE_PROJECT_SOURCE_VERSION = "FORGE-PROJECT-SOURCE-0.4.8-IDENTITY"
 
 
 def _startupinfo() -> subprocess.STARTUPINFO | None:
@@ -53,25 +54,57 @@ def git_binary() -> str:
 
 
 def normalize_github_repo(value: str) -> tuple[str, str]:
-    """Return (clone_url, web_url) for a GitHub repo URL or owner/repo slug."""
+    """Canonical GitHub clone/web URLs; reject ambiguous paths and URL credentials."""
     raw = value.strip()
-    if not raw:
-        raise ValueError("GitHub repository is required")
-    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", raw):
-        slug = raw[:-4] if raw.endswith(".git") else raw
-        return f"https://github.com/{slug}.git", f"https://github.com/{slug}"
     if raw.startswith("git@github.com:"):
         slug = raw.split(":", 1)[1]
-        if slug.endswith(".git"):
-            slug = slug[:-4]
-        return f"https://github.com/{slug}.git", f"https://github.com/{slug}"
-    match = re.match(r"https?://github\.com/([^/]+)/([^/#?]+)", raw, re.IGNORECASE)
-    if match:
-        owner, repo = match.group(1), match.group(2)
-        repo = repo[:-4] if repo.endswith(".git") else repo
-        slug = f"{owner}/{repo}"
-        return f"https://github.com/{slug}.git", f"https://github.com/{slug}"
-    raise ValueError("Use a GitHub repository URL or owner/repository slug")
+    elif "://" in raw:
+        parsed = urlsplit(raw)
+        if (parsed.scheme.lower() != "https" or parsed.hostname != "github.com"
+                or parsed.username is not None or parsed.password is not None
+                or parsed.port is not None or parsed.query or parsed.fragment):
+            raise ValueError("GitHub URL must be https://github.com/OWNER/REPO")
+        slug = parsed.path.strip("/")
+    else:
+        slug = raw
+    if slug.endswith(".git"):
+        slug = slug[:-4]
+    parts = slug.split("/")
+    if len(parts) != 2 or any(not re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts):
+        raise ValueError("Use a GitHub repository URL or owner/repository slug")
+    if any(part in {".", ".."} or part.endswith(".") or part.endswith(" ") for part in parts):
+        raise ValueError("Ambiguous GitHub repository path")
+    if any(part.upper().split(".")[0] in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1,10)), *(f"LPT{i}" for i in range(1,10))} for part in parts):
+        raise ValueError("Repository name is a reserved Windows directory")
+    owner, repo = parts
+    return f"https://github.com/{owner}/{repo}.git", f"https://github.com/{owner}/{repo}"
+
+
+def matching_local_remote(root: Path, requested_web_url: str) -> str:
+    """Return matching Git remote name; never trust only declared project metadata."""
+    if not (root / ".git").exists():
+        return ""
+    cp = _run([git_binary(), "-C", str(root), "remote", "-v"], cwd=root, timeout=20)
+    if cp.returncode != 0:
+        return ""
+    for line in cp.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            _, actual_web = normalize_github_repo(parts[1])
+        except ValueError:
+            continue
+        if actual_web.casefold() == requested_web_url.casefold():
+            return parts[0]
+    return ""
+
+
+def planned_clone_destination(repo: str, projects_root: Path) -> Path:
+    """Owner-qualified destination prevents identically named repos from colliding."""
+    _, web = normalize_github_repo(repo)
+    owner, name = web.removeprefix("https://github.com/").split("/")
+    return projects_root.expanduser().resolve() / owner / name
 
 
 def github_web_url_from_remote(value: str) -> str:
@@ -163,43 +196,42 @@ def project_github(root: Path) -> dict[str, str]:
 
 
 def clone_repository(repo: str, *, destination: Path | None = None, projects_root: Path | None = None) -> dict[str, Any]:
+    """Explicit clone; preserve existing matching checkouts and refuse identity collisions."""
     clone_url, web_url = normalize_github_repo(repo)
     cfg = load_settings()
-    root = projects_root or Path(str(cfg.get("projectsRoot") or Path.home() / "Projects"))
-    root = root.expanduser().resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    target = destination.expanduser().resolve() if destination is not None else (root / repo_leaf(repo)).resolve()
-    try:
-        target.relative_to(root)
-    except ValueError:
-        # Explicit destinations may live elsewhere, but never clone onto an existing nonempty directory.
-        pass
+    root = (projects_root or Path(str(cfg.get("projectsRoot") or Path.home() / "Projects"))).expanduser().resolve()
+    # Legacy flat clones can be reused only if the real Git remote agrees.
+    legacy = root / repo_leaf(repo)
+    if destination is None and legacy.exists() and (legacy / ".git").exists():
+        match = matching_local_remote(legacy, web_url)
+        if match:
+            return {"root": str(legacy), "cloneUrl": clone_url, "webUrl": web_url,
+                    "remote": match, "alreadyPresent": True,
+                    "output": "Existing legacy-layout Git checkout verified and reused."}
+    raw_target = destination.expanduser() if destination is not None else planned_clone_destination(repo, root)
+    if raw_target.is_symlink():
+        raise RuntimeError(f"Clone destination is a symlink: {raw_target}")
+    target = raw_target.resolve()
     if target.exists():
         if (target / ".git").exists():
-            existing = project_github(target)
-            return {
-                "root": str(target),
-                "cloneUrl": existing.get("cloneUrl") or clone_url,
-                "webUrl": existing.get("webUrl") or web_url,
-                "remote": existing.get("remote") or "origin",
-                "alreadyPresent": True,
-                "output": "Existing Git working tree reused.",
-            }
-        if any(target.iterdir()):
-            raise RuntimeError(f"Destination already exists and is not an empty Git repository: {target}")
-    else:
-        target.parent.mkdir(parents=True, exist_ok=True)
+            match = matching_local_remote(target, web_url)
+            if not match:
+                raise RuntimeError(f"Existing Git checkout has no matching GitHub remote: {target}; review instead of reusing")
+            return {"root": str(target), "cloneUrl": clone_url, "webUrl": web_url,
+                    "remote": match, "alreadyPresent": True,
+                    "output": "Existing Git checkout identity verified and reused."}
+        if not target.is_dir() or any(target.iterdir()):
+            raise RuntimeError(f"Destination already exists and is not an empty directory: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
     cp = _run([git_binary(), "clone", "--origin", "origin", clone_url, str(target)], cwd=target.parent, timeout=1800)
     if cp.returncode != 0:
         raise RuntimeError(cp.stdout.strip() or f"git clone exited {cp.returncode}")
-    return {
-        "root": str(target),
-        "cloneUrl": clone_url,
-        "webUrl": web_url,
-        "remote": "origin",
-        "alreadyPresent": False,
-        "output": cp.stdout.strip(),
-    }
+    # Verify newly created checkout identity, not merely the git process exit status.
+    match = matching_local_remote(target, web_url)
+    if not match:
+        raise RuntimeError(f"Clone reported success but GitHub remote identity cannot be verified: {target}")
+    return {"root": str(target), "cloneUrl": clone_url, "webUrl": web_url,
+            "remote": match, "alreadyPresent": False, "output": cp.stdout.strip()}
 
 
 def pull_project(root: Path) -> subprocess.CompletedProcess[str]:

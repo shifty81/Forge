@@ -548,12 +548,24 @@ fn project_cli(ui: &mut Ui, shared: &mut SharedUiState) {
 }
 
 fn vault(ui: &mut Ui, shared: &mut SharedUiState) {
-    heading(ui, "Vault", "Native Vault catalog/storage is not authoritative yet; this surface is the migration landing zone.");
+    heading(ui, "Vault", "ForgePY owns the existing D: drive catalog. This native panel delegates to that same backend; no second database or scanner.");
     let snapshot = settings::snapshot(&shared.root);
     section(ui, "Storage Authority", |ui| {
         ui.label(format!("Vault root: {}", snapshot.vault_root.display()));
         ui.label(format!("Project registry: {}", snapshot.registry_path.display()));
         ui.label(format!("Resolution source: {}", snapshot.source));
+        ui.label(RichText::new("Authority: ForgePY (native scanner takeover NOT certified)").color(theme::YELLOW));
+    });
+    section(ui, "Existing ForgePY Catalog", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Scan configured root / D: through ForgePY").clicked() {
+                shared.submit("Vault Drive Catalog", "vault.scan");
+            }
+            if ui.button("Read Catalog Summary").clicked() {
+                shared.submit("Vault Catalog Summary", "vault.catalog-status");
+            }
+        });
+        ui.label(RichText::new("Scan catalogs filesystem metadata into ForgePY's existing Vault DB; no clones, moves, patches, or project registration. Progress and results appear in Forge Console.").size(11.0).color(theme::MUTED));
     });
 }
 

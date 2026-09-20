@@ -126,15 +126,50 @@ fn python_program() -> String {
         .unwrap_or_else(|| if cfg!(windows) { "python.exe".into() } else { "python3".into() })
 }
 
-fn operation_argv(row: &QueuedOperation) -> (String, Vec<String>) {
+fn forge_backend_home() -> Result<PathBuf, String> {
+    // Resolve the installed Forge backend independently of the selected project.
+    // Never execute arbitrary <project>/app/PCCOperationHost.py discovered by a marker.
+    for key in ["FORGEPY_HOME", "FORGE_HOME"] {
+        if let Some(value) = env::var_os(key) {
+            let root = PathBuf::from(value);
+            if root.join("app/ForgeUnifiedCli.py").is_file() { return Ok(root); }
+            return Err(format!("{key} does not contain app/ForgeUnifiedCli.py: {}", root.display()));
+        }
+    }
+    if let Ok(binary) = env::current_exe() {
+        for ancestor in binary.ancestors().take(8) {
+            if ancestor.join("app/ForgeUnifiedCli.py").is_file() {
+                return Ok(ancestor.to_path_buf());
+            }
+        }
+    }
+    Err("ForgePY backend not found. Set FORGEPY_HOME to the verified Forge install; no project tool executed.".into())
+}
+
+fn operation_argv_for_backend(row: &QueuedOperation, backend: &Path) -> (String, Vec<String>) {
     let python = python_program();
-    let root = row.root.display().to_string();
-    let args = vec![
-        row.root.join("app/PCCOperationHost.py").display().to_string(),
-        "--root".into(), root.clone(), "--operation".into(), row.command.clone(), "--".into(),
-        python.clone(), row.root.join("app/PCCAutoAdapter.py").display().to_string(), row.command.clone(), "--root".into(), root,
-    ];
+    let mut args = vec![backend.join("app/ForgeUnifiedCli.py").display().to_string()];
+    // Workspace Vault commands always use the canonical ForgePY catalog, never
+    // execute tools/scripts from the currently selected game project.
+    match row.command.as_str() {
+        "vault.scan" => {
+            args.extend(["--json".into(), "vault".into(), "scan".into()]);
+            if cfg!(windows) && Path::new("D:/").is_dir() {
+                args.extend(["--scan-root".into(), "D:/".into()]);
+            }
+        }
+        "vault.catalog-status" => args.extend(["--json".into(), "vault".into(), "catalog-status".into()]),
+        _ => args.extend([
+            "--root".into(), row.root.display().to_string(),
+            "command".into(), "run".into(), row.command.clone(),
+        ]),
+    }
     (python, args)
+}
+
+fn operation_argv(row: &QueuedOperation) -> Result<(String, Vec<String>), String> {
+    let backend = forge_backend_home()?;
+    Ok(operation_argv_for_backend(row, &backend))
 }
 
 fn reader_thread<R: std::io::Read + Send + 'static>(reader: R, id: u64, stderr: bool, sender: mpsc::Sender<OperationEvent>) -> thread::JoinHandle<()> {
@@ -157,7 +192,14 @@ fn terminate_tree(child: &mut Child) { let _ = child.kill(); }
 
 fn run_worker(row: QueuedOperation, cancel: Arc<AtomicBool>, sender: mpsc::Sender<OperationEvent>) {
     let _ = sender.send(OperationEvent::Started { id: row.id, label: row.label.clone() });
-    let (program, args) = operation_argv(&row);
+    let (program, args) = match operation_argv(&row) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = sender.send(OperationEvent::Output { id: row.id, line: format!("[FAIL] {error}"), stderr: true });
+            let _ = sender.send(OperationEvent::Finished { id: row.id, label: row.label, exit_code: 127, stopped: false });
+            return;
+        }
+    };
     let mut child = match Command::new(&program)
         .args(&args).current_dir(&row.root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
     {
@@ -207,11 +249,23 @@ mod tests {
     }
 
     #[test]
-    fn operation_argv_uses_project_operation_host() {
-        let row = QueuedOperation { id: 1, project_id: "forgepy".into(), label: "Build".into(), command: "build".into(), root: PathBuf::from("C:/ForgePY") };
-        let (_program, args) = operation_argv(&row);
-        assert!(args.iter().any(|value| value.ends_with("PCCOperationHost.py")));
-        assert!(args.iter().any(|value| value.ends_with("PCCAutoAdapter.py")));
+    fn operation_argv_uses_central_forge_backend_with_selected_project_root() {
+        let row = QueuedOperation { id: 1, project_id: "example".into(), label: "Build".into(), command: "build".into(), root: PathBuf::from("C:/Projects/Game") };
+        let (_program, args) = operation_argv_for_backend(&row, Path::new("C:/Forge"));
+        assert!(args[0].ends_with("ForgeUnifiedCli.py"));
+        assert!(args[0].starts_with("C:/Forge"));
+        assert_eq!(args[1], "--root");
+        assert_eq!(args[2], "C:/Projects/Game");
+        assert_eq!(&args[3..], &["command", "run", "build"]);
+    }
+
+    #[test]
+    fn vault_scan_uses_canonical_forge_cli_not_selected_project_backend() {
+        let row = QueuedOperation { id: 2, project_id: "game".into(), label: "Drive Scan".into(), command: "vault.scan".into(), root: PathBuf::from("C:/Projects/Game") };
+        let (_program, args) = operation_argv_for_backend(&row, Path::new("C:/Forge"));
+        assert!(args[0].ends_with("ForgeUnifiedCli.py"));
+        assert_eq!(&args[1..4], &["--json", "vault", "scan"]);
+        assert!(!args.iter().any(|value| value.contains("PCCOperationHost.py")));
     }
 
     #[test]
